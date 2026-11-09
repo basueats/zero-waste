@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix ZeroWaste Kitchen - Alison Course Studio \u0026 LMS Exporter",
+  "description": "Convert The Zero Waste Kitchen 252 newsletter series into an accredited Alison-compliant diploma course. Interactive Alison player, learning outcomes, module assessments, and multi-platform LMS/SCORM/resale export package.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
