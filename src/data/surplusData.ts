@@ -1,3 +1,17 @@
+import heroSustainableKitchenImg from '../assets/images/hero_sustainable_kitchen_1793976158274.jpg';
+import rootToStemPrepImg from '../assets/images/root_to_stem_prep_1793976158854.jpg';
+import artisanBreadRicottaImg from '../assets/images/artisan_bread_ricotta_1793976160643.jpg';
+import fermentationCrockImg from '../assets/images/fermentation_crock_station_1793976159601.jpg';
+import boneBrothPotImg from '../assets/images/bone_broth_pot_1793976160130.jpg';
+
+export {
+  heroSustainableKitchenImg,
+  rootToStemPrepImg,
+  artisanBreadRicottaImg,
+  fermentationCrockImg,
+  boneBrothPotImg
+};
+
 export interface SurplusCourse {
   id: string;
   title: string;
@@ -115,7 +129,7 @@ export const surplusCourses: SurplusCourse[] = [
     duration: '18 hours · 12 Modules',
     lessonCount: 12,
     progressPercent: 14,
-    coverImage: '/src/assets/images/hero_sustainable_kitchen_1793976158274.jpg',
+    coverImage: heroSustainableKitchenImg,
     isMasterCourse: true,
     instructor: 'Dr. Chef Supritam Basu',
     instructorCredentials: 'PhD in Culinary Science & Food Sustainability, Author, Chef',
@@ -239,7 +253,7 @@ export const surplusCourses: SurplusCourse[] = [
     duration: '2.5 hours · 7 Modules',
     lessonCount: 7,
     progressPercent: 25,
-    coverImage: '/src/assets/images/root_to_stem_prep_1793976158854.jpg',
+    coverImage: rootToStemPrepImg,
     instructor: 'Dr. Chef Supritam Basu',
     instructorCredentials: 'PhD in Culinary Science & Food Sustainability, Author, Chef',
     newsletterRange: 'Issues #15 – #45',
@@ -317,7 +331,7 @@ export const surplusCourses: SurplusCourse[] = [
     duration: '2.0 hours · 5 Modules',
     lessonCount: 5,
     progressPercent: 0,
-    coverImage: '/src/assets/images/artisan_bread_ricotta_1793976160643.jpg',
+    coverImage: artisanBreadRicottaImg,
     instructor: 'Dr. Chef Supritam Basu',
     instructorCredentials: 'PhD in Culinary Science & Food Sustainability, Author, Chef',
     newsletterRange: 'Issues #60 – #85',
@@ -377,7 +391,7 @@ export const surplusCourses: SurplusCourse[] = [
     duration: '2.5 hours · 7 Modules',
     lessonCount: 7,
     progressPercent: 0,
-    coverImage: '/src/assets/images/fermentation_crock_station_1793976159601.jpg',
+    coverImage: fermentationCrockImg,
     instructor: 'Dr. Chef Supritam Basu',
     instructorCredentials: 'PhD in Culinary Science & Food Sustainability, Author, Chef',
     newsletterRange: 'Issues #1 – #30',
@@ -455,7 +469,7 @@ export const surplusCourses: SurplusCourse[] = [
     duration: '2.5 hours · 6 Modules',
     lessonCount: 6,
     progressPercent: 0,
-    coverImage: '/src/assets/images/bone_broth_pot_1793976160130.jpg',
+    coverImage: boneBrothPotImg,
     instructor: 'Dr. Chef Supritam Basu',
     instructorCredentials: 'PhD in Culinary Science & Food Sustainability, Author, Chef',
     newsletterRange: 'Issues #90 – #140',
@@ -524,7 +538,7 @@ export const surplusCourses: SurplusCourse[] = [
     duration: '2.5 hours · 5 Modules',
     lessonCount: 5,
     progressPercent: 0,
-    coverImage: '/src/assets/images/hero_sustainable_kitchen_1793976158274.jpg',
+    coverImage: heroSustainableKitchenImg,
     instructor: 'Dr. Chef Supritam Basu',
     instructorCredentials: 'PhD in Culinary Science & Food Sustainability, Author, Chef',
     newsletterRange: 'Issues #200 – #235',

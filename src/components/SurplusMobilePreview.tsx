@@ -254,7 +254,12 @@ export const SurplusMobilePreview: React.FC<SurplusMobilePreviewProps> = ({
                   }}
                   className="relative aspect-video bg-slate-900 rounded-xl overflow-hidden flex items-center justify-center shadow-xs cursor-pointer group"
                 >
-                  <img src={activeCourse.coverImage} alt={activeCourse.title} className="w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform" />
+                  <img
+                    src={activeCourse.coverImage}
+                    alt={activeCourse.title}
+                    className="w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform"
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  />
                   <div className="w-10 h-10 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
                     <Play className="w-4 h-4 ml-0.5 fill-slate-900" />
                   </div>
@@ -402,7 +407,12 @@ export const SurplusMobilePreview: React.FC<SurplusMobilePreviewProps> = ({
                     className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs cursor-pointer active:scale-98 transition-transform"
                   >
                     <div className="relative aspect-video bg-slate-900">
-                      <img src={c.coverImage} alt={c.title} className="w-full h-full object-cover" />
+                      <img
+                        src={c.coverImage}
+                        alt={c.title}
+                        className="w-full h-full object-cover"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
                       <span className="absolute top-2 left-2 bg-blue-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
                         {c.badge}

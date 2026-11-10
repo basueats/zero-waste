@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { 
   surplusCourses, 
-  SurplusCourse 
+  SurplusCourse,
+  heroSustainableKitchenImg
 } from '../data/surplusData';
 import { 
   Play, 
@@ -132,7 +133,16 @@ export const SurplusCoursesView: React.FC<SurplusCoursesViewProps> = ({
               <img
                 src={featuredCourse.coverImage}
                 alt={featuredCourse.title}
-                className="w-full h-full object-cover opacity-90"
+                className="w-full h-full object-cover opacity-90 transition-opacity duration-300"
+                decoding="async"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (target.src !== heroSustainableKitchenImg) {
+                    target.src = heroSustainableKitchenImg;
+                  } else {
+                    target.style.display = 'none';
+                  }
+                }}
               />
               <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/30 to-transparent" />
               
@@ -282,7 +292,16 @@ export const SurplusCoursesView: React.FC<SurplusCoursesViewProps> = ({
                     <img
                       src={course.coverImage}
                       alt={course.title}
-                      className="w-full h-full object-cover opacity-90"
+                      className="w-full h-full object-cover opacity-90 transition-opacity duration-300"
+                      decoding="async"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (target.src !== heroSustainableKitchenImg) {
+                          target.src = heroSustainableKitchenImg;
+                        } else {
+                          target.style.display = 'none';
+                        }
+                      }}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-transparent" />
                     
