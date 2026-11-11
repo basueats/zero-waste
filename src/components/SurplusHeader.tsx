@@ -237,7 +237,7 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
                 <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50 text-xs">
                   <div className="px-3 py-2 border-b border-slate-100">
                     <p className="font-bold text-slate-900">Dr. Chef Supritam Basu</p>
-                    <p className="text-slate-500 text-[11px]">PhD · Author, Chef</p>
+                    <p className="text-slate-500 text-[11px]">PhD, CEC · Executive Chef</p>
                     <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
                       Supritamone Academy Fellow
                     </span>
@@ -258,7 +258,7 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
                     }}
                     className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-700"
                   >
-                    CPD Diploma Verification
+                    Professional Diploma Verification
                   </button>
                   <button
                     onClick={() => {

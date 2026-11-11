@@ -349,11 +349,11 @@ export const SurplusSidebar: React.FC<SurplusSidebarProps> = ({
         </div>
       </div>
 
-      {/* Bottom Sticky Card: CPD Status & Alison Exporter */}
+      {/* Bottom Sticky Card: Diploma Status & Alison Exporter */}
       <div className="p-4 border-t border-slate-200 bg-slate-50 space-y-2">
         <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between text-xs mb-1.5">
-            <span className="font-bold text-slate-800">CPD Diploma Progress</span>
+            <span className="font-bold text-slate-800">Executive Diploma Progress</span>
             <span className="font-semibold text-blue-600">
               {Math.min(100, Math.max(14, completedLessonsCount * 8))}%
             </span>
@@ -366,10 +366,10 @@ export const SurplusSidebar: React.FC<SurplusSidebarProps> = ({
           </div>
           <button
             onClick={onOpenCertify}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md transition-colors"
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-md transition-colors shadow-2xs"
           >
-            <Award className="w-3.5 h-3.5" />
-            <span>Generate CPD Certificate</span>
+            <Award className="w-3.5 h-3.5 text-amber-600" />
+            <span>Official Diploma Certificate</span>
           </button>
         </div>
 

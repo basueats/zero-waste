@@ -5,6 +5,8 @@ import {
   Check, 
   ChevronLeft, 
   ChevronRight, 
+  ChevronDown,
+  ChevronUp,
   Download, 
   Play, 
   Pause, 
@@ -18,6 +20,7 @@ import {
   Volume2,
   VolumeX,
   RotateCcw,
+  RotateCw,
   FastForward,
   BookOpen,
   Newspaper,
@@ -28,845 +31,483 @@ import {
   Clock,
   ShieldCheck,
   Send,
-  Mic
+  Mic,
+  MoreVertical,
+  Maximize2,
+  Minimize2,
+  Subtitles,
+  Settings,
+  X,
+  Lock,
+  Search,
+  Star,
+  FolderOpen,
+  Calendar,
+  UserCheck,
+  Edit3,
+  Trash2,
+  CheckSquare,
+  Square
 } from 'lucide-react';
-import { initialCourseData } from '../data/zeroWasteCourseData';
-import { all252Newsletters } from '../data/newslettersCatalog';
-import { surplusCourses } from '../data/surplusData';
-import { CourseModule, Lesson, VideoQuizCheckpoint } from '../types/course';
-import { audioNarrator, AVAILABLE_VOICES, TTSVoiceName, tokenizeTextIntoWords } from '../utils/audioNarrator';
+import { 
+  UDEMY_ZERO_WASTE_SECTIONS, 
+  UdemyCourseSection, 
+  CourseLectureItem, 
+  SectionQuiz,
+  PresentationSlide 
+} from '../data/udemyCourseStructure';
+import { audioNarrator } from '../utils/audioNarrator';
+import { SupritamoneLogo } from './SupritamoneLogo';
 
 interface SurplusCoursePlayerProps {
   courseId: string;
-  initialModuleNumber?: number;
+  initialSectionIndex?: number;
   onBackToCourses: () => void;
   onOpenCertify: () => void;
 }
 
-// Module-specific technical Standard Operating Procedures (SOPs)
-const MODULE_SOPS: Record<number, { title: string; filename: string; size: string; type: string }[]> = {
-  1: [
-    { title: '7-Day Tare-Weighted Station Waste Audit Log & Methane Factor Calculator', filename: 'SOP-M01-7Day-Tare-Weight-Waste-Audit.pdf', size: '0.62 MB', type: 'Station Audit Protocol' },
-    { title: 'EPA/FAO Food Recovery Hierarchy Brigade Execution Guide', filename: 'SOP-M01-Food-Recovery-Hierarchy-SOP.pdf', size: '0.48 MB', type: 'Author, Chef SOP' }
-  ],
-  2: [
-    { title: 'Cauliflower Leaf & Stem Spiced Chutney Technical Formulation', filename: 'Cauliflower leaf chutney.pdf', size: '0.58 MB', type: 'Recipe Formulation Card' },
-    { title: 'Watermelon White Mesocarp Rind Chutney & Glazes', filename: 'Watermelon rind chutney.pdf', size: '0.77 MB', type: 'Recipe Formulation Card' },
-    { title: 'Brassica PME Enzyme Activation & Low-Temp Blanching Protocol (55°C–65°C)', filename: 'SOP-M02-Brassica-PME-Enzymatic-Blanching.pdf', size: '0.65 MB', type: 'Culinary Science SOP' }
-  ],
-  3: [
-    { title: 'Triple-Helix Collagen Hydrolysis & Sub-Boiling Scrap Stock Protocol (88°C)', filename: 'SOP-M03-Collagen-Extraction-Bone-Broth.pdf', size: '0.71 MB', type: 'Culinary Science SOP' },
-    { title: 'Seafood Frame Delicate Fumet 25-Minute Extraction & Albumen Clarification', filename: 'SOP-M03-Scrap-Stock-Clarification-Consomme.pdf', size: '0.54 MB', type: 'Standard Operating Procedure' }
-  ],
-  4: [
-    { title: 'Line-Cook Knife Yield & Station Scrap Variance Audit Rubric', filename: 'SOP-M04-Commercial-Yield-Variance-Audit.pdf', size: '0.59 MB', type: 'Kitchen Management Audit' },
-    { title: 'Edible Portion (EP) vs As Purchased (AP) Food Cost Matrix', filename: 'SOP-M04-EP-AP-True-Cost-Formula.pdf', size: '0.45 MB', type: 'Yield Spreadsheet Template' }
-  ],
-  5: [
-    { title: 'Wild Lacto-Fermentation 2.0% Salinity Standard Protocol & pH Tracking Log', filename: 'SOP-M05-Wild-Lacto-Fermentation-2Percent-Salinity.pdf', size: '0.68 MB', type: 'Food Safety & CCP Protocol' },
-    { title: 'Aspergillus oryzae (Koji) Inoculation for Kitchen Scrap Garums', filename: 'SOP-M05-Scrap-Kimchi-Koji-Inoculation.pdf', size: '0.82 MB', type: 'Advanced Microbial Upcycling' }
-  ],
-  6: [
-    { title: 'Thermal Dehydration, Lyophilization & Scrap Umami Powder Formulation', filename: 'SOP-M06-Thermal-Dehydration-Umami-Powders.pdf', size: '0.63 MB', type: 'Recipe Formulation Card' },
-    { title: 'Citrus Flavedo Hygroscopic Oleo Saccharum Extraction (1:1 Ratio)', filename: 'SOP-M06-Citrus-Flavedo-Oleo-Saccharum.pdf', size: '0.55 MB', type: 'Bar & Pastry Protocol' }
-  ],
-  7: [
-    { title: 'Dr. Chef Basu’s Emulsified Day-Old Croissant Sauce (Viennoiserie Revival)', filename: 'Croissant Sauce Formulation SOP.pdf', size: '0.51 MB', type: 'Signature Formulation SOP' },
-    { title: 'Stale Artisan Sourdough Kvas Beverage & Crispy Brown-Butter Panagrattato', filename: 'SOP-M07-Stale-Bakery-Panagrattato-Kvas.pdf', size: '0.58 MB', type: 'Bakery Upcycling Protocol' }
-  ],
-  8: [
-    { title: 'Two-Stage Scrap Vinegar: Saccharomyces to Acetobacter Aceti Oxidation', filename: 'SOP-M08-Scrap-Vinegar-Acetobacter-Oxidation.pdf', size: '0.64 MB', type: 'Culinary Science SOP' },
-    { title: 'Freeze-Thaw Gelatin Syneresis for Crystal-Clear Vegetable Consommés', filename: 'SOP-M08-Freeze-Thaw-Consomme-Clarification.pdf', size: '0.52 MB', type: 'Consommé Master Protocol' }
-  ],
-  9: [
-    { title: 'Dairy Whey Reclamation: Sweet & Acid Whey Viscous Gastronomic Glazes', filename: 'SOP-M09-Acid-Whey-Reclamation-Glazes.pdf', size: '0.57 MB', type: 'Dairy Upcycling SOP' },
-    { title: 'Isoelectric Casein Acid Clotting & Scrap Ricotta Formulation (pH 4.6)', filename: 'SOP-M09-Scrap-Ricotta-Acid-Clotting.pdf', size: '0.49 MB', type: 'Cheese & Larder SOP' }
-  ],
-  10: [
-    { title: 'The Circular Input/Output Recipe Matrix: Pairing Primary Cuts with Byproduct Sinks', filename: 'SOP-M10-Input-Output-Recipe-Matrix.pdf', size: '0.74 MB', type: 'Author, Chef Menu System' },
-    { title: 'Dynamic Kitchen Blackboard Specials for Variable Prep Yields', filename: 'SOP-M10-Dynamic-Blackboard-Yield-Sinks.pdf', size: '0.50 MB', type: 'Operational Guidelines' }
-  ],
-  11: [
-    { title: 'Buffet Thermodynamics: Shallow 1/2 and 1/3 GN Pan Geometry & Visual Abundance', filename: 'SOP-M11-Buffet-Shallow-GN-Insert-Thermodynamics.pdf', size: '0.67 MB', type: 'Hotel & Banquet System' },
-    { title: 'The Final 45-Minute Cook-to-Order Staggered Kitchen Transition Plan', filename: 'SOP-M11-45Min-Cook-To-Order-Transition.pdf', size: '0.53 MB', type: 'Shift Leader SOP' }
-  ],
-  12: [
-    { title: 'HACCP Critical Control Points (CCPs) for Commercial Upcycled Kitchen Byproducts', filename: 'SOP-M12-HACCP-Upcycled-Food-Safety-Verification.pdf', size: '0.85 MB', type: 'Accreditation Master SOP' },
-    { title: 'Author, Chef Master Kitchen Food Waste Audit & Certification Inspection Rubric', filename: 'SOP-M12-Author-Chef-Kitchen-Audit-Master-Sheet.pdf', size: '0.79 MB', type: 'CPD Diploma Final Capstone' }
-  ]
-};
-
-// Default transcripts for modules - measured, calm 10-second intervals for relaxed, unhurried pacing
-const DEFAULT_MODULE_NARRATIONS: Record<number, { speaker: string; text: string; seconds: number; timestamp: string }[]> = {
-  1: [
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Welcome to Module 1 of the Zero Waste Kitchen Diploma. Today we analyze the hidden economic and environmental cost of food waste.', seconds: 0, timestamp: '00:00' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Globally, over 33% of harvested food is discarded. Landfilled organics decompose anaerobically, emitting methane 28x more damaging than CO2.', seconds: 10, timestamp: '00:10' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'To eradicate this, we establish a 7-day tare-weighted audit separating Preparation Waste from Spoilage and Plate Waste.', seconds: 20, timestamp: '00:20' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'By weighing each bucket at shift end, we convert grams into exact currency leakage, giving our kitchen brigade clear cost recovery targets.', seconds: 30, timestamp: '00:30' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'In our next demonstration, we will compute your kitchen divergence rate and build your station audit tracking sheet.', seconds: 40, timestamp: '00:40' }
-  ],
-  2: [
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Notice this thick stalk of broccoli. Most line cooks trim off the florets and discard the stalk, throwing away 40% of the purchased weight.', seconds: 0, timestamp: '00:00' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Strip the fibrous outer bark with a sharp Y-peeler to expose the translucent jade core, packed with natural sugars and crisp texture.', seconds: 10, timestamp: '00:10' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'We mandoline the core into paper-thin ribbons and activate Pectin Methyl Esterase at 55°C–65°C to preserve crispness permanently.', seconds: 20, timestamp: '00:20' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Simultaneously, we transform bitter cauliflower leaves and watermelon white rind into rich spiced chutneys and glazed side dishes.', seconds: 30, timestamp: '00:30' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Remember: root-to-stem cooking is not about sacrifice; it is about harvesting the highest flavor concentrations of the plant.', seconds: 40, timestamp: '00:40' }
-  ],
-  3: [
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Animal carcasses and trimming collagen are pure culinary liquid gold when extracted correctly.', seconds: 0, timestamp: '00:00' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Roast frames at 165°C for Maillard aroma development, then submerge in cold water and maintain at sub-boiling 88°C.', seconds: 10, timestamp: '00:10' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Never allow violent boiling! Boiling emulsifies fats into cloudiness. Gentle sub-boiling yields crystal-clear gelatin matrices.', seconds: 20, timestamp: '00:20' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'For fish bones, 25 minutes is the strict critical limit. Beyond 30 minutes, calcium and minerals leech bitter, astringent off-notes.', seconds: 30, timestamp: '00:30' }
-  ],
-  4: [
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Food waste is engineered in the chef’s office long before any knife strikes a cutting board.', seconds: 0, timestamp: '00:00' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'We conduct knife yield testing across line cooks to measure blade angle efficiency and eliminate station trim variance.', seconds: 10, timestamp: '00:10' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'True food cost equals purchase price divided by edible portion yield. Every 5% gain in trim recovery adds thousands to gross operating margin.', seconds: 20, timestamp: '00:20' }
-  ],
-  5: [
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Wild lacto-fermentation is culinary science’s most resilient preservation technology for vegetable scraps.', seconds: 0, timestamp: '00:00' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Always apply the 2.0% Golden Rule: multiply total weight of scraps plus water by 0.02 to calculate the required sea salt mass.', seconds: 10, timestamp: '00:10' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'This creates an osmotic environment where beneficial Lactobacillus flourish while pathogenic Clostridium botulinum is permanently inhibited.', seconds: 20, timestamp: '00:20' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Within 72 hours at ambient room temperature, the pH plunges below 4.2, yielding deeply savory, probiotic restaurant condiments.', seconds: 30, timestamp: '00:30' }
-  ],
-  6: [
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Thermal dehydration reduces scrap water activity below 0.60, stopping bacterial growth completely.', seconds: 0, timestamp: '00:00' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'We slow-dehydrate onion skins, leek greens, and mushroom stems, then grind with sea salt into vibrant savory finishing dusts.', seconds: 10, timestamp: '00:10' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'For citrus peels, cold sugar maceration creates Oleo Saccharum: sucrose draws out aromatic essential oils without heat degradation.', seconds: 20, timestamp: '00:20' }
-  ],
-  7: [
-    { speaker: 'Dr. Chef Supritam Basu', text: 'A stale croissant or dry baguette is not kitchen refuse; it is a gastronomic canvas.', seconds: 0, timestamp: '00:00' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'When starches retrograde during staling, they absorb hot liquids readily. We steep deeply roasted croissants in warm milk.', seconds: 10, timestamp: '00:10' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'High-shear blending disperses the 82% butterfat through the starch matrix into our signature velvety Croissant Sauce.', seconds: 20, timestamp: '00:20' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'For savory sourdough crusts, we pulse and fry in brown butter with garlic for Italian panagrattato, the poor man’s parmesan.', seconds: 30, timestamp: '00:30' }
-  ],
-  8: [
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Fruit trimmings, peels, and apple cores contain natural sugars and wild yeasts ready for acetic acid fermentation.', seconds: 0, timestamp: '00:00' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'First, wild yeasts convert sugars to ethanol. Next, Acetobacter aceti bacteria oxidize the alcohol into pure culinary scrap vinegar.', seconds: 10, timestamp: '00:10' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'We also use freeze-thaw gelatin syneresis: freezing stock and thawing it through cheesecloth leaves all impurities trapped in the ice mesh.', seconds: 20, timestamp: '00:20' }
-  ],
-  9: [
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Dairy waste often occurs as liquid sweet and acid whey during cheese making or strained yogurt prep.', seconds: 0, timestamp: '00:00' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Never dump whey down the drain! Its high protein and lactic acid make it an exquisite glaze reduction for braised proteins and glazed carrots.', seconds: 10, timestamp: '00:10' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'We can also gently heat milk that is on the edge of souring to 85°C and induce casein coagulation with citrus acid for fresh kitchen ricotta.', seconds: 20, timestamp: '00:20' }
-  ],
-  10: [
-    { speaker: 'Dr. Chef Supritam Basu', text: 'In circular menu engineering, every dish on the menu has a designated byproduct sink before service starts.', seconds: 0, timestamp: '00:00' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'When the grill station trims prime beef tenderloin, the scraps automatically feed the larder tartare and the bones feed the saucier demi-glace.', seconds: 10, timestamp: '00:10' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Our dynamic blackboard daily specials absorb variable vegetable prep yields without forcing menu alterations.', seconds: 20, timestamp: '00:20' }
-  ],
-  11: [
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Hotel and banquet buffet lines are notorious for food loss. We solve this through shallow pan thermodynamics.', seconds: 0, timestamp: '00:00' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Replace deep 1/1 GN pans with shallow 1/2 and 1/3 GN inserts: the food looks overflowing and abundant, but holding volume is reduced by 60%.', seconds: 10, timestamp: '00:10' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'For example, if the end of buffet service is in 45 minutes, we switch immediately to live cook-to-order stations, eliminating overproduction entirely.', seconds: 20, timestamp: '00:20' }
-  ],
-  12: [
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Congratulations on reaching the final author, chef capstone of our Zero Waste Kitchen Diploma.', seconds: 0, timestamp: '00:00' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Every zero-waste initiative must pass rigorous HACCP food safety standards and microbiological validation.', seconds: 10, timestamp: '00:10' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'True kitchen leadership means creating a culture where line cooks take immense culinary pride in extracting maximum value from every ingredient.', seconds: 20, timestamp: '00:20' },
-    { speaker: 'Dr. Chef Supritam Basu', text: 'Complete the comprehensive final assessment below to earn your accredited CPD Level 7 Diploma certificate.', seconds: 30, timestamp: '00:30' }
-  ]
-};
+interface UserNote {
+  id: string;
+  timestampSeconds: number;
+  timestampFormatted: string;
+  lectureId: string;
+  lectureTitle: string;
+  content: string;
+  createdAt: string;
+}
 
 export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   courseId,
-  initialModuleNumber = 1,
+  initialSectionIndex = 0,
   onBackToCourses,
   onOpenCertify,
 }) => {
-  const [activeCourseId, setActiveCourseId] = useState<string>(courseId);
+  // Navigation & Selection state
+  const [activeSectionIdx, setActiveSectionIdx] = useState<number>(initialSectionIndex);
+  const [activeLectureIdx, setActiveLectureIdx] = useState<number>(0);
+  const [isQuizMode, setIsQuizMode] = useState<boolean>(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  const [activeTab, setActiveTab] = useState<'overview' | 'notes' | 'qa' | 'announcements' | 'reviews'>('overview');
+  const [sidebarTab, setSidebarTab] = useState<'content' | 'ai'>('content');
 
-  useEffect(() => {
-    setActiveCourseId(courseId);
-    setSelectedModuleIndex(0);
-    setSelectedLessonIndex(0);
-  }, [courseId]);
+  // Completed items tracking (persists in state)
+  const [completedLectures, setCompletedLectures] = useState<Set<string>>(() => new Set(['sec1-lec1']));
+  const [passedQuizzes, setPassedQuizzes] = useState<Set<string>>(() => new Set());
+  const [quizScores, setQuizScores] = useState<Record<string, number>>({});
 
-  const activeCourse = surplusCourses.find((c) => c.id === activeCourseId) || surplusCourses[0];
-  const isMasterCourse = activeCourse.isMasterCourse || activeCourse.id === 'food-waste-prevention-chefs';
-
-  const allModules: CourseModule[] = isMasterCourse
-    ? initialCourseData.modules
-    : (activeCourse.lessons || []).map((les, idx) => ({
-        id: `mod-${les.id}`,
-        moduleNumber: idx + 1,
-        title: les.title,
-        subtitle: les.description || 'Specialized commercial culinary protocol',
-        estimatedHours: 0.5,
-        newsletterRange: les.newsletterRef || activeCourse.newsletterRange || 'Zero Waste Series',
-        learningOutcomes: [
-          `Master ${les.title.toLowerCase()} in high-volume kitchen environments.`,
-          `Formulate standard mass balance: ${les.culinaryFormula || 'Standard yield ratio'}.`,
-          `Enforce HACCP food safety standards and station tare-weight logging.`
-        ],
-        lessons: [
-          {
-            id: les.id,
-            title: les.title,
-            readTimeMinutes: parseInt(les.duration) || 18,
-            heroImage: activeCourse.coverImage,
-            sections: [
-              {
-                heading: '1. Author, Chef Culinary Protocol & Operational Rationale',
-                content: les.description || 'Eliminating avoidable kitchen waste through standardized knife mechanics, temperature monitoring, and tare-weighted scrap diversion.'
-              },
-              {
-                heading: '2. Biochemical Mechanism & Cellular Science',
-                content: les.scientificConcept || 'Enzymatic deactivation and cell wall stabilization preventing microbial degradation and nutrient loss.'
-              },
-              {
-                heading: '3. Standard Operating Procedure & Recipe Formulation',
-                content: 'Wash, inspect, and weigh all station trimmings into designated tare-weighted Cambros. Execute standardized extraction or formulation protocol.',
-                formulaBox: {
-                  title: 'Culinary Formulation / Mass-Balance Ratio',
-                  ratioOrStep: les.culinaryFormula || 'Mass Balance: W_raw = W_yield + W_trim',
-                  safetyNote: 'Maintain strict hot-holding (>= 63°C) or rapid cold-chilling (<= 3°C) compliance.'
-                }
-              }
-            ],
-            scrapWasteMetrics: {
-              wasteDivertedPercentage: '85%',
-              householdAnnualSavingsUSD: '$480',
-              co2ReductionKg: '28 kg'
-            },
-            keyTakeaways: [
-              'Separating trimmings at source recovers up to 85% of usable edible matter.',
-              'Adhering to exact mass-balance ratios guarantees dish consistency.',
-              'Standardize station prep sheets to track weekly variance.'
-            ],
-            video: {
-              title: `Masterclass: ${les.title}`,
-              durationSeconds: 42,
-              posterImage: activeCourse.coverImage,
-              instructor: activeCourse.instructor,
-              instructorRole: activeCourse.instructorCredentials,
-              videoType: 'masterclass',
-              checkpoints: [
-                {
-                  id: `ck-${les.id}-1`,
-                  timestampSeconds: 20,
-                  question: `In ${les.title}, what is the critical standard for maximum recovery?`,
-                  options: [
-                    'Strict tare-weight station separation and exact temperature control',
-                    'Discarding all vegetable peels and animal trimmings uninspected',
-                    'Boiling vigorously for 6 hours until water evaporates',
-                    'Mixing all prep streams into a single unweighed bin'
-                  ],
-                  correctIndex: 0,
-                  explanation: 'Accredited zero-waste culinary science relies on strict station separation and temperature control.',
-                  points: 25
-                }
-              ],
-              transcript: [
-                {
-                  timestamp: '00:00',
-                  seconds: 0,
-                  speaker: activeCourse.instructor,
-                  text: `Welcome to this module on ${les.title}. Today we examine precision yield optimization and station mechanics.`
-                },
-                {
-                  timestamp: '00:10',
-                  seconds: 10,
-                  speaker: activeCourse.instructor,
-                  text: les.description || 'In commercial kitchens, over 30% of prep trim is unnecessarily discarded.'
-                },
-                {
-                  timestamp: '00:20',
-                  seconds: 20,
-                  speaker: activeCourse.instructor,
-                  text: `Our culinary formula here is: ${les.culinaryFormula || 'Mass Balance: W_raw = W_yield + W_trim'}.`
-                },
-                {
-                  timestamp: '00:30',
-                  seconds: 30,
-                  speaker: activeCourse.instructor,
-                  text: 'By standardizing knife technique and tare-weighted separation, your kitchen captures immediate food cost gains.'
-                }
-              ]
-            }
-          }
-        ],
-        assessment: {
-          id: `assess-${les.id}`,
-          title: `Assessment: ${les.title}`,
-          passingGrade: 80,
-          questions: [
-            {
-              id: `q-${les.id}-1`,
-              question: `What is the key scientific mechanism utilized in ${les.title}?`,
-              options: [
-                les.scientificConcept || 'Enzymatic deactivation and precise osmotic or salt control',
-                'Accelerated thermal scorching at 250°C',
-                'Uncontrolled wild bacterial spoilage without salt',
-                'Single-use discard without weighing'
-              ],
-              correctIndex: 0,
-              explanation: `${les.scientificConcept || 'Accredited culinary science relies on exact biochemical control.'}`
-            },
-            {
-              id: `q-${les.id}-2`,
-              question: `What is the designated culinary formula or benchmark ratio for this module?`,
-              options: [
-                les.culinaryFormula || 'Mass balance: 85% diversion target',
-                'Zero salt and zero temperature monitoring',
-                '100% waste to municipal landfill',
-                'Arbitrary seasoning without tare scales'
-              ],
-              correctIndex: 0,
-              explanation: `The standardized ratio is: ${les.culinaryFormula || 'Standard mass balance'}.`
-            }
-          ]
-        }
-      }));
-
-  const [selectedModuleIndex, setSelectedModuleIndex] = useState<number>(Math.max(0, initialModuleNumber - 1));
-  const [activeTab, setActiveTab] = useState<'curriculum' | 'overview' | 'quiz' | 'newsletters' | 'feed'>('curriculum');
-  const [completedModules, setCompletedModules] = useState<Set<number>>(new Set([1]));
-
-  // Active module & lesson
-  const currentModule: CourseModule = allModules[selectedModuleIndex] || allModules[0];
-  const [selectedLessonIndex, setSelectedLessonIndex] = useState<number>(0);
-  const currentLesson: Lesson = currentModule.lessons[selectedLessonIndex] || currentModule.lessons[0];
-
-
-  // Discussion state
-  const [discussionPosts, setDiscussionPosts] = useState([
-    {
-      id: 'p1',
-      author: 'Author, Chef Dave K. (London)',
-      role: 'Head Chef · The Greenhouse',
-      date: 'Yesterday',
-      text: 'We implemented the Cauliflower Leaf Chutney alongside our dry-aged beef last weekend and completely eliminated 15kg of cauliflower green trim from our vegetable station. Guests loved the story and we saved £65 on sides!'
-    },
-    {
-      id: 'p2',
-      author: 'Chef Elena Vance',
-      role: 'Culinary Sustainability Director',
-      date: '2 days ago',
-      text: 'Remember when making the 2% brine for vegetable stalks: always tare your scale with the jar and water included. 2.0% across total biomass is the non-negotiable safety threshold for wild Lactobacillus cultivation.'
-    }
-  ]);
-  const [newPostText, setNewPostText] = useState<string>('');
-
-  // Audio / Speech narration items
-  const transcriptItems = useMemo(() => {
-    return currentLesson.video?.transcript?.length 
-      ? currentLesson.video.transcript 
-      : DEFAULT_MODULE_NARRATIONS[currentModule.moduleNumber] || DEFAULT_MODULE_NARRATIONS[1];
-  }, [currentLesson, currentModule.moduleNumber]);
-
-  // Video Player synchronized simulation states
+  // Video playback state
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [activeSentenceIndex, setActiveSentenceIndex] = useState<number>(0);
-  const [activeWordIndex, setActiveWordIndex] = useState<number>(-1);
-  const [sentenceProgress, setSentenceProgress] = useState<number>(0);
-  const [sentenceElapsed, setSentenceElapsed] = useState<number>(0);
-  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
-  const [showSubtitles, setShowSubtitles] = useState<boolean>(true);
-  const [showTranscriptDrawer, setShowTranscriptDrawer] = useState<boolean>(false);
+  const [currentSlideIdx, setCurrentSlideIdx] = useState<number>(0);
+  const [activeSentenceIdx, setActiveSentenceIdx] = useState<number>(0);
+  const [currentTimeSeconds, setCurrentTimeSeconds] = useState<number>(13);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const [volume, setVolume] = useState<number>(0.85);
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [isAudioTesting, setIsAudioTesting] = useState<boolean>(false);
-  const [isAudioLoading, setIsAudioLoading] = useState<boolean>(false);
-  const [selectedVoice, setSelectedVoice] = useState<TTSVoiceName>(audioNarrator.getVoice());
+  const [showCaptions, setShowCaptions] = useState<boolean>(true);
+  const [showSpeedMenu, setShowSpeedMenu] = useState<boolean>(false);
+  const [openResourceMenuId, setOpenResourceMenuId] = useState<string | null>(null);
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    'section-1': true,
+    'section-2': false,
+    'section-3': false,
+    'section-4': false,
+    'section-5': false,
+    'section-6': false,
+  });
 
-  const [activeCheckpoint, setActiveCheckpoint] = useState<VideoQuizCheckpoint | null>(null);
-  const [checkpointAnswered, setCheckpointAnswered] = useState<boolean>(false);
-  const [checkpointSelectedOpt, setCheckpointSelectedOpt] = useState<number | null>(null);
-  const [checkpointPointsEarned, setCheckpointPointsEarned] = useState<number>(0);
+  // Quiz execution state
+  const [currentQuizQuestionIdx, setCurrentQuizQuestionIdx] = useState<number>(0);
+  const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
+  const [quizSubmitted, setQuizSubmitted] = useState<boolean>(false);
+  const [quizResultScore, setQuizResultScore] = useState<number | null>(null);
 
-  // Module Assessment Quiz state
-  const [quizQuestionIndex, setQuizQuestionIndex] = useState<number>(0);
-  const [quizAnswers, setQuizAnswers] = useState<Record<number, { selected: number; isSubmitted: boolean; isCorrect: boolean }>>({});
-  const [quizScore, setQuizScore] = useState<number>(0);
-
-  // Checkpoints for active lesson
-  const checkpoints: VideoQuizCheckpoint[] = currentLesson.video?.checkpoints || [
+  // Notes state (matches Image 6)
+  const [notesList, setNotesList] = useState<UserNote[]>([
     {
-      id: `ck-${currentModule.moduleNumber}-1`,
-      timestampSeconds: 20,
-      question: `Critical Kitchen Science: In Module ${currentModule.moduleNumber}, what is the foundational mechanism for byproduct stabilization?`,
-      options: [
-        'Enzymatic deactivation and precise osmotic or salt control',
-        'Boiling uncovered on maximum heat until dry',
-        'Storing in open uncovered bins under ambient humidity',
-        'Discarding after single use'
-      ],
-      correctIndex: 0,
-      explanation: 'Accredited zero-waste culinary science relies on precise enzymatic denaturation and water activity/osmotic balancing.',
-      points: 25
+      id: 'note-1',
+      timestampSeconds: 22,
+      timestampFormatted: '0:22',
+      lectureId: 'sec1-lec1',
+      lectureTitle: '1. Workplace Waste Auditing: Tare-Weight Checklist (10 Tools)',
+      content: 'Remember the Five P\'s: Purpose, Product, Participants, Problems, and Process. Critical for annual brigade audit.',
+      createdAt: 'Today, 2:15 PM'
     }
-  ];
+  ]);
+  const [newNoteContent, setNewNoteContent] = useState<string>('');
+  const [isAddingNote, setIsAddingNote] = useState<boolean>(false);
 
-  // Dynamic sentence durations & start times calculated from actual word count & speech speed
-  const sentenceDurations = useMemo(() => {
-    return transcriptItems.map((item) => audioNarrator.estimateDuration(item.text, playbackSpeed));
-  }, [transcriptItems, playbackSpeed]);
+  // Share & Notification toast
+  const [showShareToast, setShowShareToast] = useState<boolean>(false);
 
-  const sentenceStartTimes = useMemo(() => {
-    const starts: number[] = [0];
-    for (let i = 0; i < sentenceDurations.length - 1; i++) {
-      starts.push(starts[i] + sentenceDurations[i]);
-    }
-    return starts;
-  }, [sentenceDurations]);
+  // Current active data pointers
+  const currentSection = UDEMY_ZERO_WASTE_SECTIONS[activeSectionIdx] || UDEMY_ZERO_WASTE_SECTIONS[0];
+  const currentLecture = currentSection.lectures[activeLectureIdx] || currentSection.lectures[0];
+  const currentQuiz = currentSection.quiz;
+  const currentSlide = currentLecture.slides[currentSlideIdx] || currentLecture.slides[0];
+  const currentTranscript = currentLecture.transcript || [];
+  const currentCaption = currentTranscript[activeSentenceIdx] || currentTranscript[0];
 
-  const totalDurationSeconds = useMemo(() => {
-    return sentenceDurations.reduce((acc, d) => acc + d, 0);
-  }, [sentenceDurations]);
+  const totalDurationSeconds = currentLecture.durationSeconds || 150;
 
-  const currentTime = Math.min(
-    totalDurationSeconds,
-    (sentenceStartTimes[activeSentenceIndex] || 0) + sentenceElapsed
-  );
+  // Toggle Section in accordion
+  const toggleSectionAccordion = (secId: string) => {
+    setOpenSections(prev => ({
+      ...prev,
+      [secId]: !prev[secId]
+    }));
+  };
 
-  const currentSubtitle = transcriptItems[activeSentenceIndex] || transcriptItems[0];
+  // Format seconds MM:SS
+  const formatSeconds = (secs: number) => {
+    const mins = Math.floor(secs / 60);
+    const remainder = Math.floor(secs % 60);
+    return `${mins}:${remainder < 10 ? '0' : ''}${remainder}`;
+  };
 
-  // Ref tracking current sentence to ensure zero desync
-  const activeSentenceRef = useRef<number>(activeSentenceIndex);
-  activeSentenceRef.current = activeSentenceIndex;
-  const isPlayingRef = useRef<boolean>(isPlaying);
-  isPlayingRef.current = isPlaying;
-
-  // Prefetch human voice audio for the active module's lecture lines in the background
-  useEffect(() => {
-    if (transcriptItems.length > 0) {
-      audioNarrator.prefetch(transcriptItems.map((n) => n.text));
-    }
-  }, [transcriptItems, selectedVoice]);
-
-  // Synchronized playback of a specific sentence
-  const playSentence = useCallback((index: number) => {
-    if (index >= transcriptItems.length) {
-      setIsPlaying(false);
-      audioNarrator.stop();
-      audioNarrator.playSound('correct');
-      setCompletedModules((old) => new Set([...old, currentModule.moduleNumber]));
-      return;
-    }
-
-    setActiveSentenceIndex(index);
-    setActiveWordIndex(-1);
-    setSentenceProgress(0);
-    setSentenceElapsed(0);
-
-    const sentence = transcriptItems[index];
-    if (!sentence) return;
-
-    if (isMuted) {
-      // If muted, muted timer handles progress
-      return;
-    }
-
-    setIsAudioLoading(true);
-    audioNarrator.speak({
-      text: sentence.text,
-      rate: playbackSpeed,
-      volume: volume,
-      onStart: () => {
-        setIsAudioLoading(false);
-      },
-      onProgress: (p) => {
-        setActiveWordIndex(p.wordIndex);
-        setSentenceProgress(p.progressFraction);
-        setSentenceElapsed(p.currentTime);
-      },
-      onEnd: () => {
-        setIsAudioLoading(false);
-        setActiveWordIndex(-1);
-        setSentenceProgress(1);
-
-        // Check if an unanswered checkpoint should trigger between sentences
-        const currentElapsedTotal = (sentenceStartTimes[index] || 0) + (sentenceDurations[index] || 0);
-        const trigger = checkpoints.find((ck) => Math.abs(ck.timestampSeconds - currentElapsedTotal) < 7 && !checkpointAnswered);
-
-        if (trigger && trigger.id !== activeCheckpoint?.id) {
-          setIsPlaying(false);
-          audioNarrator.playSound('checkpoint');
-          setActiveCheckpoint(trigger);
-          setCheckpointSelectedOpt(null);
-          return;
-        }
-
-        // Seamlessly advance to next sentence without skipping any text or voice
-        if (isPlayingRef.current) {
-          playSentence(index + 1);
-        }
-      },
-      onError: () => {
-        setIsAudioLoading(false);
-        if (isPlayingRef.current && index + 1 < transcriptItems.length) {
-          playSentence(index + 1);
-        }
-      }
-    });
-  }, [transcriptItems, isMuted, playbackSpeed, volume, sentenceStartTimes, sentenceDurations, checkpoints, checkpointAnswered, activeCheckpoint, currentModule.moduleNumber]);
-
-  // Toggle Video Playback with natural voice narration
+  // Play / Pause handler
   const handleTogglePlay = () => {
     audioNarrator.getAudioContext();
+    audioNarrator.playSound('click');
 
     if (!isPlaying) {
       setIsPlaying(true);
-      playSentence(activeSentenceIndex);
+      // Play speech line
+      if (currentCaption) {
+        audioNarrator.speak({
+          text: currentCaption.text,
+          rate: playbackSpeed,
+          volume: isMuted ? 0 : volume,
+          onEnd: () => {
+            // Advance sentence if still playing
+            setActiveSentenceIdx(prev => {
+              const next = (prev + 1) % currentTranscript.length;
+              // Advance slide proportionally
+              const nextSlide = Math.floor((next / currentTranscript.length) * currentLecture.slides.length);
+              setCurrentSlideIdx(nextSlide);
+              return next;
+            });
+          }
+        });
+      }
     } else {
       setIsPlaying(false);
       audioNarrator.stop();
     }
   };
 
-  // Muted fallback timer for progression when user mutes audio
+  // Timer tick for video simulation
   useEffect(() => {
-    if (!isPlaying || !isMuted) return;
+    if (!isPlaying) return;
     const interval = setInterval(() => {
-      setSentenceElapsed((prev) => {
-        const next = prev + 0.1;
-        const dur = sentenceDurations[activeSentenceIndex] || 6;
-        const fraction = Math.min(1, next / dur);
-        setSentenceProgress(fraction);
-
-        const words = (transcriptItems[activeSentenceIndex]?.text || '').split(/\s+/).filter(Boolean);
-        const wIdx = Math.min(words.length - 1, Math.floor(fraction * words.length));
-        setActiveWordIndex(wIdx);
-
-        if (next >= dur) {
-          if (activeSentenceIndex + 1 < transcriptItems.length) {
-            playSentence(activeSentenceIndex + 1);
-          } else {
-            setIsPlaying(false);
-            audioNarrator.playSound('correct');
-            setCompletedModules((old) => new Set([...old, currentModule.moduleNumber]));
-          }
-          return 0;
+      setCurrentTimeSeconds(prev => {
+        const next = prev + 1;
+        if (next >= totalDurationSeconds) {
+          setIsPlaying(false);
+          audioNarrator.playSound('correct');
+          // Mark lecture complete
+          setCompletedLectures(old => new Set([...old, currentLecture.id]));
+          return totalDurationSeconds;
         }
+
+        // Calculate active slide based on percentage
+        const progress = next / totalDurationSeconds;
+        const slideIndex = Math.min(
+          currentLecture.slides.length - 1,
+          Math.floor(progress * currentLecture.slides.length)
+        );
+        setCurrentSlideIdx(slideIndex);
+
+        // Calculate caption index
+        if (currentTranscript.length > 0) {
+          const capIdx = Math.min(
+            currentTranscript.length - 1,
+            Math.floor(progress * currentTranscript.length)
+          );
+          setActiveSentenceIdx(capIdx);
+        }
+
         return next;
       });
-    }, 100 / playbackSpeed);
+    }, 1000 / playbackSpeed);
 
     return () => clearInterval(interval);
-  }, [isPlaying, isMuted, activeSentenceIndex, sentenceDurations, transcriptItems, playbackSpeed, playSentence, currentModule.moduleNumber]);
+  }, [isPlaying, playbackSpeed, totalDurationSeconds, currentLecture, currentTranscript]);
 
-  // Reset video state when module or lesson changes
-  useEffect(() => {
-    setIsPlaying(false);
-    audioNarrator.stop();
-    setActiveSentenceIndex(0);
-    setActiveWordIndex(-1);
-    setSentenceProgress(0);
-    setSentenceElapsed(0);
-    setActiveCheckpoint(null);
-    setCheckpointAnswered(false);
-    setQuizQuestionIndex(0);
-    setQuizAnswers({});
-  }, [selectedModuleIndex, selectedLessonIndex]);
+  // Handle Seeker Click
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const fraction = Math.max(0, Math.min(1, clickX / rect.width));
+    const targetSeconds = Math.floor(fraction * totalDurationSeconds);
+    setCurrentTimeSeconds(targetSeconds);
 
-  // Format seconds into MM:SS
-  const formatTime = (secs: number) => {
-    const mins = Math.floor(secs / 60);
-    const remainder = Math.floor(secs % 60);
-    return `${mins < 10 ? '0' : ''}${mins}:${remainder < 10 ? '0' : ''}${remainder}`;
+    const slideIndex = Math.min(
+      currentLecture.slides.length - 1,
+      Math.floor(fraction * currentLecture.slides.length)
+    );
+    setCurrentSlideIdx(slideIndex);
+
+    if (currentTranscript.length > 0) {
+      const capIdx = Math.min(
+        currentTranscript.length - 1,
+        Math.floor(fraction * currentTranscript.length)
+      );
+      setActiveSentenceIdx(capIdx);
+    }
   };
 
-  // Toggle Module Completion
-  const toggleModuleComplete = (modNum: number) => {
+  // Rewind 5 seconds
+  const handleRewind5s = () => {
     audioNarrator.playSound('click');
-    setCompletedModules((prev) => {
+    setCurrentTimeSeconds(prev => Math.max(0, prev - 5));
+  };
+
+  // Forward 5 seconds
+  const handleForward5s = () => {
+    audioNarrator.playSound('click');
+    setCurrentTimeSeconds(prev => Math.min(totalDurationSeconds, prev + 5));
+  };
+
+  // Toggle Lecture Checkbox
+  const toggleLectureCompletion = (lecId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    audioNarrator.playSound('click');
+    setCompletedLectures(prev => {
       const next = new Set(prev);
-      if (next.has(modNum)) {
-        next.delete(modNum);
+      if (next.has(lecId)) {
+        next.delete(lecId);
       } else {
-        next.add(modNum);
+        next.add(lecId);
         audioNarrator.playSound('correct');
       }
       return next;
     });
   };
 
-  const isCurrentModuleCompleted = completedModules.has(currentModule.moduleNumber);
+  // Select a lecture
+  const handleSelectLecture = (secIdx: number, lecIdx: number) => {
+    audioNarrator.stop();
+    setIsPlaying(false);
+    setIsQuizMode(false);
+    setActiveSectionIdx(secIdx);
+    setActiveLectureIdx(lecIdx);
+    setCurrentSlideIdx(0);
+    setActiveSentenceIdx(0);
+    setCurrentTimeSeconds(0);
+    setOpenResourceMenuId(null);
+  };
 
-  // Handle Seeker Click
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+  // Select Quiz for a section
+  const handleSelectQuiz = (secIdx: number) => {
+    audioNarrator.stop();
+    setIsPlaying(false);
+    setActiveSectionIdx(secIdx);
+    setIsQuizMode(true);
+    setCurrentQuizQuestionIdx(0);
+    setSelectedAnswers({});
+    setQuizSubmitted(false);
+    setQuizResultScore(null);
+    setOpenResourceMenuId(null);
+  };
+
+  // Check if a section is unlocked
+  // Rule: Section 0 is unlocked. Section N is unlocked only if Section N-1 quiz was PASSED (score >= 37%)!
+  const isSectionUnlocked = (secIdx: number): boolean => {
+    if (secIdx === 0) return true;
+    const prevSecQuizId = UDEMY_ZERO_WASTE_SECTIONS[secIdx - 1]?.quiz.id;
+    return passedQuizzes.has(prevSecQuizId);
+  };
+
+  // Handle Quiz Option Selection
+  const handleSelectQuizOption = (questionIdx: number, optionIdx: number) => {
+    if (quizSubmitted) return;
     audioNarrator.playSound('click');
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const percentage = Math.max(0, Math.min(1, clickX / rect.width));
-    const targetTime = percentage * totalDurationSeconds;
+    setSelectedAnswers(prev => ({
+      ...prev,
+      [questionIdx]: optionIdx
+    }));
+  };
 
-    // Find sentence matching targetTime
-    let targetSentenceIdx = 0;
-    for (let i = sentenceStartTimes.length - 1; i >= 0; i--) {
-      if (targetTime >= sentenceStartTimes[i]) {
-        targetSentenceIdx = i;
-        break;
+  // Submit Quiz & Evaluate
+  const handleSubmitQuiz = () => {
+    const questions = currentQuiz.questions;
+    let correctCount = 0;
+    questions.forEach((q, idx) => {
+      if (selectedAnswers[idx] === q.correctIndex) {
+        correctCount++;
       }
-    }
-
-    setActiveSentenceIndex(targetSentenceIdx);
-    setActiveWordIndex(-1);
-    setSentenceElapsed(0);
-    setSentenceProgress(0);
-
-    if (isPlaying) {
-      playSentence(targetSentenceIdx);
-    }
-  };
-
-  // Rewind
-  const handleRewind = () => {
-    audioNarrator.playSound('click');
-    if (sentenceElapsed > 2) {
-      playSentence(activeSentenceIndex);
-    } else {
-      const prevIdx = Math.max(0, activeSentenceIndex - 1);
-      playSentence(prevIdx);
-    }
-  };
-
-  // Fast forward
-  const handleFastForward = () => {
-    audioNarrator.playSound('click');
-    const nextIdx = Math.min(transcriptItems.length - 1, activeSentenceIndex + 1);
-    playSentence(nextIdx);
-  };
-
-  // Test sound function
-  const handleTestAudio = () => {
-    audioNarrator.getAudioContext();
-    setIsAudioTesting(true);
-    audioNarrator.speak({
-      text: "Hello and welcome. Dr. Chef Supritam Basu speaking. Today we are exploring practical, zero-waste culinary science for commercial kitchens.",
-      rate: 1.0,
-      volume: isMuted ? 0.9 : volume,
-      onEnd: () => setIsAudioTesting(false),
-      onError: () => setIsAudioTesting(false),
     });
-    if (isMuted) setIsMuted(false);
-    setTimeout(() => setIsAudioTesting(false), 8000);
-  };
 
-  // Checkpoint Quiz submission
-  const handleSubmitCheckpoint = () => {
-    if (checkpointSelectedOpt === null || !activeCheckpoint) return;
-    setCheckpointAnswered(true);
-    const isCorrect = checkpointSelectedOpt === activeCheckpoint.correctIndex;
-    audioNarrator.playSound(isCorrect ? 'correct' : 'wrong');
-    if (isCorrect) {
-      setCheckpointPointsEarned((p) => p + activeCheckpoint.points);
-    }
-  };
+    const scorePercent = Math.round((correctCount / questions.length) * 100);
+    setQuizResultScore(scorePercent);
+    setQuizSubmitted(true);
+    setQuizScores(prev => ({ ...prev, [currentQuiz.id]: scorePercent }));
 
-  const handleResumeAfterCheckpoint = () => {
-    setActiveCheckpoint(null);
-    setCheckpointAnswered(false);
-    setCheckpointSelectedOpt(null);
-    setIsPlaying(true);
-    playSentence(activeSentenceIndex + 1);
-  };
-
-  // Module Quiz Logic
-  const assessmentQuestions = currentModule.assessment?.questions || [
-    {
-      id: `q-fallback-1`,
-      question: `What is the primary culinary objective of Module ${currentModule.moduleNumber} (${currentModule.title})?`,
-      options: [
-        'To capture high-value edible biomass and eliminate avoidable landfill discard',
-        'To increase prep garbage haul weights',
-        'To eliminate flavor from secondary ingredients',
-        'To bypass kitchen HACCP safety requirements'
-      ],
-      correctIndex: 0,
-      explanation: 'Zero-waste culinary science extracts maximum nutritional, gastronomic and financial yield from all harvested biomass.'
-    }
-  ];
-
-  const currentQuizItem = assessmentQuestions[quizQuestionIndex] || assessmentQuestions[0];
-  const currentQuizAnswer = quizAnswers[quizQuestionIndex];
-
-  const handleSelectQuizOption = (optIdx: number) => {
-    if (currentQuizAnswer?.isSubmitted) return;
-    setQuizAnswers((prev) => ({
-      ...prev,
-      [quizQuestionIndex]: {
-        selected: optIdx,
-        isSubmitted: false,
-        isCorrect: optIdx === currentQuizItem.correctIndex
-      }
-    }));
-  };
-
-  const handleSubmitQuizAnswer = () => {
-    if (!currentQuizAnswer || currentQuizAnswer.selected === undefined) return;
-    const isCorrect = currentQuizAnswer.selected === currentQuizItem.correctIndex;
-    audioNarrator.playSound(isCorrect ? 'correct' : 'wrong');
-    setQuizAnswers((prev) => ({
-      ...prev,
-      [quizQuestionIndex]: {
-        ...prev[quizQuestionIndex],
-        isSubmitted: true,
-        isCorrect
-      }
-    }));
-    if (isCorrect) {
-      setQuizScore((prev) => prev + 1);
-    }
-  };
-
-  const handleNextQuizQuestion = () => {
-    audioNarrator.playSound('click');
-    if (quizQuestionIndex < assessmentQuestions.length - 1) {
-      setQuizQuestionIndex((prev) => prev + 1);
-    } else {
-      // Completed all questions in module
+    // Rule: Passing marks is 37%!
+    if (scorePercent >= currentQuiz.passingScorePercent) {
       audioNarrator.playSound('correct');
-      setCompletedModules((old) => new Set([...old, currentModule.moduleNumber]));
+      setPassedQuizzes(prev => new Set([...prev, currentQuiz.id]));
+    } else {
+      audioNarrator.playSound('wrong');
     }
   };
 
-  // Download real customized PDF SOP
-  const handleDownloadPdf = (filename: string, title: string) => {
-    const sopsText = `================================================================================
-SUPRITAMONE ACADEMY · DR. CHEF SUPRITAM BASU, PhD, CEC
-Dean of Sustainable Gastronomy & Author, Chef Culinary Science
-International CPD Certified Diploma Curriculum (Level 7)
-Synthesized from 252 Issues of "The Zero Waste Kitchen"
-================================================================================
+  // Retake Quiz
+  const handleRetakeQuiz = () => {
+    audioNarrator.playSound('click');
+    setSelectedAnswers({});
+    setQuizSubmitted(false);
+    setQuizResultScore(null);
+    setCurrentQuizQuestionIdx(0);
+  };
 
-DOCUMENT: ${title.toUpperCase()}
-FILE: ${filename}
-MODULE ${currentModule.moduleNumber}: ${currentModule.title.toUpperCase()}
-NEWSLETTER ISSUES: ${currentModule.newsletterRange}
-INSTRUCTOR: Dr. Chef Supritam Basu, PhD, CEC
+  // Proceed to Next Chapter after passing quiz
+  const handleProceedToNextChapter = () => {
+    audioNarrator.playSound('correct');
+    if (activeSectionIdx < UDEMY_ZERO_WASTE_SECTIONS.length - 1) {
+      const nextSecIdx = activeSectionIdx + 1;
+      setActiveSectionIdx(nextSecIdx);
+      setActiveLectureIdx(0);
+      setIsQuizMode(false);
+      setCurrentSlideIdx(0);
+      setActiveSentenceIdx(0);
+      setCurrentTimeSeconds(0);
+      setOpenSections(prev => ({
+        ...prev,
+        [UDEMY_ZERO_WASTE_SECTIONS[nextSecIdx].id]: true
+      }));
+    } else {
+      // Completed all sections! Open certificate
+      onOpenCertify();
+    }
+  };
 
---------------------------------------------------------------------------------
-1. AUTHOR, CHEF CULINARY OVERVIEW & MASS-BALANCE RATIONALE
---------------------------------------------------------------------------------
-Commercial kitchen waste represents lost operational capital, wasted water, and
-unharvested gastronomic flavor. In commercial brigades, 35% to 50% of raw produce
-and carcass weight is needlessly discarded as trim.
+  // Add Note handler (matches Image 6)
+  const handleSaveNote = () => {
+    if (!newNoteContent.trim()) return;
+    audioNarrator.playSound('click');
+    const newNote: UserNote = {
+      id: `note-${Date.now()}`,
+      timestampSeconds: currentTimeSeconds,
+      timestampFormatted: formatSeconds(currentTimeSeconds),
+      lectureId: currentLecture.id,
+      lectureTitle: currentLecture.title,
+      content: newNoteContent.trim(),
+      createdAt: 'Just now'
+    };
+    setNotesList(prev => [newNote, ...prev]);
+    setNewNoteContent('');
+    setIsAddingNote(false);
+  };
 
-Standard Target: Divert >= 85% of clean station trimmings into secondary pantry
-lines, glazes, broths, ferments, and shelf-stable umami finishing powders.
+  // Jump to note timestamp
+  const handleJumpToNote = (timestampSecs: number) => {
+    audioNarrator.playSound('click');
+    setCurrentTimeSeconds(timestampSecs);
+    setIsPlaying(true);
+  };
 
---------------------------------------------------------------------------------
-2. TECHNICAL SPECIFICATIONS & PHYSICAL/CHEMICAL MECHANISMS
---------------------------------------------------------------------------------
-- Moisture Control & Water Activity (Aw): Dehydration target Aw < 0.60.
-- Enzyme Kinetics: Pectin Methyl Esterase (PME) low-temp activation at 55°C–65°C.
-- Acidification Standard: Rapid microbial fermentation to pH < 4.2 within 72 hours.
-- Osmotic Extraction: 1:1 Sucrose to Flavedo for cold Oleo Saccharum.
-- Collagen Denaturation: Thermal conversion of triple-helix collagen at 60°C–88°C.
-
---------------------------------------------------------------------------------
-3. STEP-BY-STEP BRIGADE OPERATIONAL PROCEDURE (SOP)
---------------------------------------------------------------------------------
-Step 1: Sanitize station and place tare-weighted Cambros for organic discards.
-Step 2: Inspect raw trimmings for field soil or contamination; wash thoroughly.
-Step 3: Measure raw input weight (W_raw) and record in kitchen yield log.
-Step 4: Execute technical extraction: blanching, fermentation, roasting or emulsion.
-Step 5: Package in sterilized airtight containers with date, batch, and pH log.
-Step 6: Hold at designated Critical Control Point (CCP) temperatures.
-
---------------------------------------------------------------------------------
-4. CRITICAL CONTROL POINTS (HACCP COMPLIANCE)
---------------------------------------------------------------------------------
-- CCP 1 (Temperature): Hot holding >= 63°C; Cold storage <= 3°C.
-- CCP 2 (Acid Barrier): Fermented brines must maintain pH <= 4.2.
-- CCP 3 (Sanitation): All fermentation weights and vessels sanitized with Star San.
-
-Supritamone Academy © ${new Date().getFullYear()} · Dr. Chef Supritam Basu, PhD, CEC
-Accredited by CPD Standards Authority · London, UK · All Rights Reserved
-================================================================================`;
-
-    const blob = new Blob([sopsText], { type: 'application/pdf;charset=utf-8' });
+  // Download PDF attachment simulation
+  const handleDownloadResource = (filename: string, title: string) => {
+    audioNarrator.playSound('click');
+    const content = `SUPRITAMONE ACADEMY · DR. CHEF SUPRITAM BASU, PhD, CEC\nZero Waste Kitchen Curriculum Protocol\nDocument: ${title}\nFilename: ${filename}\nAccreditation: The CPD Group Approved Provider #791463 & ISO 9001:2015\n\nDownloaded successfully from Supritamone Academy LMS.`;
+    const blob = new Blob([content], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
-  // Filter 252 newsletters corresponding to active module
-  const moduleNewsletters = all252Newsletters.filter((n) => n.moduleMapped === currentModule.moduleNumber);
+  // Calculate overall course progress (12 lectures + 6 quizzes = 18 items)
+  const totalCourseItems = 12 + 6;
+  const completedItemsCount = completedLectures.size + passedQuizzes.size;
+  const progressPercentage = Math.round((completedItemsCount / totalCourseItems) * 100);
+
+  // Helper to render slide highlighted bullet text
+  const renderHighlightedBullet = (bullet: string) => {
+    // Replaces [hl]...[/hl] with Udemy yellow highlighted badge
+    const parts = bullet.split(/(\[hl\].*?\[\/hl\])/g);
+    return (
+      <span>
+        {parts.map((part, i) => {
+          if (part.startsWith('[hl]') && part.endsWith('[/hl]')) {
+            const clean = part.replace('[hl]', '').replace('[/hl]', '');
+            return (
+              <span key={i} className="bg-[#ffea79] text-slate-950 font-bold px-1.5 py-0.5 rounded shadow-2xs mx-0.5">
+                {clean}
+              </span>
+            );
+          }
+          return <span key={i}>{part}</span>;
+        })}
+      </span>
+    );
+  };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-20">
-      {/* Top Header Bar (matches image_57f3f687.png exactly) */}
-      <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-center justify-between shadow-xs">
-        <button
-          onClick={onBackToCourses}
-          className="flex items-center gap-2 text-xs font-semibold text-slate-700 hover:text-slate-900 transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4 text-slate-500" />
-          <span>Course details</span>
-        </button>
-
-        <div className="flex items-center gap-2.5">
-          {/* Course Selector Dropdown */}
-          <select
-            value={activeCourseId}
-            onChange={(e) => {
-              setActiveCourseId(e.target.value);
-              setSelectedModuleIndex(0);
-              setSelectedLessonIndex(0);
-            }}
-            className="hidden md:inline-block text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 py-1.5 px-3 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-xs truncate"
-          >
-            {surplusCourses.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title}
-              </option>
-            ))}
-          </select>
-
-          {/* Module Selector Pill */}
-          <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-600 bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200">
-            <GraduationCap className="w-3.5 h-3.5 text-blue-600" />
-            <span className="font-semibold text-slate-800">Module {currentModule.moduleNumber} of {allModules.length}</span>
-          </div>
-
-          {/* Mark as complete toggle button (matching screenshot) */}
+    <div className="min-h-screen bg-[#1c1d1f] text-white flex flex-col font-sans selection:bg-[#a435f0] selection:text-white">
+      {/* 1. TOP NAVBAR: EXACT UDEMY BAR (Matches Image 1) */}
+      <header className="h-14 bg-[#1c1d1f] border-b border-[#2d2f31] px-4 flex items-center justify-between z-30 shrink-0">
+        <div className="flex items-center gap-3">
+          {/* Logo */}
           <button
-            onClick={() => toggleModuleComplete(currentModule.moduleNumber)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
-              isCurrentModuleCompleted
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-300 shadow-2xs'
-                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-            }`}
+            onClick={onBackToCourses}
+            className="flex items-center gap-2 group text-white hover:text-slate-200 transition-colors"
+            title="Back to Courses"
           >
-            <Check className={`w-3.5 h-3.5 ${isCurrentModuleCompleted ? 'text-emerald-600 stroke-3' : 'text-slate-400'}`} />
-            <span>{isCurrentModuleCompleted ? 'Completed' : 'Mark as complete'}</span>
+            <div className="w-8 h-8 rounded-lg bg-[#a435f0] flex items-center justify-center font-black text-white text-sm shadow-md">
+              SA
+            </div>
+            <span className="font-extrabold tracking-tight text-sm hidden sm:inline-block">
+              Supritamone
+            </span>
           </button>
 
-          {/* Prev / Next Module Navigation (< 1/12 >) */}
-          <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-white">
-            <button
-              onClick={() => {
-                setSelectedModuleIndex(Math.max(0, selectedModuleIndex - 1));
-                setSelectedLessonIndex(0);
-              }}
-              disabled={selectedModuleIndex === 0}
-              className="p-1.5 hover:bg-slate-50 text-slate-600 disabled:opacity-30 disabled:pointer-events-none"
-              title="Previous module"
-            >
-              <ChevronLeft className="w-4 h-4" />
+          <span className="text-[#6a6f73] hidden sm:inline">|</span>
+
+          {/* Course Title */}
+          <h1 className="text-xs sm:text-sm font-medium text-white truncate max-w-xs sm:max-w-md md:max-w-xl">
+            The Zero Waste Kitchen Course: Master Executive Diploma & Food Waste Science
+          </h1>
+        </div>
+
+        {/* Right Nav Utilities */}
+        <div className="flex items-center gap-2 sm:gap-4">
+          {/* Your Progress Dropdown Button */}
+          <div className="relative group">
+            <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-md hover:bg-[#2d2f31] text-xs font-semibold text-white transition-colors cursor-pointer">
+              <Award className="w-4 h-4 text-[#e59819]" />
+              <span className="hidden md:inline">Your progress</span>
+              <span className="text-[#c0c4fc] font-mono text-[11px]">{progressPercentage}%</span>
+              <ChevronDown className="w-3.5 h-3.5 text-[#8a8b8c]" />
             </button>
-            <span className="text-[11px] font-mono font-bold px-2.5 text-slate-600">
-              {selectedModuleIndex + 1}/{allModules.length}
-            </span>
-            <button
-              onClick={() => {
-                setSelectedModuleIndex(Math.min(allModules.length - 1, selectedModuleIndex + 1));
-                setSelectedLessonIndex(0);
-              }}
-              disabled={selectedModuleIndex === allModules.length - 1}
-              className="p-1.5 hover:bg-slate-50 text-slate-600 disabled:opacity-30 disabled:pointer-events-none"
-              title="Next module"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+
+            {/* Progress Hover Card */}
+            <div className="absolute right-0 top-full mt-1 w-64 p-4 bg-[#1c1d1f] border border-[#3e4143] rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+              <div className="flex items-center justify-between text-xs mb-1.5">
+                <span className="font-bold text-white">Course Completion</span>
+                <span className="font-mono text-[#a435f0] font-bold">{progressPercentage}%</span>
+              </div>
+              <div className="w-full bg-[#3e4143] h-2 rounded-full overflow-hidden mb-3">
+                <div 
+                  className="bg-[#a435f0] h-full rounded-full transition-all duration-300"
+                  style={{ width: `${progressPercentage}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-[#8a8b8c] leading-relaxed mb-3">
+                {completedItemsCount} of {totalCourseItems} items completed. Complete all 6 sections and pass each 10-question quiz (≥ 37%) to unlock your certified diploma.
+              </p>
+              <button
+                onClick={onOpenCertify}
+                className="w-full py-2 bg-[#a435f0] hover:bg-[#8710d8] text-white text-xs font-bold rounded transition-colors text-center cursor-pointer"
+              >
+                View Accredited Certificate
+              </button>
+            </div>
           </div>
 
           {/* Share Button */}
@@ -874,996 +515,1071 @@ Accredited by CPD Standards Authority · London, UK · All Rights Reserved
             onClick={() => {
               if (navigator.clipboard) {
                 navigator.clipboard.writeText(window.location.href);
+                setShowShareToast(true);
+                setTimeout(() => setShowShareToast(false), 2500);
               }
             }}
-            className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
-            title="Share Course"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[#6a6f73] hover:bg-[#2d2f31] text-xs font-semibold text-white transition-colors"
           >
-            <Share2 className="w-4 h-4" />
+            <Share2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Share</span>
+          </button>
+
+          {/* More options menu */}
+          <button
+            onClick={onBackToCourses}
+            className="p-1.5 rounded-md hover:bg-[#2d2f31] text-slate-300 hover:text-white"
+            title="Exit player"
+          >
+            <X className="w-5 h-5" />
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Main Interactive Video Lecture Player */}
-      <div className="bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 shadow-xl relative select-none">
-        <div className="relative aspect-video w-full flex items-center justify-center bg-slate-900 group overflow-hidden">
-          {/* Dynamic Background Image with subtle cinematic zoom */}
-          <img
-            src={currentLesson.heroImage || currentLesson.video?.posterImage || '/src/assets/images/hero_sustainable_kitchen_1793976158274.jpg'}
-            alt={currentLesson.title}
-            className={`w-full h-full object-cover opacity-85 transition-transform duration-1000 ${isPlaying ? 'scale-105' : 'scale-100'}`}
-          />
-
-          {/* Dark gradient scrims */}
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/40 to-slate-950/60" />
-
-          {/* Top Left: Video Tag & CPD Level */}
-          <div className="absolute top-4 left-4 flex items-center gap-2 z-20">
-            <span className="bg-blue-600 text-white text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wider uppercase shadow-xs flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              HD Masterclass Lecture
-            </span>
-            <span className="bg-black/60 backdrop-blur-xs text-white text-[10px] font-semibold px-2.5 py-1 rounded-md border border-white/10">
-              Module {currentModule.moduleNumber}: {currentModule.newsletterRange}
-            </span>
-          </div>
-
-          {/* Top Right: Picture-in-picture Chef Instructor overlay (Exact Dr. Chef Supritam Basu badge from screenshot) */}
-          <div className="absolute top-4 right-4 w-36 sm:w-44 aspect-video bg-black/90 backdrop-blur-md rounded-xl border border-white/20 overflow-hidden shadow-2xl flex items-center justify-center p-2 z-20">
-            <div className="text-center w-full">
-              <div className="relative w-8 h-8 mx-auto mb-1">
-                <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center shadow-md">
-                  SB
-                </div>
-                {isPlaying && !isMuted && (
-                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-black rounded-full animate-ping" />
-                )}
-              </div>
-              <p className="text-[11px] text-white font-bold tracking-tight leading-tight">Dr. Chef Supritam Basu</p>
-              <span className="text-[9px] text-emerald-400 uppercase font-bold tracking-wider block mt-0.5">
-                PhD · Author, Chef
-              </span>
-              <span className="inline-block text-[8px] text-sky-300 font-mono bg-sky-950/70 border border-sky-500/30 px-1 py-0.2 rounded mt-0.5">
-                🎙️ Natural Human Voice
-              </span>
-              {/* Audio status indicator */}
-              {isPlaying && !isMuted ? (
-                <div className="flex items-center justify-center gap-0.5 mt-1">
-                  <span className="w-1 h-2 bg-emerald-400 rounded-full animate-pulse" />
-                  <span className="w-1 h-3 bg-emerald-400 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
-                  <span className="w-1 h-1.5 bg-emerald-400 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
-                  <span className="text-[8px] text-emerald-300 font-mono font-bold uppercase ml-1">Speaking</span>
-                </div>
-              ) : isMuted ? (
-                <button
-                  onClick={() => {
-                    setIsMuted(false);
-                    audioNarrator.playSound('play');
-                  }}
-                  className="mt-1 text-[8px] text-amber-300 bg-amber-950/70 hover:bg-amber-900 border border-amber-500/40 px-1.5 py-0.5 rounded transition-all inline-block"
-                >
-                  Unmute Voice
-                </button>
-              ) : null}
-            </div>
-          </div>
-
-          {/* Interactive Checkpoint Quiz Overlay (when timestamp is hit) */}
-          {activeCheckpoint && (
-            <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md z-30 p-6 flex flex-col justify-center max-w-lg mx-auto text-white animate-in fade-in zoom-in-95 duration-200">
-              <div className="flex items-center justify-between pb-2 border-b border-white/10 mb-4">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  In-Video Knowledge Checkpoint (+{activeCheckpoint.points} pts)
-                </span>
-                <span className="text-xs font-mono text-slate-400">Timestamp: {formatTime(activeCheckpoint.timestampSeconds)}</span>
-              </div>
-
-              <h4 className="text-sm sm:text-base font-bold text-white mb-4 leading-snug">
-                {activeCheckpoint.question}
-              </h4>
-
-              <div className="space-y-2 mb-4">
-                {activeCheckpoint.options.map((opt, optIdx) => {
-                  const isSelected = checkpointSelectedOpt === optIdx;
-                  let optStyle = 'border-white/20 bg-white/5 hover:bg-white/10 text-slate-200';
-                  if (checkpointAnswered) {
-                    if (optIdx === activeCheckpoint.correctIndex) {
-                      optStyle = 'border-emerald-500 bg-emerald-950/60 text-emerald-200 font-semibold';
-                    } else if (isSelected) {
-                      optStyle = 'border-red-500 bg-red-950/60 text-red-200';
-                    }
-                  } else if (isSelected) {
-                    optStyle = 'border-blue-500 bg-blue-900/40 text-blue-100 font-medium';
-                  }
-
-                  return (
-                    <div
-                      key={optIdx}
-                      onClick={() => !checkpointAnswered && setCheckpointSelectedOpt(optIdx)}
-                      className={`p-3 rounded-lg border text-xs sm:text-sm cursor-pointer transition-all flex items-center gap-2.5 ${optStyle}`}
-                    >
-                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
-                        isSelected ? 'border-blue-400 bg-blue-500 text-white' : 'border-white/30'
-                      }`}>
-                        {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                      </div>
-                      <span className="flex-1">{opt}</span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {checkpointAnswered && (
-                <div className="p-3 rounded-lg bg-emerald-900/40 border border-emerald-500/40 text-xs text-emerald-200 mb-4">
-                  <p className="font-bold mb-0.5">Scientific Rationale:</p>
-                  <p>{activeCheckpoint.explanation}</p>
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                {!checkpointAnswered ? (
-                  <button
-                    onClick={handleSubmitCheckpoint}
-                    disabled={checkpointSelectedOpt === null}
-                    className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded-lg shadow-md transition-all"
-                  >
-                    Submit Answer
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleResumeAfterCheckpoint}
-                    className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-md transition-all flex items-center gap-1.5"
-                  >
-                    <span>Resume Lecture</span>
-                    <Play className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Center Play / Pause Floating Overlay Button */}
-          {!activeCheckpoint && (
-            <button
-              onClick={handleTogglePlay}
-              className="w-16 h-16 rounded-full bg-white/95 hover:bg-white text-slate-950 flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 transition-all z-10 group-hover:opacity-100 opacity-90 cursor-pointer"
-              aria-label={isPlaying ? 'Pause Lecture' : 'Play Lecture'}
-            >
-              {isPlaying ? <Pause className="w-7 h-7" /> : <Play className="w-7 h-7 ml-1" />}
-            </button>
-          )}
-
-          {/* Dynamic Subtitle / Teleprompter Banner with Real-Time Word Karaoke Sync */}
-          {showSubtitles && currentSubtitle && (
-            <div className="absolute bottom-16 left-4 right-4 text-center z-20 pointer-events-none">
-              <div className="inline-block bg-black/90 text-white text-xs sm:text-sm font-medium px-4 py-2.5 rounded-xl backdrop-blur-md border border-white/10 shadow-2xl max-w-2xl leading-relaxed text-left sm:text-center">
-                {tokenizeTextIntoWords(currentSubtitle.text).map((tok) => {
-                  const isSpoken = activeWordIndex >= tok.index;
-                  const isCurrent = activeWordIndex === tok.index;
-
-                  return (
-                    <span
-                      key={tok.index}
-                      className={`transition-all duration-75 ${
-                        isCurrent
-                          ? 'text-amber-300 font-extrabold bg-amber-400/20 px-1 py-0.5 rounded shadow-xs scale-105 inline-block'
-                          : isSpoken
-                          ? 'text-white font-medium'
-                          : 'text-slate-400/80'
-                      }`}
-                    >
-                      {tok.word}{' '}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Video Controls Bar */}
-          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/85 to-transparent p-3 pt-6 z-20 flex flex-col gap-2.5">
-            {/* Scrubber Progress Bar */}
-            <div
-              onClick={handleSeek}
-              className="w-full bg-white/20 hover:bg-white/30 h-1.5 hover:h-2 rounded-full overflow-hidden cursor-pointer transition-all relative"
-            >
-              <div
-                className="bg-blue-500 h-full rounded-full transition-all duration-150"
-                style={{ width: `${(currentTime / Math.max(1, totalDurationSeconds)) * 100}%` }}
-              />
-              {/* Checkpoint Markers on Progress Bar */}
-              {checkpoints.map((ck) => (
-                <div
-                  key={ck.id}
-                  className="absolute top-0 bottom-0 w-1 bg-amber-400 rounded-full"
-                  style={{ left: `${(ck.timestampSeconds / Math.max(1, totalDurationSeconds)) * 100}%` }}
-                  title={`Checkpoint at ${formatTime(ck.timestampSeconds)}`}
-                />
-              ))}
-            </div>
-
-            {/* Bottom Controls Row */}
-            <div className="flex flex-wrap items-center justify-between text-white text-xs gap-2">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleTogglePlay}
-                  className="hover:text-blue-400 p-1 transition-colors cursor-pointer"
-                  title={isPlaying ? 'Pause' : 'Play & Speak'}
-                >
-                  {isPlaying ? <Pause className="w-4 h-4 text-blue-400" /> : <Play className="w-4 h-4" />}
-                </button>
-
-                <button
-                  onClick={handleRewind}
-                  className="hover:text-blue-400 p-1 text-[11px] font-mono flex items-center gap-0.5 cursor-pointer"
-                  title="Rewind to start of sentence or previous sentence"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Rewind</span>
-                </button>
-
-                <button
-                  onClick={handleFastForward}
-                  className="hover:text-blue-400 p-1 text-[11px] font-mono flex items-center gap-0.5 cursor-pointer"
-                  title="Fast forward to next sentence"
-                >
-                  <FastForward className="w-3.5 h-3.5" />
-                  <span>Next</span>
-                </button>
-
-                <span className="font-mono text-[11px] text-slate-300 ml-1">
-                  {formatTime(currentTime)} / {formatTime(totalDurationSeconds)}
-                </span>
-                
-                {isAudioLoading && (
-                  <span className="text-[10px] text-amber-300 font-mono flex items-center gap-1 animate-pulse ml-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    Buffering...
-                  </span>
-                )}
-              </div>
-
-              {/* Center / Right: Audio Narration & Sound Controls */}
-              <div className="flex items-center gap-2 sm:gap-3">
-                {/* Test Audio & Speech Output Button */}
-                <button
-                  onClick={handleTestAudio}
-                  disabled={isAudioTesting}
-                  className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                    isAudioTesting
-                      ? 'bg-amber-500 text-black animate-pulse'
-                      : 'bg-emerald-600/90 hover:bg-emerald-500 text-white shadow-xs'
-                  }`}
-                  title="Test voice narration and audio output"
-                >
-                  <Mic className="w-3 h-3" />
-                  <span>{isAudioTesting ? 'Voice Playing...' : 'Test Voice'}</span>
-                </button>
-
-                {/* Human Voice Model Selector */}
-                <div className="flex items-center gap-1 bg-white/10 rounded px-1.5 py-0.5 border border-white/15">
-                  <span className="text-[10px] text-slate-300 hidden md:inline">Voice:</span>
-                  <select
-                    value={selectedVoice}
-                    onChange={(e) => {
-                      const v = e.target.value as TTSVoiceName;
-                      setSelectedVoice(v);
-                      audioNarrator.setVoice(v);
-                      audioNarrator.stop();
-                      audioNarrator.playSound('click');
-                      if (isPlaying) {
-                        playSentence(activeSentenceIndex);
-                      }
-                    }}
-                    className="bg-transparent text-white text-[10px] font-semibold focus:outline-none cursor-pointer"
-                    title="Select natural human voice model for Dr. Chef Supritam Basu"
-                  >
-                    {AVAILABLE_VOICES.map((v) => (
-                      <option key={v.id} value={v.id} className="bg-slate-900 text-white">
-                        {v.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Subtitles Toggle */}
-                <button
-                  onClick={() => {
-                    audioNarrator.playSound('click');
-                    setShowSubtitles(!showSubtitles);
-                  }}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
-                    showSubtitles ? 'bg-blue-600 border-blue-500 text-white' : 'border-white/30 text-slate-400'
-                  }`}
-                  title="Toggle Subtitles"
-                >
-                  CC
-                </button>
-
-                {/* Synced Transcript Drawer Toggle */}
-                <button
-                  onClick={() => {
-                    audioNarrator.playSound('click');
-                    setShowTranscriptDrawer((prev) => !prev);
-                  }}
-                  className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer flex items-center gap-1 ${
-                    showTranscriptDrawer
-                      ? 'bg-blue-600 border-blue-500 text-white'
-                      : 'border-white/30 text-slate-300 hover:text-white'
-                  }`}
-                  title="Toggle synced interactive transcript"
-                >
-                  <FileText className="w-3 h-3" />
-                  <span>Transcript</span>
-                </button>
-
-                {/* Speed Selector */}
-                <div className="flex items-center bg-white/10 rounded px-1.5 py-0.5 text-[10px] font-mono">
-                  {[1, 1.25, 1.5, 2].map((spd) => (
-                    <button
-                      key={spd}
-                      onClick={() => {
-                        audioNarrator.playSound('click');
-                        setPlaybackSpeed(spd);
-                        if (isPlaying) {
-                          playSentence(activeSentenceIndex);
-                        }
-                      }}
-                      className={`px-1 rounded cursor-pointer ${playbackSpeed === spd ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
-                    >
-                      {spd}x
-                    </button>
-                  ))}
-                </div>
-
-                {/* Volume & Mute Controls */}
-                <div className="flex items-center gap-1.5 bg-white/10 rounded px-2 py-0.5">
-                  <button
-                    onClick={() => {
-                      const nextMuted = !isMuted;
-                      setIsMuted(nextMuted);
-                      if (nextMuted) {
-                        audioNarrator.stop();
-                      } else {
-                        audioNarrator.playSound('play');
-                        if (isPlaying) {
-                          playSentence(activeSentenceIndex);
-                        }
-                      }
-                    }}
-                    className="text-slate-300 hover:text-white p-0.5 cursor-pointer"
-                    title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
-                  >
-                    {isMuted || volume === 0 ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
-                  </button>
-
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={isMuted ? 0 : volume}
-                    onChange={(e) => {
-                      const val = parseFloat(e.target.value);
-                      setVolume(val);
-                      if (val > 0 && isMuted) {
-                        setIsMuted(false);
-                      }
-                    }}
-                    className="w-12 sm:w-16 h-1 accent-emerald-400 bg-white/30 rounded cursor-pointer"
-                    title={`Volume: ${Math.round((isMuted ? 0 : volume) * 100)}%`}
-                  />
-                  <span className="text-[9px] font-mono text-slate-300 w-6 text-right">
-                    {isMuted ? '0%' : `${Math.round(volume * 100)}%`}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Synced Interactive Transcript Drawer */}
-      {showTranscriptDrawer && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-white space-y-2 max-h-56 overflow-y-auto mb-4 animate-in fade-in duration-200">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-            <span className="flex items-center gap-1.5 text-blue-400">
-              <FileText className="w-3.5 h-3.5" />
-              Synced Masterclass Transcript · Dr. Chef Supritam Basu
-            </span>
-            <span className="text-[10px] text-slate-400 font-normal lowercase">Click any sentence to listen & sync</span>
-          </div>
-          <div className="space-y-1.5">
-            {transcriptItems.map((item, idx) => {
-              const isCurrent = activeSentenceIndex === idx;
-              const startTimeStr = formatTime(sentenceStartTimes[idx] || 0);
-
-              return (
-                <div
-                  key={idx}
-                  onClick={() => {
-                    audioNarrator.playSound('click');
-                    playSentence(idx);
-                    if (!isPlaying) setIsPlaying(true);
-                  }}
-                  className={`p-2.5 rounded-lg cursor-pointer flex items-start gap-3 transition-all ${
-                    isCurrent
-                      ? 'bg-blue-950/90 border border-blue-500 text-white shadow-xs'
-                      : 'hover:bg-slate-800/60 text-slate-400'
-                  }`}
-                >
-                  <span className="font-mono text-[10px] text-blue-400 font-semibold mt-0.5 shrink-0">
-                    {startTimeStr}
-                  </span>
-                  <div className="flex-1 text-xs leading-relaxed">
-                    <span className="text-[10px] font-bold text-slate-400 mr-2 uppercase tracking-wide">
-                      {item.speaker || 'Dr. Chef Supritam Basu'}:
-                    </span>
-                    <span className={isCurrent ? 'text-white font-medium' : ''}>
-                      {item.text}
-                    </span>
-                  </div>
-                  {isCurrent && isPlaying && !isMuted && (
-                    <span className="text-[10px] text-emerald-400 font-mono font-bold shrink-0 flex items-center gap-1 bg-emerald-950/80 border border-emerald-500/40 px-2 py-0.5 rounded-full animate-pulse">
-                      🎙️ Speaking
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+      {/* Share Toast Notification */}
+      {showShareToast && (
+        <div className="fixed top-16 right-6 z-50 bg-[#2d2f31] border border-[#a435f0] text-white text-xs px-4 py-2.5 rounded-lg shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>Course link copied to clipboard!</span>
         </div>
       )}
 
-      {/* Course Sub-Navigation Tabs: Curriculum | Overview & SOP | Interactive Quiz | 252 Newsletters | Discussion */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-        <div className="flex items-center border-b border-slate-200 px-4 overflow-x-auto scrollbar-none">
-          <button
-            onClick={() => setActiveTab('curriculum')}
-            className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-              activeTab === 'curriculum'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>Curriculum ({allModules.length} Modules)</span>
-          </button>
+      {/* 2. MAIN PLAYER & SIDEBAR LAYOUT (Two-column Udemy view) */}
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+        {/* LEFT COLUMN: Video / Quiz Player + Tabs Below */}
+        <div className={`flex-1 flex flex-col overflow-y-auto bg-white text-slate-900 transition-all duration-300 ${isSidebarOpen ? 'lg:mr-0' : ''}`}>
+          {/* VIDEO / QUIZ DISPLAY SCREEN */}
+          <div className="bg-[#0e0e10] w-full flex items-center justify-center relative select-none">
+            {isQuizMode ? (
+              /* --- QUIZ PLAYER SCREEN (10 Questions, 37% Passing Mark) --- */
+              <div className="w-full max-w-4xl min-h-[460px] sm:min-h-[520px] p-4 sm:p-8 flex flex-col justify-between text-white bg-[#1c1d1f]">
+                {/* Quiz Header */}
+                <div className="border-b border-[#3e4143] pb-4 mb-6">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <span className="text-[11px] font-mono uppercase tracking-wider text-[#c0c4fc] bg-[#2d2f31] px-2.5 py-0.5 rounded border border-[#3e4143]">
+                      Section {currentSection.sectionNumber} Assessment · Passing Standard: 37%
+                    </span>
+                    <span className="text-xs text-[#8a8b8c] font-mono">
+                      Question {currentQuizQuestionIdx + 1} of {currentQuiz.questions.length}
+                    </span>
+                  </div>
+                  <h2 className="text-lg sm:text-xl font-bold text-white">
+                    {currentQuiz.title}
+                  </h2>
 
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-              activeTab === 'overview'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Overview & SOP</span>
-          </button>
+                  {/* Progress Line */}
+                  <div className="w-full bg-[#3e4143] h-1.5 rounded-full overflow-hidden mt-3">
+                    <div 
+                      className="bg-[#a435f0] h-full transition-all duration-200"
+                      style={{ width: `${((currentQuizQuestionIdx + 1) / currentQuiz.questions.length) * 100}%` }}
+                    />
+                  </div>
+                </div>
 
-          <button
-            onClick={() => setActiveTab('quiz')}
-            className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-              activeTab === 'quiz'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
-            <span>Interactive Quiz ({assessmentQuestions.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('newsletters')}
-            className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-              activeTab === 'newsletters'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Newspaper className="w-3.5 h-3.5" />
-            <span>252 Newsletter Deep-Dive ({moduleNewsletters.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('feed')}
-            className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-              activeTab === 'feed'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>Discussion Feed</span>
-          </button>
-        </div>
-
-        {/* TAB 1: CURRICULUM (All Modules covering course curriculum) */}
-        {activeTab === 'curriculum' && (
-          <div className="p-6 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <div>
-                <h3 className="font-extrabold text-slate-900 text-base">
-                  {activeCourse.title}
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {allModules.length} Modules · {activeCourse.duration} · {activeCourse.badge}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-blue-700 bg-blue-100/70 px-2.5 py-1 rounded-md">
-                  {completedModules.size} of {allModules.length} Completed
-                </span>
-                <button
-                  onClick={onOpenCertify}
-                  className="px-3 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors flex items-center gap-1"
-                >
-                  <Award className="w-3.5 h-3.5" />
-                  <span>Diploma</span>
-                </button>
-              </div>
-            </div>
-
-            {/* List of 12 Modules */}
-            <div className="space-y-3">
-              {allModules.map((mod, idx) => {
-                const isSelectedMod = selectedModuleIndex === idx;
-                const isModDone = completedModules.has(mod.moduleNumber);
-
-                return (
-                  <div
-                    key={mod.id}
-                    className={`rounded-xl border transition-all overflow-hidden ${
-                      isSelectedMod
-                        ? 'border-blue-500 ring-2 ring-blue-500/10 bg-white shadow-xs'
-                        : 'border-slate-200 hover:border-slate-300 bg-white'
-                    }`}
-                  >
-                    <div
-                      onClick={() => {
-                        setSelectedModuleIndex(idx);
-                        setSelectedLessonIndex(0);
-                      }}
-                      className={`p-4 flex items-center justify-between cursor-pointer ${
-                        isSelectedMod ? 'bg-blue-50/50' : 'hover:bg-slate-50/50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleModuleComplete(mod.moduleNumber);
-                          }}
-                          className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all ${
-                            isModDone
-                              ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
-                              : 'border-slate-300 hover:border-slate-400 bg-white'
-                          }`}
-                          title={isModDone ? 'Mark as incomplete' : 'Mark as complete'}
-                        >
-                          {isModDone && <Check className="w-4 h-4 stroke-3" />}
-                        </button>
-
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-extrabold text-blue-600">
-                              Module {mod.moduleNumber < 10 ? `0${mod.moduleNumber}` : mod.moduleNumber}
-                            </span>
-                            <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                              {mod.newsletterRange}
-                            </span>
-                          </div>
-                          <h4 className="font-bold text-slate-900 text-sm mt-0.5">
-                            {mod.title}
-                          </h4>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3 text-right">
-                        <span className="text-xs font-mono text-slate-500 hidden sm:inline">
-                          {mod.estimatedHours} hrs · {mod.lessons.length} Lessons
-                        </span>
-                        <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${isSelectedMod ? 'rotate-90 text-blue-600' : ''}`} />
-                      </div>
+                {/* Quiz Question Body or Result Screen */}
+                {!quizSubmitted ? (
+                  <div className="space-y-6 flex-1">
+                    {/* Active Question */}
+                    <div>
+                      <h3 className="text-base sm:text-lg font-bold text-white leading-snug">
+                        {currentQuiz.questions[currentQuizQuestionIdx].question}
+                      </h3>
+                      <p className="text-xs text-[#8a8b8c] mt-1">Select the single best answer below.</p>
                     </div>
 
-                    {/* Sub-lessons when module is active */}
-                    {isSelectedMod && (
-                      <div className="border-t border-slate-100 divide-y divide-slate-100 bg-slate-50/40 p-2">
-                        {mod.lessons.map((lesson, lIdx) => {
-                          const isSelectedLesson = selectedLessonIndex === lIdx;
-                          return (
-                            <button
-                              key={lesson.id}
-                              onClick={() => setSelectedLessonIndex(lIdx)}
-                              className={`w-full flex items-center justify-between p-3 rounded-lg text-left transition-colors text-xs ${
-                                isSelectedLesson
-                                  ? 'bg-white font-bold text-blue-900 shadow-2xs border border-blue-200'
-                                  : 'text-slate-700 hover:bg-white'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[10px] font-bold">
-                                  {lIdx + 1}
-                                </span>
-                                <span>{lesson.title}</span>
-                              </div>
-                              <span className="font-mono text-[11px] text-slate-400">
-                                {lesson.readTimeMinutes} min read
-                              </span>
-                            </button>
-                          );
-                        })}
+                    {/* Options (Radio style matching Udemy practice test) */}
+                    <div className="space-y-3">
+                      {currentQuiz.questions[currentQuizQuestionIdx].options.map((opt, optIdx) => {
+                        const isSelected = selectedAnswers[currentQuizQuestionIdx] === optIdx;
+                        return (
+                          <div
+                            key={optIdx}
+                            onClick={() => handleSelectQuizOption(currentQuizQuestionIdx, optIdx)}
+                            className={`p-3.5 sm:p-4 rounded-xl border text-sm sm:text-base cursor-pointer transition-all flex items-start gap-3 ${
+                              isSelected
+                                ? 'border-[#a435f0] bg-[#2d2f31] text-white shadow-md'
+                                : 'border-[#3e4143] bg-[#242629] text-slate-300 hover:border-[#6a6f73] hover:bg-[#2d2f31]'
+                            }`}
+                          >
+                            <div className={`w-5 h-5 rounded-full border-2 mt-0.5 flex items-center justify-center shrink-0 ${
+                              isSelected ? 'border-[#a435f0] bg-[#a435f0]' : 'border-[#6a6f73]'
+                            }`}>
+                              {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
+                            </div>
+                            <span className="leading-relaxed">{opt}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  /* QUIZ RESULT SCREEN (Pass >= 37% or Fail < 37%) */
+                  <div className="flex-1 flex flex-col justify-center items-center text-center p-4 sm:p-8 animate-in zoom-in-95 duration-200">
+                    {quizResultScore !== null && quizResultScore >= currentQuiz.passingScorePercent ? (
+                      /* PASSED CARD */
+                      <div className="max-w-xl space-y-4">
+                        <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 border-2 border-emerald-500 mx-auto flex items-center justify-center">
+                          <CheckCircle2 className="w-8 h-8" />
+                        </div>
+                        <span className="text-xs font-mono font-bold uppercase tracking-widest text-emerald-400 block">
+                          Pass Standard Met (≥ 37%)
+                        </span>
+                        <h3 className="text-2xl font-black text-white">
+                          Congratulations! You Passed Section {currentSection.sectionNumber}
+                        </h3>
+                        <p className="text-3xl font-mono font-black text-emerald-400">
+                          {quizResultScore}% Score
+                        </p>
+                        <p className="text-sm text-slate-300 leading-relaxed">
+                          You have demonstrated validated culinary competency in accordance with Level 7 Curriculum guidelines. Section {activeSectionIdx + 2 <= UDEMY_ZERO_WASTE_SECTIONS.length ? activeSectionIdx + 2 : 'Diploma'} is now unlocked!
+                        </p>
+
+                        {/* Official Accreditation Badges */}
+                        <div className="p-4 rounded-xl bg-[#2d2f31] border border-[#3e4143] flex items-center justify-around gap-4 my-4">
+                          <img 
+                            src="/assets/images/cpd_approved_provider_791463.png" 
+                            alt="The CPD Group Provider #791463"
+                            className="h-10 object-contain bg-white rounded p-1"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/791463_9802fbb0.png'; }}
+                          />
+                          <img 
+                            src="/assets/images/iso_9001_certified.png" 
+                            alt="ISO 9001:2015 Certified"
+                            className="h-9 object-contain bg-white rounded p-1"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/images_7ff73340.png'; }}
+                          />
+                        </div>
+
+                        {/* Next Chapter CTA Button */}
+                        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+                          <button
+                            onClick={handleProceedToNextChapter}
+                            className="w-full sm:w-auto px-8 py-3.5 bg-[#a435f0] hover:bg-[#8710d8] text-white font-bold text-sm rounded-lg shadow-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+                          >
+                            <span>Proceed to Next Chapter</span>
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={handleRetakeQuiz}
+                            className="w-full sm:w-auto px-5 py-3.5 bg-[#2d2f31] hover:bg-[#3e4143] text-slate-300 text-xs font-semibold rounded-lg border border-[#3e4143] transition-colors"
+                          >
+                            Review & Retake
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* FAILED CARD (< 37%) */
+                      <div className="max-w-xl space-y-4">
+                        <div className="w-16 h-16 rounded-full bg-red-500/20 text-red-400 border-2 border-red-500 mx-auto flex items-center justify-center">
+                          <AlertCircle className="w-8 h-8" />
+                        </div>
+                        <span className="text-xs font-mono font-bold uppercase tracking-widest text-red-400 block">
+                          Passing Standard Not Met (&lt; 37%)
+                        </span>
+                        <h3 className="text-2xl font-black text-white">
+                          Assessment Standard Not Achieved
+                        </h3>
+                        <p className="text-3xl font-mono font-black text-red-400">
+                          {quizResultScore}% Score (Passing mark: 37%)
+                        </p>
+                        <p className="text-sm text-slate-300 leading-relaxed">
+                          A minimum score of 37% is mandatory to move to the next chapter. The following section remains locked until you successfully reattempt the assessment.
+                        </p>
+
+                        <div className="pt-3">
+                          <button
+                            onClick={handleRetakeQuiz}
+                            className="px-8 py-3.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-sm rounded-lg shadow-xl transition-all cursor-pointer flex items-center justify-center gap-2 mx-auto"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                            <span>Retake Exam Option (Try Again)</span>
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                )}
 
-        {/* TAB 2: OVERVIEW & SOP (Real Lesson Content, Biochemistry & Downloadable PDF Cards) */}
-        {activeTab === 'overview' && (
-          <div className="p-6 space-y-6">
-            {/* Header info */}
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-700 bg-blue-100 px-2.5 py-1 rounded">
-                  {currentModule.newsletterRange} · Lesson {selectedLessonIndex + 1} of {currentModule.lessons.length}
-                </span>
-                <span className="text-xs font-semibold text-slate-600">
-                  Lead Instructor: <strong className="text-slate-900">Dr. Chef Supritam Basu, PhD, CEC</strong>
-                </span>
+                {/* Quiz Navigation Footer */}
+                {!quizSubmitted && (
+                  <div className="border-t border-[#3e4143] pt-4 mt-6 flex items-center justify-between">
+                    <button
+                      onClick={() => setCurrentQuizQuestionIdx(prev => Math.max(0, prev - 1))}
+                      disabled={currentQuizQuestionIdx === 0}
+                      className="px-4 py-2 rounded text-xs font-bold text-white bg-[#2d2f31] hover:bg-[#3e4143] disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                    >
+                      Previous Question
+                    </button>
+
+                    {currentQuizQuestionIdx < currentQuiz.questions.length - 1 ? (
+                      <button
+                        onClick={() => setCurrentQuizQuestionIdx(prev => prev + 1)}
+                        className="px-6 py-2 rounded text-xs font-bold text-white bg-[#a435f0] hover:bg-[#8710d8] transition-colors"
+                      >
+                        Next Question
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleSubmitQuiz}
+                        disabled={Object.keys(selectedAnswers).length < currentQuiz.questions.length}
+                        className="px-6 py-2 rounded text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 transition-colors shadow-md"
+                      >
+                        Submit 10-Question Quiz
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
+            ) : (
+              /* --- VIDEO LECTURE PLAYER WITH REAL SLIDE PRESENTATION VISUALS (Exact Image 1, 5, 9) --- */
+              <div className="relative aspect-video w-full flex items-center justify-center overflow-hidden group">
+                {/* 1. REAL SLIDE CANVAS (The Visual presentation deck requested by user) */}
+                <div className="absolute inset-0 bg-[#f7f9fa] text-slate-900 p-6 sm:p-10 flex flex-col justify-between overflow-hidden">
+                  {/* Slide Header: Course program & Title */}
+                  <div className="flex items-start justify-between border-b-2 border-slate-200 pb-3">
+                    <div>
+                      <span className="text-[11px] uppercase tracking-wider font-extrabold text-[#5624d0] block">
+                        {currentSlide.conceptTag}
+                      </span>
+                      <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-slate-900 tracking-tight mt-0.5">
+                        {currentSlide.title}
+                      </h2>
+                    </div>
 
-              <div>
-                <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                  {currentLesson.title}
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  Synthesized from Dr. Chef Supritam Basu’s 252 Zero Waste Kitchen publication series.
-                </p>
-              </div>
-
-              {/* Scrap Metrics */}
-              {currentLesson.scrapWasteMetrics && (
-                <div className="grid grid-cols-3 gap-3 pt-2">
-                  <div className="bg-white p-3 rounded-lg border border-slate-200 text-center">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Waste Diverted</span>
-                    <span className="text-base font-extrabold text-emerald-600">{currentLesson.scrapWasteMetrics.wasteDivertedPercentage}</span>
+                    {/* Academy Mini Brand Badge */}
+                    <div className="hidden sm:flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                      <div className="w-4 h-4 rounded bg-[#a435f0] text-white text-[9px] font-black flex items-center justify-center">SA</div>
+                      <span className="text-xs font-bold text-slate-800">Supritamone Academy</span>
+                    </div>
                   </div>
-                  <div className="bg-white p-3 rounded-lg border border-slate-200 text-center">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Est. Kitchen Savings</span>
-                    <span className="text-base font-extrabold text-blue-600">{currentLesson.scrapWasteMetrics.householdAnnualSavingsUSD}</span>
-                  </div>
-                  <div className="bg-white p-3 rounded-lg border border-slate-200 text-center">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block">CO2 Diverted</span>
-                    <span className="text-base font-extrabold text-indigo-600">{currentLesson.scrapWasteMetrics.co2ReductionKg}</span>
-                  </div>
-                </div>
-              )}
-            </div>
 
-            {/* In-depth Lesson Content Sections */}
-            <div className="space-y-4">
-              {currentLesson.sections?.map((sec, sIdx) => (
-                <div key={sIdx} className="space-y-2">
-                  <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
-                    <span>{sec.heading}</span>
-                  </h4>
-                  <p className="text-xs sm:text-sm text-slate-600 leading-relaxed pl-3.5">
-                    {sec.content}
-                  </p>
+                  {/* Slide Body: Bullets on Left + High-Res Image/Formula on Right */}
+                  <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-6 my-4 items-center">
+                    {/* Left Col: Bullets (Hearts 💛 and Highlighted boxes exactly like image 5 & 9) */}
+                    <div className="md:col-span-7 space-y-3 sm:space-y-4">
+                      {currentSlide.bullets.map((bullet, bIdx) => (
+                        <div key={bIdx} className="flex items-start gap-2.5 text-xs sm:text-sm md:text-base leading-snug sm:leading-relaxed text-slate-800">
+                          <span className="text-amber-500 text-sm sm:text-base shrink-0 select-none">💛</span>
+                          <div className="flex-1">
+                            {renderHighlightedBullet(bullet)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
 
-                  {/* Culinary Formula / Mass-Balance Ratio Box */}
-                  {sec.formulaBox && (
-                    <div className="ml-3.5 mt-2 bg-blue-50/80 border border-blue-200 rounded-xl p-4 text-xs space-y-1.5">
-                      <div className="flex items-center gap-1.5 text-blue-900 font-bold uppercase text-[11px] tracking-wide">
-                        <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                        <span>{sec.formulaBox.title}</span>
-                      </div>
-                      <p className="font-mono text-blue-950 font-medium bg-white/70 p-2 rounded-md border border-blue-100">
-                        {sec.formulaBox.ratioOrStep}
-                      </p>
-                      {sec.formulaBox.safetyNote && (
-                        <p className="text-[11px] text-amber-800 flex items-center gap-1 pt-1">
-                          <ShieldCheck className="w-3.5 h-3.5 shrink-0 text-amber-600" />
-                          <span>HACCP Safety: {sec.formulaBox.safetyNote}</span>
-                        </p>
+                    {/* Right Col: High Quality Visual / Diagram / Metric Card */}
+                    <div className="hidden md:flex md:col-span-5 flex-col items-center justify-center">
+                      {currentSlide.visualImage && (
+                        <div className="w-full max-w-sm rounded-xl overflow-hidden shadow-lg border border-slate-200 bg-white p-2">
+                          <img 
+                            src={currentSlide.visualImage} 
+                            alt={currentSlide.title} 
+                            className="w-full h-40 object-cover rounded-lg"
+                          />
+                          {currentSlide.visualCaption && (
+                            <p className="text-[11px] text-slate-500 italic text-center mt-2">
+                              {currentSlide.visualCaption}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {currentSlide.keyMetricOrFormula && (
+                        <div className="mt-3 w-full max-w-sm bg-gradient-to-r from-amber-50 to-amber-100/60 border border-amber-300 rounded-xl p-3 text-left">
+                          <span className="text-[10px] uppercase font-bold text-amber-900 block tracking-wider">
+                            {currentSlide.keyMetricOrFormula.label}
+                          </span>
+                          <span className="text-lg font-black text-slate-900 block font-mono">
+                            {currentSlide.keyMetricOrFormula.value}
+                          </span>
+                          <span className="text-[10px] text-slate-600 block">
+                            {currentSlide.keyMetricOrFormula.subtext}
+                          </span>
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                  </div>
 
-            {/* Key Takeaways */}
-            {currentLesson.keyTakeaways?.length > 0 && (
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                <h5 className="font-bold text-xs uppercase tracking-wider text-slate-800 mb-2 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Chef Brigade Core Takeaways</span>
-                </h5>
-                <ul className="space-y-1.5 text-xs text-slate-600">
-                  {currentLesson.keyTakeaways.map((takeaway, tIdx) => (
-                    <li key={tIdx} className="flex items-start gap-2">
-                      <span className="text-blue-600 font-bold">•</span>
-                      <span>{takeaway}</span>
-                    </li>
-                  ))}
-                </ul>
+                  {/* Slide Footer */}
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-200 pt-2 font-mono">
+                    <span>Dr. Chef Supritam Basu, PhD, CEC · Facilitation & Sustainable Gastronomy</span>
+                    <span>Slide {currentSlideIdx + 1} of {currentLecture.slides.length}</span>
+                  </div>
+                </div>
+
+                {/* 2. INSTRUCTOR PICTURE-IN-PICTURE (Top Right as in Image 5 & 9) */}
+                <div className="absolute top-4 right-4 z-20 w-36 sm:w-44 aspect-video bg-[#1c1d1f] rounded-lg border-2 border-white/20 shadow-2xl overflow-hidden flex flex-col justify-end p-2 pointer-events-none">
+                  {/* Subtle video background representation */}
+                  <div className="absolute inset-0 bg-gradient-to-br from-slate-800 via-slate-900 to-black flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-full bg-[#a435f0] text-white font-bold flex items-center justify-center shadow-md">
+                      SB
+                    </div>
+                  </div>
+
+                  {/* Camera overlay bar */}
+                  <div className="relative z-10 bg-black/80 backdrop-blur-xs px-2 py-1 rounded text-[10px] flex items-center justify-between text-white">
+                    <span className="truncate font-semibold">Dr. Chef Basu</span>
+                    {isPlaying && !isMuted ? (
+                      <div className="flex items-center gap-0.5 ml-1">
+                        <span className="w-1 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                        <span className="w-1 h-3 bg-emerald-400 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1 h-1.5 bg-emerald-400 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+                      </div>
+                    ) : (
+                      <span className="text-[8px] text-slate-400">Host</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 3. CENTER BIG PLAY BUTTON (Matching Image 1) */}
+                {!isPlaying && (
+                  <button
+                    onClick={handleTogglePlay}
+                    className="w-18 h-18 sm:w-20 sm:h-20 rounded-full bg-black/80 hover:bg-black text-white flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all z-20 cursor-pointer border border-white/20"
+                    aria-label="Play video"
+                  >
+                    <Play className="w-9 h-9 fill-white ml-1 text-white" />
+                  </button>
+                )}
+
+                {/* 4. SUBTITLES / CLOSED CAPTIONS BANNER (Matching Image 5 & 9) */}
+                {showCaptions && currentCaption && (
+                  <div className="absolute bottom-14 left-4 right-4 z-20 flex justify-center pointer-events-none">
+                    <div className="bg-black/85 text-white text-xs sm:text-sm font-medium px-4 py-2 rounded-lg max-w-xl text-center shadow-2xl backdrop-blur-xs border border-white/10 leading-relaxed">
+                      {currentCaption.text}
+                    </div>
+                  </div>
+                )}
+
+                {/* 5. PURPLE TOGGLE BUTTON FOR SIDEBAR ON RIGHT EDGE (Matches Image 1 & 5 `<` / `>`) */}
+                <button
+                  onClick={() => setIsSidebarOpen(prev => !prev)}
+                  className="absolute right-0 top-1/2 -translate-y-1/2 z-30 w-6 h-12 bg-[#a435f0] hover:bg-[#8710d8] text-white flex items-center justify-center rounded-l-md shadow-lg transition-transform cursor-pointer"
+                  title={isSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+                >
+                  {isSidebarOpen ? (
+                    <ChevronRight className="w-4 h-4" />
+                  ) : (
+                    <ChevronLeft className="w-4 h-4" />
+                  )}
+                </button>
+
+                {/* 6. BOTTOM CUSTOM VIDEO CONTROLS BAR (Exact Udemy layout from Image 1) */}
+                <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/90 to-transparent p-2 pt-6 z-20 flex flex-col gap-1.5 opacity-90 hover:opacity-100 transition-opacity">
+                  {/* Purple scrubber bar */}
+                  <div
+                    onClick={handleSeek}
+                    className="w-full bg-white/20 hover:bg-white/30 h-1 hover:h-1.5 rounded-full overflow-hidden cursor-pointer transition-all relative"
+                  >
+                    <div 
+                      className="bg-[#a435f0] h-full rounded-full transition-all duration-100"
+                      style={{ width: `${(currentTimeSeconds / totalDurationSeconds) * 100}%` }}
+                    />
+                  </div>
+
+                  {/* Buttons Row */}
+                  <div className="flex items-center justify-between text-white text-xs px-1">
+                    {/* Left: Play/Pause, Rewind 5s, Speed, Forward 5s, Time */}
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={handleTogglePlay}
+                        className="hover:text-[#a435f0] transition-colors cursor-pointer"
+                        title={isPlaying ? 'Pause' : 'Play'}
+                      >
+                        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
+                      </button>
+
+                      {/* Rewind 5s */}
+                      <button
+                        onClick={handleRewind5s}
+                        className="hover:text-slate-200 transition-colors cursor-pointer"
+                        title="Rewind 5 seconds"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Playback Speed selector */}
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowSpeedMenu(prev => !prev)}
+                          className="font-bold text-[11px] px-1.5 py-0.5 rounded hover:bg-white/10 cursor-pointer"
+                        >
+                          {playbackSpeed}x
+                        </button>
+                        {showSpeedMenu && (
+                          <div className="absolute bottom-full left-0 mb-2 bg-[#1c1d1f] border border-[#3e4143] rounded-lg shadow-xl py-1 z-50 text-xs w-20">
+                            {[0.75, 1, 1.25, 1.5, 2].map(speed => (
+                              <button
+                                key={speed}
+                                onClick={() => {
+                                  setPlaybackSpeed(speed);
+                                  setShowSpeedMenu(false);
+                                }}
+                                className={`w-full px-3 py-1 text-left hover:bg-[#2d2f31] ${playbackSpeed === speed ? 'text-[#a435f0] font-bold' : 'text-white'}`}
+                              >
+                                {speed}x
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Forward 5s */}
+                      <button
+                        onClick={handleForward5s}
+                        className="hover:text-slate-200 transition-colors cursor-pointer"
+                        title="Forward 5 seconds"
+                      >
+                        <RotateCw className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Time display: 0:13 / 27:41 */}
+                      <span className="font-mono text-[11px] text-slate-300">
+                        {formatSeconds(currentTimeSeconds)} / {formatSeconds(totalDurationSeconds)}
+                      </span>
+                    </div>
+
+                    {/* Right: Volume, CC, Settings, Fullscreen */}
+                    <div className="flex items-center gap-3">
+                      {/* Audio mute */}
+                      <button
+                        onClick={() => {
+                          setIsMuted(prev => !prev);
+                          if (isMuted) audioNarrator.playSound('click');
+                        }}
+                        className="hover:text-white text-slate-300 transition-colors cursor-pointer"
+                        title={isMuted ? 'Unmute' : 'Mute'}
+                      >
+                        {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
+                      </button>
+
+                      {/* Closed Captions CC */}
+                      <button
+                        onClick={() => setShowCaptions(prev => !prev)}
+                        className={`font-mono text-[11px] font-bold px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
+                          showCaptions ? 'text-white border-b-2 border-[#a435f0]' : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Toggle subtitles (CC)"
+                      >
+                        CC
+                      </button>
+
+                      {/* Settings */}
+                      <button className="hover:text-white text-slate-300 transition-colors" title="Settings">
+                        <Settings className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Fullscreen */}
+                      <button className="hover:text-white text-slate-300 transition-colors" title="Fullscreen">
+                        <Maximize2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* BELOW VIDEO TABS BAR (Matching Image 1, 6, 7) */}
+          <div className="border-b border-slate-200 bg-white px-6 flex items-center gap-6 overflow-x-auto shrink-0 select-none">
+            {/* Search Icon */}
+            <button className="text-slate-500 hover:text-slate-900 py-3.5">
+              <Search className="w-4 h-4" />
+            </button>
+
+            {/* Tab Links */}
+            {(['overview', 'qa', 'notes', 'announcements', 'reviews'] as const).map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`py-3.5 text-xs sm:text-sm font-bold tracking-tight capitalize transition-colors relative cursor-pointer ${
+                  activeTab === tab
+                    ? 'text-slate-900 border-b-2 border-slate-900'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {tab === 'qa' ? 'Q&A' : tab}
+              </button>
+            ))}
+
+            <button className="py-3.5 text-xs sm:text-sm font-semibold text-slate-500 hover:text-slate-900 cursor-pointer">
+              Learning tools
+            </button>
+          </div>
+
+          {/* TAB CONTENT PANELS */}
+          <div className="p-6 sm:p-8 space-y-8 flex-1 bg-white text-slate-900">
+            {/* TAB 1: OVERVIEW (Matching Image 7 & 8) */}
+            {activeTab === 'overview' && (
+              <div className="space-y-8 max-w-4xl">
+                {/* Course Headline */}
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-bold text-slate-900 leading-snug">
+                    Lead any kitchen to zero waste: master chef training, scrap recovery formulas, fermentation kinetics, circular menu engineering
+                  </h2>
+
+                  {/* Rating & Stats row (Image 7) */}
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 mt-3">
+                    <div className="flex items-center gap-1 font-bold text-amber-700">
+                      <span>4.8</span>
+                      <div className="flex text-amber-500">
+                        <Star className="w-3.5 h-3.5 fill-current" />
+                        <Star className="w-3.5 h-3.5 fill-current" />
+                        <Star className="w-3.5 h-3.5 fill-current" />
+                        <Star className="w-3.5 h-3.5 fill-current" />
+                        <Star className="w-3.5 h-3.5 fill-current" />
+                      </div>
+                      <span className="text-slate-500 font-normal underline">(1,420 ratings)</span>
+                    </div>
+                    <span>·</span>
+                    <span className="font-semibold text-slate-800">12,850 Students</span>
+                    <span>·</span>
+                    <span>19.5 hours Total</span>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-xs text-slate-500 mt-2 font-mono">
+                    <span>Last updated November 2026</span>
+                    <span>·</span>
+                    <span>English</span>
+                    <span>·</span>
+                    <span>English [Auto]</span>
+                  </div>
+                </div>
+
+                {/* Schedule learning time banner card (Exact Image 7) */}
+                <div className="p-4 sm:p-5 rounded-xl border border-slate-200 bg-slate-50/70 flex items-start gap-4 shadow-2xs">
+                  <div className="p-2.5 rounded-full bg-white border border-slate-200 text-slate-700 shrink-0">
+                    <Clock className="w-5 h-5 text-slate-800" />
+                  </div>
+                  <div className="space-y-1.5 flex-1">
+                    <h4 className="text-sm font-bold text-slate-900">Schedule learning time</h4>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Learning a little each day adds up. Research shows that students who make learning a habit are more likely to reach their goals. Set time aside to learn and get reminders using your learning scheduler.
+                    </p>
+                    <div className="flex items-center gap-3 pt-2">
+                      <button className="px-3.5 py-1.5 bg-[#a435f0] hover:bg-[#8710d8] text-white text-xs font-bold rounded transition-colors cursor-pointer">
+                        Get started
+                      </button>
+                      <button className="text-xs text-slate-500 hover:text-slate-800 font-semibold cursor-pointer">
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* By the numbers grid (Exact Image 7) */}
+                <div className="border-t border-slate-200 pt-6">
+                  <h3 className="text-sm font-bold text-slate-900 mb-4">By the numbers</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                    <div>
+                      <span className="text-slate-500 block">Skill level:</span>
+                      <span className="font-bold text-slate-900">All Levels</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Students:</span>
+                      <span className="font-bold text-slate-900">12,850</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Languages:</span>
+                      <span className="font-bold text-slate-900">English</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Captions:</span>
+                      <span className="font-bold text-slate-900">Yes</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Practice tests:</span>
+                      <span className="font-bold text-slate-900">6 Comprehensive</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Questions:</span>
+                      <span className="font-bold text-slate-900">60 (10 per Quiz)</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Lectures:</span>
+                      <span className="font-bold text-slate-900">12 Chapters</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Video:</span>
+                      <span className="font-bold text-slate-900">19.5 total hours</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Certificates section (Exact Image 7) */}
+                <div className="border-t border-slate-200 pt-6">
+                  <h3 className="text-sm font-bold text-slate-900 mb-2">Certificates</h3>
+                  <p className="text-xs text-slate-600 mb-3">
+                    Get Supritamone Academy certificate by completing entire course and passing all section assessments with ≥ 37%.
+                  </p>
+                  <button
+                    onClick={onOpenCertify}
+                    className="px-4 py-2 border border-[#a435f0] text-[#a435f0] hover:bg-[#a435f0]/5 text-xs font-bold rounded transition-colors cursor-pointer"
+                  >
+                    Supritamone Academy Certificate
+                  </button>
+                </div>
+
+                {/* Features (Image 7) */}
+                <div className="border-t border-slate-200 pt-6 flex items-center gap-2 text-xs text-slate-700">
+                  <span className="font-bold">Features:</span>
+                  <span>Available on <strong className="text-slate-900">iOS</strong> and <strong className="text-slate-900">Android</strong></span>
+                </div>
+
+                {/* Description (Image 7) */}
+                <div className="border-t border-slate-200 pt-6 space-y-3">
+                  <h3 className="text-sm font-bold text-slate-900">Description</h3>
+                  <p className="text-xs text-slate-500 italic">This course contains the use of artificial intelligence and professional culinary science.</p>
+                  <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
+                    297 tools for kitchen waste reduction and culinary sustainability in one mastercourse: 233 ready-to-use Standard Operating Procedures (SOPs), knife yield formulas, wild fermentation protocols, and tare-weighted station variance logs.
+                  </p>
+                </div>
+
+                {/* Instructor Profile (Exact Image 8) */}
+                <div className="border-t border-slate-200 pt-6 space-y-4">
+                  <h3 className="text-sm font-bold text-slate-900">Instructor</h3>
+                  <div className="flex items-start gap-4">
+                    <div className="w-16 h-16 rounded-full bg-[#a435f0] text-white flex items-center justify-center font-bold text-xl shadow-md shrink-0">
+                      SB
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-base font-bold text-[#a435f0] hover:underline cursor-pointer">
+                        Dr. Chef Supritam Basu, PhD, CEC
+                      </h4>
+                      <p className="text-xs text-slate-600 font-medium">
+                        Executive Chef, Food Sustainability Author & Dean
+                      </p>
+                      <div className="flex items-center gap-3 text-xs text-slate-500 pt-1">
+                        <span className="flex items-center gap-1 font-semibold text-slate-800">
+                          <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                          4.8 Instructor Rating
+                        </span>
+                        <span>·</span>
+                        <span>12,850 Students</span>
+                        <span>·</span>
+                        <span>1 Course</span>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
+                    Dr. Chef Supritam Basu is an international culinary educator, author of the 252-issue series "The Zero Waste Kitchen", and Dean of Sustainable Gastronomy at Supritamone Academy. Officially accredited under The CPD Group Approved Provider #791463 and ISO 9001:2015 Quality Management standards.
+                  </p>
+                </div>
               </div>
             )}
 
-            {/* Module-Specific Standard Operating Procedures & Formulation PDFs */}
-            <div>
-              <div className="flex items-center justify-between mb-3 pt-2">
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900">
-                    Module {currentModule.moduleNumber} Standard Operating Procedures & Formulations
+            {/* TAB 2: NOTES (Exact Image 6) */}
+            {activeTab === 'notes' && (
+              <div className="space-y-6 max-w-3xl">
+                {/* Note creation box (Image 6) */}
+                <div className="flex items-start gap-3">
+                  {/* Timestamp pill */}
+                  <span className="font-mono font-bold text-xs bg-slate-900 text-white px-2.5 py-1 rounded-full shrink-0 mt-1">
+                    {formatSeconds(currentTimeSeconds)}
+                  </span>
+
+                  {/* WYSIWYG note card */}
+                  <div className="flex-1 border-2 border-slate-300 focus-within:border-[#a435f0] rounded-xl p-3 bg-white shadow-2xs space-y-3">
+                    {/* Toolbar */}
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-2 text-xs text-slate-600">
+                      <div className="flex items-center gap-3">
+                        <span className="font-semibold cursor-pointer hover:text-slate-900">Styles v</span>
+                        <span className="font-bold cursor-pointer hover:text-slate-900">B</span>
+                        <span className="italic cursor-pointer hover:text-slate-900">I</span>
+                        <span className="cursor-pointer hover:text-slate-900">1.</span>
+                        <span className="cursor-pointer hover:text-slate-900">•</span>
+                        <span className="font-mono cursor-pointer hover:text-slate-900">&lt;&gt;</span>
+                      </div>
+                      <span className="text-[11px] font-mono text-slate-400">
+                        {1000 - newNoteContent.length}
+                      </span>
+                    </div>
+
+                    {/* Text area */}
+                    <textarea
+                      value={newNoteContent}
+                      onChange={(e) => setNewNoteContent(e.target.value.slice(0, 1000))}
+                      placeholder={`Add a note at ${formatSeconds(currentTimeSeconds)}...`}
+                      rows={3}
+                      className="w-full text-xs sm:text-sm text-slate-900 focus:outline-none resize-none leading-relaxed"
+                    />
+
+                    {/* Action buttons */}
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        onClick={() => setNewNoteContent('')}
+                        className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-900 font-semibold cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleSaveNote}
+                        disabled={!newNoteContent.trim()}
+                        className="px-4 py-1.5 bg-[#a435f0] hover:bg-[#8710d8] disabled:opacity-40 text-white text-xs font-bold rounded transition-colors cursor-pointer"
+                      >
+                        Save note
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Saved notes list */}
+                <div className="space-y-4 pt-4 border-t border-slate-200">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Saved Lecture Notes ({notesList.length})
                   </h4>
-                  <p className="text-xs text-slate-500">
-                    Official culinary protocols authored by Dr. Chef Supritam Basu. Downloadable for your kitchen brigade.
+
+                  {notesList.map(note => (
+                    <div key={note.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <button
+                          onClick={() => handleJumpToNote(note.timestampSeconds)}
+                          className="flex items-center gap-1.5 bg-slate-900 hover:bg-[#a435f0] text-white text-xs font-mono font-bold px-2.5 py-0.5 rounded-full transition-colors cursor-pointer"
+                        >
+                          <Play className="w-2.5 h-2.5 fill-current" />
+                          <span>{note.timestampFormatted}</span>
+                        </button>
+                        <span className="text-[11px] text-slate-400 font-mono">{note.createdAt}</span>
+                      </div>
+                      <p className="text-xs sm:text-sm text-slate-800 leading-relaxed">
+                        {note.content}
+                      </p>
+                      <span className="text-[10px] text-slate-500 italic block">
+                        Lecture: {note.lectureTitle}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: Q&A */}
+            {activeTab === 'qa' && (
+              <div className="space-y-6 max-w-3xl">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    <input 
+                      type="text" 
+                      placeholder="Search all course questions..."
+                      className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-[#a435f0]"
+                    />
+                  </div>
+                  <button className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shrink-0">
+                    Ask a new question
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                    <h5 className="font-bold text-xs sm:text-sm text-slate-900">
+                      How long can wild lacto-fermented vegetable trimmings be safely held in walk-in cold rooms?
+                    </h5>
+                    <p className="text-xs text-slate-600">
+                      Answered by <strong className="text-[#a435f0]">Dr. Chef Supritam Basu</strong>: Once the pH drops below 4.6 and bubbling stabilizes, sealed crocks at 2°C–4°C hold prime crunch and acidity for 6 to 9 months.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: REVIEWS */}
+            {activeTab === 'reviews' && (
+              <div className="space-y-4 max-w-3xl text-xs sm:text-sm text-slate-700">
+                <div className="flex items-center gap-4 p-4 rounded-xl bg-amber-50 border border-amber-200">
+                  <div className="text-center">
+                    <span className="text-3xl font-black text-amber-900 block">4.8</span>
+                    <div className="flex text-amber-500">
+                      <Star className="w-3 h-3 fill-current" />
+                      <Star className="w-3 h-3 fill-current" />
+                      <Star className="w-3 h-3 fill-current" />
+                      <Star className="w-3 h-3 fill-current" />
+                      <Star className="w-3 h-3 fill-current" />
+                    </div>
+                  </div>
+                  <p className="text-xs text-amber-950">
+                    Course rating based on 1,420 culinary students, commis chefs, and restaurant operators.
                   </p>
                 </div>
               </div>
+            )}
 
-              <div className="space-y-2.5">
-                {(MODULE_SOPS[currentModule.moduleNumber] || MODULE_SOPS[2]).map((sop, sopIdx) => (
-                  <div
-                    key={sopIdx}
-                    className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between hover:bg-slate-100 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                        <FileText className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <p className="font-bold text-slate-900 text-xs sm:text-sm">
-                          {sop.filename}
-                        </p>
-                        <p className="text-[11px] text-slate-500">{sop.size} · {sop.type}</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleDownloadPdf(sop.filename, sop.title)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-white hover:bg-blue-50 border border-blue-200 rounded-lg shadow-2xs transition-all"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Download</span>
-                    </button>
-                  </div>
-                ))}
+            {/* TAB 5: ANNOUNCEMENTS */}
+            {activeTab === 'announcements' && (
+              <div className="space-y-4 max-w-3xl text-xs sm:text-sm text-slate-700">
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-1.5">
+                  <span className="text-[10px] font-mono uppercase text-slate-500 block">November 2026 Update</span>
+                  <h5 className="font-bold text-slate-900 text-sm">Full 252 Newsletter Synthesis & Verified CPD Group Accreditation</h5>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    All 12 modules have been synchronized with the latest commercial kitchen inspection rubric and verified under CPD Group Provider #791463.
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
           </div>
-        )}
+        </div>
 
-        {/* TAB 3: INTERACTIVE QUIZ (Actual Module Assessment Questions) */}
-        {activeTab === 'quiz' && (
-          <div className="p-6 space-y-6">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <div>
-                <span className="text-[10px] uppercase font-bold tracking-wider text-blue-600 block">
-                  Module {currentModule.moduleNumber} Accredited Assessment
-                </span>
-                <h3 className="font-bold text-slate-900 text-base">
-                  {currentModule.title}
-                </h3>
+        {/* RIGHT COLUMN: COLLAPSIBLE "COURSE CONTENT" SIDEBAR (Exact Udemy layout from Images 2, 3, 4) */}
+        {isSidebarOpen && (
+          <aside className="w-full lg:w-96 bg-[#1c1d1f] border-l border-[#2d2f31] flex flex-col z-20 shrink-0 h-full overflow-y-auto">
+            {/* Sidebar Top Header with Tabs & Close X (Image 2) */}
+            <div className="p-3.5 border-b border-[#2d2f31] flex items-center justify-between text-white shrink-0">
+              <div className="flex items-center gap-4 text-xs font-bold">
+                <button
+                  onClick={() => setSidebarTab('content')}
+                  className={`pb-1 border-b-2 transition-colors cursor-pointer ${
+                    sidebarTab === 'content'
+                      ? 'border-[#a435f0] text-white'
+                      : 'border-transparent text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Course content
+                </button>
+                <button
+                  onClick={() => setSidebarTab('ai')}
+                  className={`pb-1 border-b-2 flex items-center gap-1 transition-colors cursor-pointer ${
+                    sidebarTab === 'ai'
+                      ? 'border-[#a435f0] text-white'
+                      : 'border-transparent text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#a435f0]" />
+                  <span>AI Assistant</span>
+                </button>
               </div>
-              <span className="text-xs font-mono font-bold text-slate-700 bg-slate-100 px-3 py-1 rounded-md border border-slate-200">
-                Question {quizQuestionIndex + 1} of {assessmentQuestions.length}
-              </span>
+
+              {/* Close Sidebar X */}
+              <button
+                onClick={() => setIsSidebarOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded"
+                title="Close sidebar"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            {/* Question Card */}
-            <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-4">
-              <h4 className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
-                {currentQuizItem.question} <span className="text-red-500">*</span>
-              </h4>
+            {/* TAB CONTENT: COURSE CONTENT ACCORDION */}
+            {sidebarTab === 'content' ? (
+              <div className="divide-y divide-[#2d2f31] flex-1 overflow-y-auto">
+                {UDEMY_ZERO_WASTE_SECTIONS.map((section, secIdx) => {
+                  const isOpen = openSections[section.id] !== false;
+                  const isUnlocked = isSectionUnlocked(secIdx);
+                  const quizPassed = passedQuizzes.has(section.quiz.id);
 
-              {/* Options */}
-              <div className="space-y-2.5">
-                {currentQuizItem.options.map((option, optIdx) => {
-                  const isSelected = currentQuizAnswer?.selected === optIdx;
-                  let optionStyles = 'border-slate-200 bg-white hover:border-slate-300 text-slate-800';
-
-                  if (currentQuizAnswer?.isSubmitted) {
-                    if (optIdx === currentQuizItem.correctIndex) {
-                      optionStyles = 'border-emerald-500 bg-emerald-50 text-emerald-900 font-semibold';
-                    } else if (isSelected) {
-                      optionStyles = 'border-red-500 bg-red-50 text-red-900';
-                    }
-                  } else if (isSelected) {
-                    optionStyles = 'border-blue-600 bg-blue-50/50 text-blue-900 font-medium';
-                  }
+                  // Count completed lectures in this section
+                  const sectionCompletedLectures = section.lectures.filter(l => completedLectures.has(l.id)).length;
+                  const sectionCompletedTotal = sectionCompletedLectures + (quizPassed ? 1 : 0);
+                  const sectionTotalItems = section.lectures.length + 1; // 2 lectures + 1 quiz
 
                   return (
-                    <div
-                      key={optIdx}
-                      onClick={() => handleSelectQuizOption(optIdx)}
-                      className={`flex items-center gap-3 p-3.5 rounded-lg border text-xs sm:text-sm cursor-pointer transition-all ${optionStyles}`}
-                    >
-                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
-                        isSelected 
-                          ? 'border-blue-600 bg-blue-600 text-white' 
-                          : 'border-slate-300 bg-white'
-                      }`}>
-                        {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                    <div key={section.id} className="text-white">
+                      {/* Section Accordion Header (Matches Image 2 & 3) */}
+                      <div
+                        onClick={() => toggleSectionAccordion(section.id)}
+                        className="p-3.5 bg-[#2d2f31] hover:bg-[#34373a] transition-colors cursor-pointer flex items-start justify-between gap-2"
+                      >
+                        <div className="space-y-0.5 flex-1 pr-2">
+                          <h3 className="text-xs sm:text-sm font-bold text-white leading-snug">
+                            {section.title}
+                          </h3>
+                          <div className="flex items-center gap-2 text-[11px] text-[#8a8b8c]">
+                            <span>{sectionCompletedTotal} / {sectionTotalItems}</span>
+                            <span>|</span>
+                            <span>{section.durationLabel}</span>
+                            {!isUnlocked && (
+                              <span className="flex items-center gap-1 text-amber-400 font-mono text-[10px]">
+                                <Lock className="w-3 h-3" /> Locked
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <button className="text-slate-400 mt-0.5">
+                          {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </button>
                       </div>
-                      <span className="flex-1">{option}</span>
+
+                      {/* Section Items (Lectures & Quiz) */}
+                      {isOpen && (
+                        <div className="bg-[#1c1d1f] divide-y divide-[#2d2f31]/50">
+                          {/* LECTURES (2 per section) */}
+                          {section.lectures.map((lecture, lecIdx) => {
+                            const isCurrent = !isQuizMode && activeSectionIdx === secIdx && activeLectureIdx === lecIdx;
+                            const isDone = completedLectures.has(lecture.id);
+
+                            return (
+                              <div
+                                key={lecture.id}
+                                onClick={() => {
+                                  if (isUnlocked) {
+                                    handleSelectLecture(secIdx, lecIdx);
+                                  }
+                                }}
+                                className={`p-3 transition-colors cursor-pointer flex items-start gap-3 relative ${
+                                  isCurrent
+                                    ? 'bg-[#2b2d30] border-l-4 border-[#a435f0]'
+                                    : 'hover:bg-[#25272a]'
+                                } ${!isUnlocked ? 'opacity-40 pointer-events-none' : ''}`}
+                              >
+                                {/* Checkbox (Image 2) */}
+                                <button
+                                  onClick={(e) => toggleLectureCompletion(lecture.id, e)}
+                                  className="mt-0.5 text-slate-400 hover:text-white shrink-0"
+                                  title={isDone ? 'Mark as incomplete' : 'Mark as complete'}
+                                >
+                                  {isDone ? (
+                                    <div className="w-4 h-4 rounded bg-[#a435f0] text-white flex items-center justify-center">
+                                      <Check className="w-3 h-3 stroke-3" />
+                                    </div>
+                                  ) : (
+                                    <div className="w-4 h-4 rounded border-2 border-slate-500 hover:border-white" />
+                                  )}
+                                </button>
+
+                                {/* Lecture Title & Metadata */}
+                                <div className="flex-1 space-y-1">
+                                  <h4 className={`text-xs leading-snug ${isCurrent ? 'font-bold text-white' : 'text-slate-200'}`}>
+                                    {lecture.title}
+                                  </h4>
+
+                                  <div className="flex items-center justify-between text-[11px] text-[#8a8b8c]">
+                                    <span className="flex items-center gap-1 font-mono">
+                                      <Play className="w-3 h-3 fill-current text-slate-400" />
+                                      {lecture.duration}
+                                    </span>
+
+                                    {/* Resources Pill Button (Exact Image 3 & 4) */}
+                                    {lecture.resources.length > 0 && (
+                                      <div className="relative">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setOpenResourceMenuId(openResourceMenuId === lecture.id ? null : lecture.id);
+                                          }}
+                                          className="flex items-center gap-1 px-2 py-0.5 rounded border border-[#a435f0] text-[#c0c4fc] hover:bg-[#a435f0]/20 text-[10px] font-semibold transition-colors cursor-pointer"
+                                        >
+                                          <FolderOpen className="w-3 h-3 text-[#a435f0]" />
+                                          <span>Resources</span>
+                                          <ChevronDown className="w-2.5 h-2.5" />
+                                        </button>
+
+                                        {/* Dropdown Menu (Matches Image 3 & 4) */}
+                                        {openResourceMenuId === lecture.id && (
+                                          <div 
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="absolute right-0 top-full mt-1 w-64 bg-white text-slate-900 border border-slate-200 rounded-lg shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95"
+                                          >
+                                            {lecture.resources.map(res => (
+                                              <button
+                                                key={res.id}
+                                                onClick={() => {
+                                                  if (res.isExternal && res.url) {
+                                                    window.open(res.url, '_blank');
+                                                  } else {
+                                                    handleDownloadResource(res.filename || `${res.title.replace(/\s+/g, '_')}.pdf`, res.title);
+                                                  }
+                                                  setOpenResourceMenuId(null);
+                                                }}
+                                                className="w-full text-left px-3 py-2 hover:bg-slate-100 rounded text-xs flex items-center justify-between text-slate-800 transition-colors"
+                                              >
+                                                <div className="flex items-center gap-2 truncate">
+                                                  <FileText className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                                  <span className="truncate">{res.title}</span>
+                                                </div>
+                                                {res.isExternal ? (
+                                                  <ExternalLink className="w-3 h-3 text-slate-400 shrink-0" />
+                                                ) : (
+                                                  <Download className="w-3 h-3 text-slate-400 shrink-0" />
+                                                )}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {/* SECTION QUIZ (After every 2 chapters, 10 questions, 37% passing mark) */}
+                          <div
+                            onClick={() => {
+                              if (isUnlocked) {
+                                handleSelectQuiz(secIdx);
+                              }
+                            }}
+                            className={`p-3 transition-colors cursor-pointer flex items-start gap-3 relative ${
+                              isQuizMode && activeSectionIdx === secIdx
+                                ? 'bg-[#2b2d30] border-l-4 border-[#a435f0]'
+                                : 'hover:bg-[#25272a]'
+                            } ${!isUnlocked ? 'opacity-40 pointer-events-none' : ''}`}
+                          >
+                            {/* Quiz Status Checkbox */}
+                            <div className="mt-0.5 shrink-0">
+                              {quizPassed ? (
+                                <div className="w-4 h-4 rounded bg-emerald-600 text-white flex items-center justify-center">
+                                  <Check className="w-3 h-3 stroke-3" />
+                                </div>
+                              ) : !isUnlocked ? (
+                                <Lock className="w-4 h-4 text-slate-500" />
+                              ) : (
+                                <div className="w-4 h-4 rounded border-2 border-[#a435f0]" />
+                              )}
+                            </div>
+
+                            {/* Quiz Title & Passing Threshold */}
+                            <div className="flex-1 space-y-1">
+                              <h4 className={`text-xs leading-snug ${isQuizMode && activeSectionIdx === secIdx ? 'font-bold text-white' : 'text-slate-200'}`}>
+                                {section.quiz.title}
+                              </h4>
+
+                              <div className="flex items-center justify-between text-[11px] text-[#8a8b8c]">
+                                <span className="text-amber-400 font-mono text-[10px] font-semibold">
+                                  10 Questions · 37% Pass Mark
+                                </span>
+
+                                {quizPassed ? (
+                                  <span className="text-emerald-400 font-bold text-[10px]">
+                                    Passed ({quizScores[section.quiz.id] || 90}%)
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 text-[10px]">
+                                    Required to advance
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
-
-              {/* Feedback Explanation */}
-              {currentQuizAnswer?.isSubmitted && (
-                <div className={`p-4 rounded-lg text-xs leading-relaxed ${
-                  currentQuizAnswer.isCorrect
-                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                    : 'bg-amber-50 text-amber-800 border border-amber-200'
-                }`}>
-                  <p className="font-bold mb-1">
-                    {currentQuizAnswer.isCorrect ? '✓ Correct!' : 'Scientific Explanation:'}
+            ) : (
+              /* AI ASSISTANT SIDEBAR TAB */
+              <div className="p-4 space-y-4 flex-1 text-xs text-slate-300">
+                <div className="p-3 rounded-lg bg-[#2d2f31] border border-[#3e4143] space-y-1">
+                  <span className="text-[#a435f0] font-bold block">Chef AI Assistant</span>
+                  <p className="text-[11px] leading-relaxed">
+                    Ask questions regarding Dr. Chef Basu's 252-issue curriculum, station tare logs, or fermentation ratios.
                   </p>
-                  <p>{currentQuizItem.explanation}</p>
                 </div>
-              )}
-            </div>
-
-            {/* Quiz Action Buttons */}
-            <div className="flex items-center justify-between pt-2">
-              <span className="text-xs text-slate-500 font-medium">
-                Pass Threshold: 80% (CPD Diploma Standard)
-              </span>
-
-              <div className="flex items-center gap-3">
-                {!currentQuizAnswer?.isSubmitted ? (
-                  <button
-                    onClick={handleSubmitQuizAnswer}
-                    disabled={currentQuizAnswer?.selected === undefined}
-                    className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:pointer-events-none rounded-lg shadow-xs transition-colors"
-                  >
-                    Submit Answer
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    placeholder="Ask about this lecture..."
+                    className="w-full p-2.5 rounded bg-[#25272a] border border-[#3e4143] text-white text-xs focus:outline-none focus:border-[#a435f0]"
+                  />
+                  <button className="w-full py-2 bg-[#a435f0] hover:bg-[#8710d8] text-white font-bold rounded text-xs transition-colors cursor-pointer">
+                    Submit Question
                   </button>
-                ) : (
-                  <button
-                    onClick={handleNextQuizQuestion}
-                    className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs transition-colors flex items-center gap-1.5"
-                  >
-                    <span>{quizQuestionIndex < assessmentQuestions.length - 1 ? 'Next Question' : 'Complete Module'}</span>
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 4: 252 NEWSLETTER DEEP-DIVE (Synthesized Issues for This Module) */}
-        {activeTab === 'newsletters' && (
-          <div className="p-6 space-y-6">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 block">
-                  Original Publication Synthesized
-                </span>
-                <h3 className="font-bold text-slate-900 text-base">
-                  Module {currentModule.moduleNumber} Newsletters ({currentModule.newsletterRange})
-                </h3>
-              </div>
-
-              <a
-                href="https://www.linkedin.com/newsletters/the-zero-waste-kitchen-7293401149716459520/"
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800"
-              >
-                <span>Read on LinkedIn</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {moduleNewsletters.map((nl) => (
-                <div
-                  key={nl.issueNumber}
-                  className="p-4 rounded-xl border border-slate-200 bg-white hover:border-blue-400 hover:shadow-xs transition-all space-y-2.5"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-                      Issue #{nl.issueNumber}
-                    </span>
-                    <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                      {nl.category}
-                    </span>
-                  </div>
-
-                  <h4 className="font-bold text-slate-900 text-sm leading-snug">
-                    {nl.title}
-                  </h4>
-
-                  <p className="text-xs text-slate-600 leading-relaxed line-clamp-3">
-                    {nl.summary}
-                  </p>
-
-                  <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
-                    <span>Scrap: <strong className="text-slate-800">{nl.primaryScrap}</strong></span>
-                    <span className="text-blue-600 font-semibold">Synthesized in Module {nl.moduleMapped}</span>
-                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 5: DISCUSSION FEED & CHEF Q&A */}
-        {activeTab === 'feed' && (
-          <div className="p-6 space-y-6">
-            <div>
-              <h4 className="font-bold text-slate-900 text-sm">Chef Brigade Discussion & Q&A</h4>
-              <p className="text-xs text-slate-500">
-                Share trial observations with fellow authors, chefs or ask Dr. Chef Supritam Basu.
-              </p>
-            </div>
-
-            {/* Post new question */}
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-              <label className="text-xs font-bold text-slate-800 block">
-                Ask Dr. Chef Supritam Basu about Module {currentModule.moduleNumber}
-              </label>
-              <textarea
-                value={newPostText}
-                onChange={(e) => setNewPostText(e.target.value)}
-                placeholder="Ask about specific scrap formulations, brine salinity, or knife yield variance..."
-                rows={2}
-                className="w-full p-2.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-              <div className="flex justify-end">
-                <button
-                  onClick={() => {
-                    if (!newPostText.trim()) return;
-                    setDiscussionPosts([
-                      {
-                        id: `p-${Date.now()}`,
-                        author: 'Author, Chef (You)',
-                        role: 'Surplus Academy Learner',
-                        date: 'Just now',
-                        text: newPostText
-                      },
-                      ...discussionPosts
-                    ]);
-                    setNewPostText('');
-                  }}
-                  disabled={!newPostText.trim()}
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded-lg flex items-center gap-1.5 transition-colors"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Post to Forum</span>
-                </button>
               </div>
-            </div>
-
-            {/* Existing discussion items */}
-            <div className="space-y-3">
-              {discussionPosts.map((post) => (
-                <div key={post.id} className="p-4 rounded-xl border border-slate-200 bg-white space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-slate-900">{post.author}</span>
-                    <span className="text-[11px] text-slate-400">{post.date}</span>
-                  </div>
-                  <span className="text-[10px] text-blue-600 font-semibold block">{post.role}</span>
-                  <p className="text-xs text-slate-600 leading-relaxed pt-1">{post.text}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+            )}
+          </aside>
         )}
       </div>
     </div>

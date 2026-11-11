@@ -41,8 +41,8 @@ export const SurplusCommunityView: React.FC<SurplusCommunityViewProps> = ({
 
     const userQ: CommunityQuestion = {
       id: `q-${Date.now()}`,
-      authorName: 'Author, Chef (You)',
-      authorRole: 'Author, Chef · Sustainable Kitchen Member',
+      authorName: 'Chef (You)',
+      authorRole: 'Executive Chef · Sustainable Kitchen Member',
       authorAvatar: 'ME',
       datePosted: 'Just now',
       category: newQuestionCategory,
@@ -115,10 +115,10 @@ export const SurplusCommunityView: React.FC<SurplusCommunityViewProps> = ({
               <div className="flex items-center gap-3 text-xs text-slate-400 pt-1">
                 <span className="flex items-center gap-1">
                   <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                  Open Author, Chef Channel
+                  Open Chef Channel
                 </span>
                 <span>•</span>
-                <span className="font-mono text-[11px]">surplus.group.app/channel/qa-channel</span>
+                <span className="font-mono text-[11px]">supritamone.academy/channel/qa-channel</span>
               </div>
             </div>
           </div>
@@ -152,7 +152,7 @@ export const SurplusCommunityView: React.FC<SurplusCommunityViewProps> = ({
 
             <div className="flex items-center justify-between pt-1">
               <span className="text-[11px] text-slate-400">
-                Dr. Chef Basu responds to all verified author, chef questions.
+                Dr. Chef Basu responds to all verified culinary community questions.
               </span>
               <button
                 type="submit"

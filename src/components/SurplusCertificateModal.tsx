@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   X, 
   Download, 
@@ -6,236 +6,331 @@ import {
   Award, 
   CheckCircle2, 
   ShieldCheck, 
-  Share2, 
-  Sparkles,
-  ExternalLink
+  ExternalLink,
+  Copy,
+  Check,
+  Calendar,
+  User,
+  QrCode,
+  FileCheck2,
+  RefreshCw
 } from 'lucide-react';
-import { SupritamoneLogo } from './SupritamoneLogo';
 
 interface SurplusCertificateModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultLearnerName?: string;
   courseTitle?: string;
+  completionDateDefault?: string;
+  customCertId?: string;
 }
 
 export const SurplusCertificateModal: React.FC<SurplusCertificateModalProps> = ({
   isOpen,
   onClose,
-  defaultLearnerName = 'Author, Chef Alex Vance',
-  courseTitle = 'Food Waste Prevention Course for Chefs',
+  defaultLearnerName = 'Supritam Basu', // Defaulted from user login / email basueats@gmail.com
+  courseTitle = 'The Food Waste & Culinary Foundation Course for chefs & Professionals',
+  completionDateDefault = '11/11/2026',
+  customCertId,
 }) => {
-  const [learnerName, setLearnerName] = React.useState(defaultLearnerName);
-  const [issueDate, setIssueDate] = React.useState(() => {
-    return new Date().toLocaleDateString('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  });
-  const [certCode] = React.useState(() => `SA-CPD-${Math.floor(100000 + Math.random() * 900000)}`);
+  const [learnerName, setLearnerName] = useState<string>(defaultLearnerName);
+  const [completionDate, setCompletionDate] = useState<string>(completionDateDefault);
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
+  const [isGeneratingDownload, setIsGeneratingDownload] = useState<boolean>(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Sync if defaultLearnerName changes
+  useEffect(() => {
+    if (defaultLearnerName) {
+      setLearnerName(defaultLearnerName);
+    }
+  }, [defaultLearnerName]);
+
+  const certCode = customCertId || 'CERT-2026-791463';
+  const verificationUrl = `https://thecpdregister.com/verify/791463/${certCode}`;
+
+  // Image source: Exact certificate template uploaded by user
+  const certificateTemplateSrc = '/assets/images/certificate_official_template.png';
+  const certificateFallbackSrc = '/assets/aistudio/White_and_Gold_Simple_Elegant_Appreciation_Certificate_1d955b21.png';
 
   if (!isOpen) return null;
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(verificationUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
+  };
 
   const handlePrint = () => {
     window.print();
   };
 
-  const handleDownloadPdf = () => {
-    const certText = `======================================================
-SUPRITAMONE ACADEMY
-CONTINUING PROFESSIONAL DEVELOPMENT (CPD) ACCREDITED
-======================================================
+  // High-Resolution 2000 x 1414 PNG Download using HTML5 Canvas
+  const handleDownloadHighResPng = async () => {
+    setIsGeneratingDownload(true);
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 2000;
+      canvas.height = 1414;
+      const ctx = canvas.getContext('2d');
 
-CERTIFICATE OF PROFESSIONAL MASTERY
-This official diploma certifies that:
+      if (!ctx) {
+        throw new Error('Canvas context unavailable');
+      }
 
-${learnerName.toUpperCase()}
+      // Load original template image
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = certificateTemplateSrc;
 
-Has successfully mastered and completed the comprehensive 18-hour professional kitchen curriculum:
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => {
+          // Try fallback
+          img.src = certificateFallbackSrc;
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error('Failed to load certificate template'));
+        };
+      });
 
-${courseTitle}
+      // 1. Draw entire base template (Zero Waste, borders, logos, signature, all text)
+      ctx.drawImage(img, 0, 0, 2000, 1414);
 
-Core Competencies Mastered:
-1. Commercial 7-Day Kitchen Waste Audit & Tare Logging
-2. Root-to-Stem Vegetable Butchery & Yield Testing
-3. Circular Menu Engineering & Input/Output Pairing
-4. Buffet Overproduction Mitigation & Shallow GN Pan Protocols
-5. Ancient Preservation & Scrap Fermentation Systems
-6. Day-Old Bakery Upcycling & Emulsion Chemistry
+      // 2. Cover the original Name area with clean pure white patch
+      // Coordinates in 2000x1414: center X = 1000, Y = 660 to 750
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(450, 650, 1100, 102);
 
-Verification Code: ${certCode}
-Issued: ${issueDate}
-Accredited CPD Hours: 18.0 CPD Credits
+      // 3. Draw clean gold underline underneath the recipient name
+      ctx.fillStyle = '#c5a059';
+      ctx.fillRect(550, 755, 900, 3);
 
-Signed:
-Dr. Chef Supritam Basu, PhD, CEC
-Dean & Founder, Supritamone Academy
-Author & Lead Researcher, The Zero-Waste Kitchen Masterclass (252 Issues)
+      // 4. Draw Dynamic Learner's Name (centered at X=1000, Y=705)
+      ctx.fillStyle = '#1e242b';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'bold 56px "Times New Roman", Georgia, serif';
+      ctx.fillText(learnerName || 'Supritam Basu', 1000, 705);
 
-Dr. Aris Thorne
-Director of Culinary Accreditation, Global Sustainability Board
-======================================================`;
+      // 5. Cover the original Date text with clean pure white patch
+      // Coordinates: X = 360 to 700, Y = 985 to 1040
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(360, 985, 340, 56);
 
-    const blob = new Blob([certText], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Supritamone-CPD-Certificate-${learnerName.replace(/\s+/g, '-')}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+      // 6. Draw clean gold line under date
+      ctx.fillStyle = '#c5a059';
+      ctx.fillRect(380, 1045, 300, 2);
+
+      // 7. Draw Dynamic Completion Date
+      ctx.fillStyle = '#1e242b';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '600 28px Arial, Helvetica, sans-serif';
+      ctx.fillText(completionDate || '11/11/2026', 530, 1018);
+
+      // 8. Trigger PNG Download
+      const dataUrl = canvas.toDataURL('image/png', 1.0);
+      const link = document.createElement('a');
+      const safeName = (learnerName || 'Supritam_Basu').replace(/[^a-zA-Z0-9]/g, '_');
+      link.download = `Certificate_${safeName}_Zero_Waste.png`;
+      link.href = dataUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Error generating high-res certificate PNG:', err);
+    } finally {
+      setIsGeneratingDownload(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4 backdrop-blur-xs overflow-y-auto">
-      <div className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden my-6">
-        {/* Modal Top Toolbar */}
-        <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <Award className="w-5 h-5 text-amber-400" />
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 print:p-0 print:bg-white animate-in fade-in duration-200">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl overflow-hidden flex flex-col my-auto max-h-[96vh] print:max-h-none print:shadow-none print:border-none print:rounded-none">
+        
+        {/* MODAL HEADER CONTROLS (Hidden on print) */}
+        <div className="px-4 sm:px-6 py-3.5 bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 shrink-0 print:hidden">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-amber-500/20 text-amber-400 rounded-lg border border-amber-500/30">
+              <Award className="w-5 h-5" />
+            </div>
             <div>
-              <h3 className="font-bold text-sm">Supritamone Academy CPD Diploma Generator</h3>
-              <p className="text-[11px] text-slate-400">Official Continuing Professional Development Credential</p>
+              <h3 className="font-bold text-sm sm:text-base leading-tight">
+                Official Zero Waste Certificate of Completion
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                Accredited by The CPD Group (Provider #791463) & ISO 9001:2015 Certified
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2 self-end sm:self-auto">
             <button
-              onClick={handleDownloadPdf}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-colors"
+              onClick={handleDownloadHighResPng}
+              disabled={isGeneratingDownload}
+              className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold text-xs rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>Download Certificate</span>
+              {isGeneratingDownload ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Exporting...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Official PNG (2000px)</span>
+                </>
+              )}
             </button>
+
             <button
               onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-colors border border-slate-700"
+              className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-lg border border-white/20 transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Print</span>
+              <span className="hidden sm:inline">Print / PDF</span>
             </button>
+
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg transition-colors"
+              className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+              title="Close modal"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Name Customizer Banner */}
-        <div className="bg-slate-50 border-b border-slate-200 px-6 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2 flex-1 max-w-md">
-            <span className="font-semibold text-slate-700 shrink-0">Learner Name:</span>
-            <input
-              type="text"
-              value={learnerName}
-              onChange={(e) => setLearnerName(e.target.value)}
-              className="px-3 py-1 bg-white border border-slate-300 rounded-md font-semibold text-slate-900 w-full focus:outline-none focus:ring-1 focus:ring-blue-500"
-              placeholder="Enter your name or head chef's name"
-            />
-          </div>
-          <div className="flex items-center gap-3 text-slate-500">
-            <span>Code: <strong className="font-mono text-slate-800">{certCode}</strong></span>
-            <span>·</span>
-            <span>Date: <strong className="text-slate-800">{issueDate}</strong></span>
-          </div>
-        </div>
-
-        {/* Certificate Display Parchment */}
-        <div className="p-6 sm:p-10 bg-slate-100 flex justify-center">
-          <div className="bg-white w-full max-w-3xl border-8 border-double border-slate-900 p-8 sm:p-12 shadow-xl relative overflow-hidden text-center space-y-6">
-            {/* Subtle Watermark seal */}
-            <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none">
-              <Award className="w-96 h-96 text-slate-900" />
+        {/* CUSTOMIZATION BAR: ONLY NAME AND DATE (As requested by user) */}
+        <div className="px-4 sm:px-6 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0 print:hidden">
+          <div className="flex flex-wrap items-center gap-4">
+            {/* Dynamic Name Input */}
+            <div className="flex items-center gap-2">
+              <label htmlFor="cert-name-input" className="font-bold text-slate-700 flex items-center gap-1">
+                <User className="w-3.5 h-3.5 text-blue-600" />
+                <span>Learner Legal Name:</span>
+              </label>
+              <input
+                id="cert-name-input"
+                type="text"
+                value={learnerName}
+                onChange={(e) => setLearnerName(e.target.value)}
+                placeholder="Enter learner name..."
+                className="px-2.5 py-1 text-xs font-bold text-slate-900 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500 w-48 sm:w-60 shadow-2xs"
+              />
             </div>
 
-            {/* Header Lockup */}
-            <div className="space-y-1 relative z-10 flex flex-col items-center justify-center">
-              <SupritamoneLogo variant="seal" size="md" className="mb-1" />
-              <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">
-                Continuing Professional Development (CPD) Certified
-              </p>
-            </div>
-
-            {/* Title */}
-            <div className="space-y-1">
-              <h1 className="text-2xl sm:text-3xl font-serif font-bold text-slate-900 tracking-tight">
-                Certificate of Culinary Mastery
-              </h1>
-              <p className="text-xs text-slate-500 italic">
-                This certifies that the candidate has satisfied all technical standards in food waste reduction
-              </p>
-            </div>
-
-            {/* Candidate Name */}
-            <div className="py-2 border-b-2 border-slate-900 max-w-md mx-auto">
-              <span className="text-xl sm:text-2xl font-serif font-extrabold text-slate-900 tracking-wide">
-                {learnerName}
-              </span>
-            </div>
-
-            {/* Program details */}
-            <div className="max-w-xl mx-auto space-y-2 text-xs text-slate-700 leading-relaxed">
-              <p>
-                has successfully completed the accredited curriculum and practical laboratory requirements for
-              </p>
-              <p className="font-bold text-sm text-slate-900 uppercase tracking-wide">
-                {courseTitle}
-              </p>
-              <p className="text-[11px] text-slate-500">
-                18.0 Accredited CPD Units · Root-to-Stem Science · Circular Menu Systems · Commercial Kitchen Auditing
-              </p>
-            </div>
-
-            {/* Signatures & Seal */}
-            <div className="pt-6 grid grid-cols-3 items-end gap-4 text-center border-t border-slate-200 mt-6">
-              {/* Signature 1: Dr. Chef Supritam Basu */}
-              <div className="space-y-1">
-                <div className="font-serif italic text-base sm:text-lg text-slate-800 border-b border-slate-300 pb-1">
-                  Dr. Chef Supritam Basu
-                </div>
-                <p className="font-bold text-[11px] text-slate-900">Dr. Chef Supritam Basu</p>
-                <p className="text-[9px] text-slate-500">PhD, CEC · Dean, Supritamone Academy</p>
-              </div>
-
-              {/* Gold Verification Badge */}
-              <div className="flex flex-col items-center justify-center">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-400 via-yellow-300 to-amber-600 text-slate-950 p-1 flex items-center justify-center shadow-md">
-                  <div className="w-full h-full rounded-full border border-amber-900/40 flex flex-col items-center justify-center p-1 text-[8px] font-bold text-center leading-tight">
-                    <ShieldCheck className="w-4 h-4 text-amber-900" />
-                    <span>CPD ACCREDITED</span>
-                  </div>
-                </div>
-                <span className="text-[9px] font-mono text-slate-400 mt-1">{certCode}</span>
-              </div>
-
-              {/* Signature 2: Academic Director */}
-              <div className="space-y-1">
-                <div className="font-serif italic text-base sm:text-lg text-slate-800 border-b border-slate-300 pb-1">
-                  Dr. Aris Thorne
-                </div>
-                <p className="font-bold text-[11px] text-slate-900">Dr. Aris Thorne</p>
-                <p className="text-[9px] text-slate-500">Global Sustainability Board</p>
-              </div>
+            {/* Dynamic Date Input */}
+            <div className="flex items-center gap-2">
+              <label htmlFor="cert-date-input" className="font-bold text-slate-700 flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                <span>Completion Date:</span>
+              </label>
+              <input
+                id="cert-date-input"
+                type="text"
+                value={completionDate}
+                onChange={(e) => setCompletionDate(e.target.value)}
+                placeholder="11/11/2026"
+                className="px-2.5 py-1 text-xs font-semibold text-slate-900 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500 w-32 shadow-2xs font-mono"
+              />
             </div>
           </div>
-        </div>
 
-        {/* Modal Footer */}
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
+          {/* Verification link info */}
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>Digital verification valid across international hospitality employers & Alison LMS.</span>
+            <span className="text-[11px] text-slate-500 font-mono hidden md:inline">
+              Verified ID: {certCode}
+            </span>
+            <button
+              onClick={handleCopyLink}
+              className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded border border-blue-200 transition-colors"
+            >
+              {copiedLink ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+              <span>{copiedLink ? 'Link Copied!' : 'Copy Verification URL'}</span>
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-200 rounded-lg transition-colors"
-          >
-            Close
-          </button>
+        </div>
+
+        {/* CERTIFICATE DISPLAY BODY: EXACT UPLOADED CERTIFICATE TEMPLATE */}
+        <div className="p-3 sm:p-6 overflow-y-auto flex-1 bg-slate-100/70 flex items-center justify-center print:p-0 print:bg-white">
+          <div className="relative w-full max-w-4xl aspect-[2000/1414] bg-white rounded-lg shadow-xl overflow-hidden border border-slate-300 print:shadow-none print:border-none print:rounded-none select-none">
+            
+            {/* 1. EXACT UPLOADED BASE CERTIFICATE IMAGE */}
+            <img
+              src={certificateTemplateSrc}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).src = certificateFallbackSrc;
+              }}
+              alt="Official Zero Waste Certificate of Completion"
+              className="w-full h-full object-contain pointer-events-none"
+            />
+
+            {/* 2. DYNAMIC NAME OVERLAY (Pure white patch over original name + dynamic user name + gold underline) */}
+            <div 
+              className="absolute left-[20%] right-[20%] top-[45.8%] h-[7.5%] flex flex-col items-center justify-center bg-white z-10"
+              style={{ paddingBottom: '2px' }}
+            >
+              <div 
+                className="w-full text-center font-bold text-[#1e242b] leading-none tracking-wide"
+                style={{
+                  fontFamily: '"Times New Roman", Georgia, serif',
+                  fontSize: 'clamp(1.2rem, 3.2vw, 2.75rem)'
+                }}
+              >
+                {learnerName || 'Supritam Basu'}
+              </div>
+              {/* Subtle elegant gold line */}
+              <div className="w-4/5 h-[2px] bg-[#c5a059] mt-1.5 opacity-90" />
+            </div>
+
+            {/* 3. DYNAMIC DATE OVERLAY (Pure white patch over original date text + dynamic date) */}
+            <div 
+              className="absolute left-[17%] w-[18%] top-[69.5%] h-[4.2%] flex items-center justify-center bg-white z-10"
+            >
+              <div 
+                className="font-bold text-[#1e242b] tracking-wider text-center"
+                style={{
+                  fontFamily: 'Arial, Helvetica, sans-serif',
+                  fontSize: 'clamp(0.65rem, 1.4vw, 1.15rem)'
+                }}
+              >
+                {completionDate || '11/11/2026'}
+              </div>
+            </div>
+
+            {/* 4. VERIFIABLE MICRO SERIAL PILL (Non-intrusive metadata in bottom margin) */}
+            <div className="absolute bottom-2 right-4 text-[7px] sm:text-[9px] font-mono text-slate-400 z-10 print:hidden">
+              Reg #791463 · ISO 9001:2015 · thecpdregister.com
+            </div>
+          </div>
+        </div>
+
+        {/* MODAL FOOTER */}
+        <div className="px-4 sm:px-6 py-2.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2 shrink-0 print:hidden">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="text-[11px]">
+              Verifiable certificate ready for annual employer appraisal & HR records.
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleDownloadHighResPng}
+              className="px-3.5 py-1 text-xs font-bold text-slate-800 hover:text-black bg-white hover:bg-slate-100 rounded border border-slate-300 transition-colors cursor-pointer flex items-center gap-1"
+            >
+              <Download className="w-3 h-3" />
+              <span>Save PNG</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="px-4 py-1 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded transition-colors cursor-pointer"
+            >
+              Done
+            </button>
+          </div>
         </div>
       </div>
     </div>

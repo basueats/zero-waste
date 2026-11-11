@@ -61,7 +61,7 @@ export const SurplusQuickWinsView: React.FC<SurplusQuickWinsViewProps> = ({
                 <li className="flex items-center gap-2">✓ Real-time mass-balance and food waste profit loss calculator</li>
                 <li className="flex items-center gap-2">✓ A searchable catalogue of 500+ byproducts with upcycling tips</li>
                 <li className="flex items-center gap-2">✓ A library of 500+ zero-waste recipes (Coffee syrup, Croissant sauce)</li>
-                <li className="flex items-center gap-2">✓ CPD Certified Food Waste Prevention courses for chefs</li>
+                <li className="flex items-center gap-2">✓ Certified Food Waste Prevention courses for chefs</li>
                 <li className="flex items-center gap-2">✓ Downloadable resources, SOP worksheets and kitchen posters</li>
                 <li className="flex items-center gap-2">✓ Quick Wins guides for Prep, Buffet, Plate, and Spoilage waste</li>
                 <li className="flex items-center gap-2">✓ Deep-dive into circular menu engineering</li>
@@ -75,7 +75,7 @@ export const SurplusQuickWinsView: React.FC<SurplusQuickWinsViewProps> = ({
             </h3>
             <ol className="space-y-2 list-decimal list-inside pl-1 text-xs">
               <li><strong>Step 1:</strong> Start with the Quick Wins on the left sidebar to immediately plug the easiest waste leaks in your kitchen.</li>
-              <li><strong>Step 2:</strong> Enroll in the <em>Advanced Diploma in Sustainable Culinary Arts</em> to earn your accredited CPD Diploma.</li>
+              <li><strong>Step 2:</strong> Enroll in the <em>Advanced Diploma in Sustainable Culinary Arts</em> to earn your accredited Professional Culinary Diploma.</li>
               <li><strong>Step 3:</strong> Search the Byproduct Catalogue when handling prep trimmings like pineapple cores, broccoli stems, and day-old croissants.</li>
               <li><strong>Step 4:</strong> Post questions on the <em>Ask Dr. Chef Supritam Basu</em> channel whenever you need custom advice for your restaurant or hotel menu.</li>
             </ol>
@@ -102,7 +102,7 @@ export const SurplusQuickWinsView: React.FC<SurplusQuickWinsViewProps> = ({
       <div className="max-w-3xl mx-auto bg-white p-8 rounded-2xl border border-slate-200 space-y-4">
         <h2 className="text-xl font-bold text-slate-900">Supritamone Academy Helpdesk & Support</h2>
         <p className="text-xs text-slate-600 leading-relaxed">
-          Need help with your team membership, enterprise onboarding, CPD certificate verification, or app access?
+          Need help with your team membership, enterprise onboarding, certificate verification, or app access?
         </p>
         <div className="p-4 bg-blue-50 rounded-xl border border-blue-200 text-xs text-blue-900 space-y-2">
           <p className="font-bold">Contact Supritamone Academy Support:</p>

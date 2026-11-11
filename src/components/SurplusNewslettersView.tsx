@@ -67,7 +67,7 @@ export const SurplusNewslettersView: React.FC<SurplusNewslettersViewProps> = ({
                 Accredited Course Curriculum
               </span>
               <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                Level 7 · CPD Certified
+                Level 7 · Certified Diploma
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">

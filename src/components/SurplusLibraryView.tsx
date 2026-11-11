@@ -56,8 +56,8 @@ export const SurplusLibraryView: React.FC<SurplusLibraryViewProps> = ({ searchQu
 
   const handleDownloadPdf = (title: string, content: string) => {
     const text = `SUPRITAMONE ACADEMY - DR. CHEF SUPRITAM BASU, PhD, CEC
-Dean of Sustainable Gastronomy & Author, Chef Culinary Science
-International CPD Certified Diploma Curriculum (Level 7)
+Dean of Sustainable Gastronomy & Executive Culinary Science
+International Certified Diploma Curriculum (Level 7)
 Synthesized from 252 Issues of "The Zero Waste Kitchen"
 
 DOCUMENT: ${title.toUpperCase()}
@@ -75,7 +75,7 @@ BRIGADE FOOD SAFETY & CCP REQUIREMENTS:
 - Maintain hot holding >= 63°C or rapid chilling <= 3°C within 90 minutes.
 - Ambient fermentations must reach verified pH < 4.2 within 72 hours.
 
-Surplus Academy © ${new Date().getFullYear()} · Dr. Chef Supritam Basu · International CPD Certified`;
+Supritamone Academy © ${new Date().getFullYear()} · Dr. Chef Supritam Basu · Level 7 Certified`;
 
     const blob = new Blob([text], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
@@ -335,7 +335,7 @@ Surplus Academy © ${new Date().getFullYear()} · Dr. Chef Supritam Basu · Inte
 
             {/* Chef Tip & Science */}
             <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 leading-relaxed space-y-1.5">
-              <p className="font-bold">Dr. Chef Supritam Basu's Author, Chef Pro Tip:</p>
+              <p className="font-bold">Dr. Chef Supritam Basu's Executive Chef Pro Tip:</p>
               <p>{selectedRecipe.chefTips}</p>
               {selectedRecipe.scientificNote && (
                 <p className="text-[11px] text-amber-800 font-mono pt-1.5 border-t border-amber-200">

@@ -123,16 +123,16 @@ export interface QuickWinGuide {
 export const surplusCourses: SurplusCourse[] = [
   {
     id: 'food-waste-prevention-chefs',
-    title: 'The Zero Waste Kitchen: Master Author, Chef Diploma (Issues #1–#252)',
+    title: 'The Zero Waste Kitchen: Master Chef Diploma (Issues #1–#252)',
     subtitle: 'The comprehensive 12-Module master curriculum synthesized from all 252 issues of "The Zero Waste Kitchen" publication series by Dr. Chef Supritam Basu, PhD, CEC. Covers biochemical waste auditing, cellular root-to-stem butchery, collagen scrap extraction, wild scrap fermentation, and circular menu engineering.',
-    badge: 'CPD Accredited · Level 7',
+    badge: 'Certified Diploma · Level 7',
     duration: '18 hours · 12 Modules',
     lessonCount: 12,
     progressPercent: 14,
     coverImage: heroSustainableKitchenImg,
     isMasterCourse: true,
     instructor: 'Dr. Chef Supritam Basu',
-    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, Author, Chef',
+    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, CEC',
     newsletterRange: 'Issues #1 – #252',
     lessons: [
       {
@@ -236,12 +236,12 @@ export const surplusCourses: SurplusCourse[] = [
       },
       {
         id: 'm12',
-        title: 'Module 12: Author, Chef Capstone, HACCP Compliance for Upcycled Byproducts & Final Examination',
+        title: 'Module 12: Executive Capstone, HACCP Compliance for Upcycled Byproducts & Final Examination',
         duration: '110 min',
         newsletterRef: 'Issues #243 – #252',
         description: 'Comprehensive regulatory validation for commercial upcycled foods, critical control point (CCP) hazard analysis, kitchen culture leadership, and the 50-question master examination.',
         scientificConcept: 'HACCP critical limit verification for ambient and cold fermented kitchen scraps.',
-        culinaryFormula: 'CPD Accreditation Requirement: >= 80% passing grade on final exam'
+        culinaryFormula: 'Accreditation Requirement: >= 80% passing grade on final exam'
       }
     ]
   },
@@ -249,13 +249,13 @@ export const surplusCourses: SurplusCourse[] = [
     id: 'how-to-reduce-prep-waste',
     title: 'Course 1: Commercial Prep Yield Optimization & Cellular Root-to-Stem Butchery',
     subtitle: 'Learn how to eliminate 50% of station prep waste through blade bevel mechanics, cellular tissue yield testing, and 3-tier trim station separation. Synthesized from Issues #15 to #45 of "The Zero Waste Kitchen".',
-    badge: 'Author, Chef Skills · Level 6',
+    badge: 'Master Culinary Skills · Level 6',
     duration: '2.5 hours · 7 Modules',
     lessonCount: 7,
     progressPercent: 25,
     coverImage: rootToStemPrepImg,
     instructor: 'Dr. Chef Supritam Basu',
-    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, Author, Chef',
+    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, CEC',
     newsletterRange: 'Issues #15 – #45',
     lessons: [
       {
@@ -333,7 +333,7 @@ export const surplusCourses: SurplusCourse[] = [
     progressPercent: 0,
     coverImage: artisanBreadRicottaImg,
     instructor: 'Dr. Chef Supritam Basu',
-    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, Author, Chef',
+    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, CEC',
     newsletterRange: 'Issues #60 – #85',
     lessons: [
       {
@@ -393,7 +393,7 @@ export const surplusCourses: SurplusCourse[] = [
     progressPercent: 0,
     coverImage: fermentationCrockImg,
     instructor: 'Dr. Chef Supritam Basu',
-    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, Author, Chef',
+    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, CEC',
     newsletterRange: 'Issues #1 – #30',
     lessons: [
       {
@@ -471,7 +471,7 @@ export const surplusCourses: SurplusCourse[] = [
     progressPercent: 0,
     coverImage: boneBrothPotImg,
     instructor: 'Dr. Chef Supritam Basu',
-    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, Author, Chef',
+    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, CEC',
     newsletterRange: 'Issues #90 – #140',
     lessons: [
       {
@@ -540,7 +540,7 @@ export const surplusCourses: SurplusCourse[] = [
     progressPercent: 0,
     coverImage: heroSustainableKitchenImg,
     instructor: 'Dr. Chef Supritam Basu',
-    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, Author, Chef',
+    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, CEC',
     newsletterRange: 'Issues #200 – #235',
     lessons: [
       {
@@ -663,7 +663,7 @@ export const communityQuestions: CommunityQuestion[] = [
 export const monthlyRecordings: MonthlyRecording[] = [
   {
     id: 'rec-march-2026',
-    title: 'Author, Chef Masterclass - March 2026: Biochemical Trim Valorization',
+    title: 'Executive Masterclass - March 2026: Biochemical Trim Valorization',
     date: 'March 2026',
     duration: '58 mins',
     posterImage: '/src/assets/images/hero_sustainable_kitchen_1793976158274.jpg',
@@ -682,7 +682,7 @@ export const monthlyRecordings: MonthlyRecording[] = [
   },
   {
     id: 'rec-february-2026',
-    title: 'Author, Chef Masterclass - February 2026: Buffet Thermodynamics & Portion Calibration',
+    title: 'Executive Masterclass - February 2026: Buffet Thermodynamics & Portion Calibration',
     date: 'February 2026',
     duration: '52 mins',
     posterImage: '/src/assets/images/root_to_stem_prep_1793976158854.jpg',
@@ -701,7 +701,7 @@ export const monthlyRecordings: MonthlyRecording[] = [
   },
   {
     id: 'rec-january-2026',
-    title: 'Author, Chef Masterclass - January 2026: Setting 2026 Zero-Waste Kitchen KPIs',
+    title: 'Executive Masterclass - January 2026: Setting 2026 Zero-Waste Kitchen KPIs',
     date: 'January 2026',
     duration: '61 mins',
     posterImage: '/src/assets/images/bone_broth_pot_1793976160130.jpg',

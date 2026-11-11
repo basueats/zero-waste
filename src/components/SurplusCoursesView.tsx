@@ -59,10 +59,10 @@ export const SurplusCoursesView: React.FC<SurplusCoursesViewProps> = ({
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded">
-              Official Author, Chef Curriculum
+              Zero Waste Kitchen Curriculum
             </span>
             <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-              CPD Certified Level 7
+              Certified Level 7
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
@@ -265,7 +265,7 @@ export const SurplusCoursesView: React.FC<SurplusCoursesViewProps> = ({
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-bold text-slate-900">
-              Author, Chef Culinary Course Tracks
+              Professional Culinary Course Tracks
             </h3>
             <p className="text-xs text-slate-500">
               Specialized deep-dive courses with complete modules, practical SOPs, and culinary formulas.

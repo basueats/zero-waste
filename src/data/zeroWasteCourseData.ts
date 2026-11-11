@@ -4,7 +4,7 @@ export const initialCourseData: CourseOverview = {
   id: 'diploma-zero-waste-kitchen',
   title: 'Diploma in Sustainable Culinary Arts & The Zero Waste Kitchen',
   category: 'Hospitality & Culinary Sustainability',
-  accreditationLevel: 'Accredited CPD / Alison-Standard Diploma',
+  accreditationLevel: 'Accredited Professional Diploma · Level 7',
   totalModules: 12,
   totalHours: 18,
   totalNewslettersCovered: 252,
@@ -41,7 +41,7 @@ export const initialCourseData: CourseOverview = {
             durationSeconds: 50,
             posterImage: '/src/assets/images/hero_sustainable_kitchen_1793976158274.jpg',
             instructor: 'Dr. Chef Supritam Basu',
-            instructorRole: 'Author, Chef & Culinary Sustainability Director',
+            instructorRole: 'Executive Chef & Culinary Sustainability Director',
             videoType: 'masterclass',
             checkpoints: [
               {
@@ -179,7 +179,7 @@ export const initialCourseData: CourseOverview = {
             durationSeconds: 50,
             posterImage: '/src/assets/images/root_to_stem_prep_1793976158854.jpg',
             instructor: 'Dr. Chef Supritam Basu',
-            instructorRole: 'Author, Chef & Culinary Sustainability Director',
+            instructorRole: 'Executive Chef & Culinary Sustainability Director',
             videoType: 'demonstration',
             checkpoints: [
               {
@@ -312,7 +312,7 @@ export const initialCourseData: CourseOverview = {
             durationSeconds: 50,
             posterImage: '/src/assets/images/bone_broth_pot_1793976160130.jpg',
             instructor: 'Dr. Chef Supritam Basu',
-            instructorRole: 'Author, Chef & Culinary Sustainability Director',
+            instructorRole: 'Executive Chef & Culinary Sustainability Director',
             videoType: 'masterclass',
             checkpoints: [
               {
@@ -496,7 +496,7 @@ export const initialCourseData: CourseOverview = {
             durationSeconds: 50,
             posterImage: '/src/assets/images/fermentation_crock_station_1793976159601.jpg',
             instructor: 'Dr. Chef Supritam Basu',
-            instructorRole: 'Author, Chef & Culinary Sustainability Director',
+            instructorRole: 'Executive Chef & Culinary Sustainability Director',
             videoType: 'demonstration',
             checkpoints: [
               {
@@ -622,7 +622,7 @@ export const initialCourseData: CourseOverview = {
             durationSeconds: 32,
             posterImage: '/src/assets/images/artisan_bread_ricotta_1793976160643.jpg',
             instructor: 'Dr. Chef Supritam Basu',
-            instructorRole: 'Author, Chef & Culinary Sustainability Director',
+            instructorRole: 'Executive Chef & Culinary Sustainability Director',
             videoType: 'demonstration',
             checkpoints: [
               {

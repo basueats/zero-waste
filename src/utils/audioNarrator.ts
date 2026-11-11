@@ -69,7 +69,7 @@ class AudioNarrator {
   private ambientOsc: OscillatorNode | null = null;
   private audioCache: Map<string, string> = new Map(); // key -> base64 WAV
   private audioDurationCache: Map<string, number> = new Map(); // key -> duration in seconds
-  private selectedVoice: TTSVoiceName = 'Charon';
+  private selectedVoice: TTSVoiceName = 'Fenrir';
   private currentSessionId: number = 0;
   private progressInterval: any = null;
 
@@ -393,8 +393,8 @@ class AudioNarrator {
       const voice = this.getBestBrowserVoice();
       if (voice) utterance.voice = voice;
 
-      utterance.rate = Math.max(0.85, Math.min(1.2, rate * 0.95));
-      utterance.pitch = 0.95;
+      utterance.rate = Math.max(0.80, Math.min(1.1, rate * 0.90));
+      utterance.pitch = 0.92;
       utterance.volume = Math.max(0, Math.min(1, volume));
 
       const tokens = tokenizeTextIntoWords(text);

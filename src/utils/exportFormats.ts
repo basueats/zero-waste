@@ -201,7 +201,7 @@ export async function exportAlisonPublishingKit(course: CourseOverview) {
   // 4. alison-text-based-modules.md (Sequential Text-Based Reading Modules)
   let textModulesMd = `# Alison Course Text-Based Reading Modules\n`;
   textModulesMd += `## Course: ${course.title}\n`;
-  textModulesMd += `### Total Modules: 12 | Estimated Duration: 18 CPD Hours\n\n`;
+  textModulesMd += `### Total Modules: 12 | Estimated Duration: 18 Instructional Hours (CEU)\n\n`;
 
   course.modules.forEach(m => {
     textModulesMd += `========================================================================\n`;

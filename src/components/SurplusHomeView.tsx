@@ -51,7 +51,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
           </h1>
 
           <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-            Welcome to Supritamone Academy. Access commercial kitchen waste prevention courses, accredited CPD certification, a searchable byproduct catalogue, live mass-balance calculators, and proven zero-waste recipes.
+            Welcome to Supritamone Academy. Access commercial kitchen waste prevention courses, accredited professional certification, a searchable byproduct catalogue, live mass-balance calculators, and proven zero-waste recipes.
           </p>
 
           <div className="pt-2 flex flex-wrap items-center gap-3">
@@ -79,7 +79,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
               onClick={onOpenCertify}
               className="px-4 py-2.5 text-xs font-semibold text-blue-200 bg-blue-900/40 hover:bg-blue-850/60 rounded-lg border border-blue-400/30 transition-colors cursor-pointer"
             >
-              CPD Certificate Status
+              Professional Certificate Status
             </button>
           </div>
         </div>
@@ -134,8 +134,8 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
             <Award className="w-5 h-5 text-purple-600" />
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Accreditation</span>
           </div>
-          <p className="text-2xl font-extrabold text-slate-900">18.0 CPD</p>
-          <p className="text-xs text-slate-500 mt-0.5">Verified Culinary Credits</p>
+          <p className="text-2xl font-extrabold text-slate-900">18.0 CEU</p>
+          <p className="text-xs text-slate-500 mt-0.5">Verified Continuing Education Units</p>
         </div>
       </div>
 

@@ -69,7 +69,7 @@ export const CertificateModal: React.FC<CertificateModalProps> = ({
 
           <div className="flex items-center gap-2 text-slate-500">
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>Accredited CPD Verification: <strong className="font-mono text-slate-800">{certificateId}</strong></span>
+            <span>Official Credential Verification: <strong className="font-mono text-slate-800">{certificateId}</strong></span>
           </div>
         </div>
 
@@ -107,7 +107,7 @@ export const CertificateModal: React.FC<CertificateModalProps> = ({
           </div>
 
           <div className="text-xs text-slate-500 mb-8">
-            Synthesized from 252 Issues of <em>&quot;The Zero Waste Kitchen&quot;</em> · 18 Continuing Professional Development (CPD) Hours · Distinction Grade with {xpPoints} XP
+            Synthesized from 252 Issues of <em>&quot;The Zero Waste Kitchen&quot;</em> · 18.0 Active Instructional Hours (Level 7 Mastery) · Distinction Grade with {xpPoints} XP
           </div>
 
           {/* Signatures & Seal */}
