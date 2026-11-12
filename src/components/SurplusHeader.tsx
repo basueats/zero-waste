@@ -22,6 +22,10 @@ interface SurplusHeaderProps {
   onSelectNavTab: (tab: string) => void;
   isMobileDrawerOpen?: boolean;
   onToggleMobileDrawer?: () => void;
+  learnerName?: string;
+  learnerEmail?: string;
+  isCertificateUnlocked?: boolean;
+  onOpenAccountModal?: () => void;
 }
 
 export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
@@ -35,7 +39,18 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
   onSelectNavTab,
   isMobileDrawerOpen,
   onToggleMobileDrawer,
+  learnerName = 'Supritam Basu',
+  learnerEmail = 'basueats@gmail.com',
+  isCertificateUnlocked = false,
+  onOpenAccountModal,
 }) => {
+  const initials = React.useMemo(() => {
+    const parts = (learnerName || learnerEmail || 'SB').trim().split(/[\s.@_-]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return (parts[0]?.slice(0, 2) || 'SB').toUpperCase();
+  }, [learnerName, learnerEmail]);
   const [showNotifications, setShowNotifications] = React.useState(false);
   const [showAdminMenu, setShowAdminMenu] = React.useState(false);
 
@@ -214,9 +229,9 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
                     <div className="flex items-start gap-2.5 p-2 hover:bg-slate-50 rounded-lg">
                       <div className="w-2 h-2 rounded-full bg-slate-300 mt-1 shrink-0" />
                       <div>
-                        <p className="font-semibold text-slate-800">Monthly Call Recording: March 2026</p>
-                        <p className="text-slate-500 text-[11px] mt-0.5">Now available in the Recordings section (58 mins).</p>
-                        <span className="text-[10px] text-slate-400">3 days ago</span>
+                        <p className="font-semibold text-slate-800">Academy Support: supritam.basu@supritamone.com</p>
+                        <p className="text-slate-500 text-[11px] mt-0.5">Direct culinary curriculum & verification support is available via email.</p>
+                        <span className="text-[10px] text-slate-400">Updated</span>
                       </div>
                     </div>
                   </div>
@@ -224,30 +239,52 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
               )}
             </div>
 
-            {/* User Profile Avatar */}
-            <div className="relative">
+            {/* User Profile Avatar & Account Switcher */}
+            <div className="relative flex items-center gap-2">
+              {onOpenAccountModal && (
+                <button
+                  onClick={onOpenAccountModal}
+                  className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 text-xs font-semibold text-slate-700 transition-colors cursor-pointer"
+                  title="Update learner name or email for your certificate"
+                >
+                  <span className="truncate max-w-[120px]">{learnerName}</span>
+                </button>
+              )}
+
               <button
                 onClick={() => setShowAdminMenu(!showAdminMenu)}
-                className="w-8 h-8 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center ring-2 ring-slate-200 hover:ring-blue-500 transition-all"
+                className="w-8 h-8 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center ring-2 ring-slate-200 hover:ring-blue-500 transition-all cursor-pointer"
+                title={`${learnerName} (${learnerEmail})`}
               >
-                SB
+                {initials}
               </button>
 
               {showAdminMenu && (
-                <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50 text-xs">
+                <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50 text-xs">
                   <div className="px-3 py-2 border-b border-slate-100">
-                    <p className="font-bold text-slate-900">Dr. Chef Supritam Basu</p>
-                    <p className="text-slate-500 text-[11px]">PhD, CEC · Executive Chef</p>
+                    <p className="font-bold text-slate-900 truncate">{learnerName}</p>
+                    <p className="text-slate-500 text-[11px] truncate">{learnerEmail}</p>
                     <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                      Supritamone Academy Fellow
+                      Certificate Identity Active
                     </span>
                   </div>
+                  {onOpenAccountModal && (
+                    <button
+                      onClick={() => {
+                        onOpenAccountModal();
+                        setShowAdminMenu(false);
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-blue-50 text-blue-700 font-semibold cursor-pointer"
+                    >
+                      Sign In / Edit Learner Name & Email
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       onSelectNavTab('courses');
                       setShowAdminMenu(false);
                     }}
-                    className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-700"
+                    className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-700 cursor-pointer"
                   >
                     My Courses
                   </button>
@@ -256,9 +293,14 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
                       onOpenCertify();
                       setShowAdminMenu(false);
                     }}
-                    className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-700"
+                    className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-700 cursor-pointer flex items-center justify-between"
                   >
-                    Professional Diploma Verification
+                    <span>Official Certificate</span>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                      isCertificateUnlocked ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                    }`}>
+                      {isCertificateUnlocked ? 'Unlocked' : 'Locked'}
+                    </span>
                   </button>
                   <button
                     onClick={() => {

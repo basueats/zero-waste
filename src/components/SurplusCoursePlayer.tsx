@@ -47,23 +47,36 @@ import {
   Edit3,
   Trash2,
   CheckSquare,
-  Square
+  Square,
+  FlaskConical
 } from 'lucide-react';
 import { 
   UDEMY_ZERO_WASTE_SECTIONS, 
   UdemyCourseSection, 
   CourseLectureItem, 
   SectionQuiz,
-  PresentationSlide 
+  PresentationSlide,
+  COURSE_TOTAL_VIDEO_SECONDS,
+  COURSE_TOTAL_CHAPTERS,
+  COURSE_TOTAL_QUIZZES,
+  COURSE_TOTAL_QUESTIONS,
+  ExamUnlockStatus,
+  SUPRITAMONE_EXAM_PROGRESS_KEY,
+  computeExamUnlockStatus,
+  formatClockDuration,
+  formatCompactDuration,
+  loadStoredExamProgress
 } from '../data/udemyCourseStructure';
-import { audioNarrator } from '../utils/audioNarrator';
+import { audioNarrator, tokenizeTextIntoWords } from '../utils/audioNarrator';
 import { SupritamoneLogo } from './SupritamoneLogo';
 
 interface SurplusCoursePlayerProps {
   courseId: string;
   initialSectionIndex?: number;
+  learnerName?: string;
   onBackToCourses: () => void;
   onOpenCertify: () => void;
+  onExamStatusChange?: (status: ExamUnlockStatus) => void;
 }
 
 interface UserNote {
@@ -81,39 +94,142 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   initialSectionIndex = 0,
   onBackToCourses,
   onOpenCertify,
+  onExamStatusChange,
 }) => {
   // Navigation & Selection state
   const [activeSectionIdx, setActiveSectionIdx] = useState<number>(initialSectionIndex);
   const [activeLectureIdx, setActiveLectureIdx] = useState<number>(0);
   const [isQuizMode, setIsQuizMode] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'notes' | 'qa' | 'announcements' | 'reviews'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'study' | 'qa' | 'notes' | 'announcements' | 'reviews' | 'search' | 'tools'>('overview');
   const [sidebarTab, setSidebarTab] = useState<'content' | 'ai'>('content');
+  const [checkedSops, setCheckedSops] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set();
+    try {
+      const saved = localStorage.getItem('supritamone_sop_checklist_v1');
+      if (saved) return new Set(JSON.parse(saved));
+    } catch {
+      // Ignore storage error
+    }
+    return new Set();
+  });
 
-  // Completed items tracking (persists in state)
-  const [completedLectures, setCompletedLectures] = useState<Set<string>>(() => new Set(['sec1-lec1']));
-  const [passedQuizzes, setPassedQuizzes] = useState<Set<string>>(() => new Set());
-  const [quizScores, setQuizScores] = useState<Record<string, number>>({});
+  const toggleSopCheck = (sopKey: string) => {
+    audioNarrator.playSound('click');
+    setCheckedSops(prev => {
+      const next = new Set(prev);
+      if (next.has(sopKey)) {
+        next.delete(sopKey);
+      } else {
+        next.add(sopKey);
+        audioNarrator.playSound('correct');
+      }
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('supritamone_sop_checklist_v1', JSON.stringify(Array.from(next)));
+        } catch {
+          // Ignore storage error
+        }
+      }
+      return next;
+    });
+  };
 
-  // Video playback state
+  // Completed items & exam scores tracking (persisted in localStorage)
+  const [completedLectures, setCompletedLectures] = useState<Set<string>>(() => {
+    const stored = loadStoredExamProgress();
+    return new Set(stored.completedLectures);
+  });
+  const [passedQuizzes, setPassedQuizzes] = useState<Set<string>>(() => {
+    const stored = loadStoredExamProgress();
+    return new Set(stored.passedQuizzes);
+  });
+  const [quizScores, setQuizScores] = useState<Record<string, number>>(() => {
+    const stored = loadStoredExamProgress();
+    return stored.quizScores;
+  });
+
+  const examStatus = useMemo(
+    () => computeExamUnlockStatus(passedQuizzes, quizScores),
+    [passedQuizzes, quizScores]
+  );
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(
+          SUPRITAMONE_EXAM_PROGRESS_KEY,
+          JSON.stringify({
+            completedLectures: Array.from(completedLectures),
+            passedQuizzes: Array.from(passedQuizzes),
+            quizScores,
+          })
+        );
+      } catch {
+        // Ignore storage errors
+      }
+    }
+    onExamStatusChange?.(examStatus);
+  }, [completedLectures, passedQuizzes, quizScores, examStatus, onExamStatusChange]);
+
+  // Video playback state (100% audio-driven live sync)
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentSlideIdx, setCurrentSlideIdx] = useState<number>(0);
   const [activeSentenceIdx, setActiveSentenceIdx] = useState<number>(0);
-  const [currentTimeSeconds, setCurrentTimeSeconds] = useState<number>(13);
+  const [sentenceElapsed, setSentenceElapsed] = useState<number>(0);
+  const [activeWordIndex, setActiveWordIndex] = useState<number>(-1);
+  const [durationsVersion, setDurationsVersion] = useState<number>(0);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
-  const [volume, setVolume] = useState<number>(0.85);
+  const [volume, setVolume] = useState<number>(0.9);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [showCaptions, setShowCaptions] = useState<boolean>(true);
   const [showSpeedMenu, setShowSpeedMenu] = useState<boolean>(false);
+  const [showSettingsMenu, setShowSettingsMenu] = useState<boolean>(false);
+  const [autoplayNext, setAutoplayNext] = useState<boolean>(true);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [showProgressMenu, setShowProgressMenu] = useState<boolean>(false);
   const [openResourceMenuId, setOpenResourceMenuId] = useState<string | null>(null);
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    'section-1': true,
-    'section-2': false,
-    'section-3': false,
-    'section-4': false,
-    'section-5': false,
-    'section-6': false,
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    UDEMY_ZERO_WASTE_SECTIONS.forEach((sec, idx) => {
+      initial[sec.id] = idx === (initialSectionIndex || 0);
+    });
+    return initial;
   });
+
+  // Schedule learning time card state
+  const [showScheduleCard, setShowScheduleCard] = useState<boolean>(true);
+  const [isConfiguringSchedule, setIsConfiguringSchedule] = useState<boolean>(false);
+  const [studyGoalMinutes, setStudyGoalMinutes] = useState<number>(20);
+  const [studyFrequency, setStudyFrequency] = useState<'Daily' | 'Weekdays' | 'Weekends'>('Daily');
+  const [scheduleSavedToast, setScheduleSavedToast] = useState<boolean>(false);
+
+  // Course search & Q&A state
+  const [courseSearchQuery, setCourseSearchQuery] = useState<string>('');
+  const [qaSearchQuery, setQaSearchQuery] = useState<string>('');
+  const [isComposingQa, setIsComposingQa] = useState<boolean>(false);
+  const [newQaQuestion, setNewQaQuestion] = useState<string>('');
+  const [qaItems, setQaItems] = useState<Array<{ id: string; question: string; author: string; answer: string }>>([
+    {
+      id: 'qa-1',
+      question: 'How long can wild lacto-fermented vegetable trimmings be safely held in walk-in cold rooms?',
+      author: 'Dr. Chef Supritam Basu',
+      answer: 'Once the pH drops below 4.6 and bubbling stabilizes, sealed crocks at 2°C–4°C hold prime crunch and acidity for 6 to 9 months.',
+    },
+    {
+      id: 'qa-2',
+      question: 'What tare-weight precision scale do you recommend for prep stations?',
+      author: 'Dr. Chef Supritam Basu',
+      answer: 'Use a waterproof stainless NSF digital scale accurate to 1g (0.05 oz) up to 15 kg, paired with color-coded GN 1/3 trim inserts.',
+    },
+  ]);
+
+  // AI Assistant sidebar state
+  const [aiQuestion, setAiQuestion] = useState<string>('');
+  const [isAiThinking, setIsAiThinking] = useState<boolean>(false);
+  const [aiMessages, setAiMessages] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([]);
+
+  const videoContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Quiz execution state
   const [currentQuizQuestionIdx, setCurrentQuizQuestionIdx] = useState<number>(0);
@@ -147,7 +263,112 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   const currentTranscript = currentLecture.transcript || [];
   const currentCaption = currentTranscript[activeSentenceIdx] || currentTranscript[0];
 
-  const totalDurationSeconds = currentLecture.durationSeconds || 150;
+  // Subscribe to actual decoded WAV durations so scrubber & timeline match real audio length
+  useEffect(() => {
+    return audioNarrator.onDurationsUpdated(() => {
+      setDurationsVersion(v => v + 1);
+    });
+  }, []);
+
+  // Exact WAV timings when lecture audio is loaded, otherwise estimated 1.0x durations
+  const lectureTimingsData = useMemo(() => {
+    const texts = currentTranscript.map(t => t.text);
+    return audioNarrator.getLectureTimings(texts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTranscript, durationsVersion]);
+
+  const sentenceDurations = useMemo(() => {
+    if (lectureTimingsData && lectureTimingsData.sentenceTimings.length === currentTranscript.length) {
+      return lectureTimingsData.sentenceTimings.map(t => Math.max(0.3, t.end - t.start));
+    }
+    const raw = currentTranscript.map(line => audioNarrator.estimateDuration(line.text, 1.0));
+    const rawSum = raw.reduce((a, b) => a + b, 0);
+    if (rawSum > 0 && currentLecture.durationSeconds > 0) {
+      const ratio = currentLecture.durationSeconds / rawSum;
+      return raw.map(d => d * ratio);
+    }
+    return raw;
+  }, [currentTranscript, lectureTimingsData, currentLecture.durationSeconds]);
+
+  const sentenceStartTimes = useMemo(() => {
+    if (lectureTimingsData && lectureTimingsData.sentenceTimings.length === currentTranscript.length) {
+      return lectureTimingsData.sentenceTimings.map(t => t.start);
+    }
+    const starts: number[] = [];
+    let acc = 0;
+    for (const d of sentenceDurations) {
+      starts.push(acc);
+      acc += d;
+    }
+    return starts;
+  }, [sentenceDurations, lectureTimingsData, currentTranscript.length]);
+
+  const totalDurationSeconds = useMemo(() => {
+    if (lectureTimingsData && lectureTimingsData.duration > 0) {
+      return lectureTimingsData.duration;
+    }
+    const sum = sentenceDurations.reduce((a, b) => a + b, 0);
+    return Math.max(1, sum);
+  }, [sentenceDurations, lectureTimingsData]);
+
+  // Memoized lecture duration map synced cleanly across sidebar, overview bar, and player
+  const lectureSecondsById = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const sec of UDEMY_ZERO_WASTE_SECTIONS) {
+      for (const lec of sec.lectures) {
+        if (lec.id === currentLecture.id && lectureTimingsData && lectureTimingsData.duration > 0) {
+          map[lec.id] = Math.round(lectureTimingsData.duration);
+        } else {
+          map[lec.id] = lec.durationSeconds;
+        }
+      }
+    }
+    return map;
+  }, [currentLecture.id, lectureTimingsData, durationsVersion]);
+
+  const getExactLectureSeconds = useCallback((lecture: CourseLectureItem) => {
+    return lectureSecondsById[lecture.id] ?? lecture.durationSeconds;
+  }, [lectureSecondsById]);
+
+  const courseTotalVideoSeconds = useMemo(() => {
+    return UDEMY_ZERO_WASTE_SECTIONS.reduce(
+      (sum, sec) => sum + sec.lectures.reduce((s, l) => s + getExactLectureSeconds(l), 0),
+      0
+    ) || COURSE_TOTAL_VIDEO_SECONDS;
+  }, [getExactLectureSeconds]);
+
+  const courseTotalVideoLabel = formatCompactDuration(courseTotalVideoSeconds);
+
+  const currentTimeSeconds = Math.min(
+    totalDurationSeconds,
+    (sentenceStartTimes[activeSentenceIdx] || 0) + sentenceElapsed
+  );
+
+  // Refs for fresh state inside async audio callbacks (prevents stale closures on long chapters)
+  const isPlayingRef = useRef<boolean>(isPlaying);
+  isPlayingRef.current = isPlaying;
+  const isMutedRef = useRef<boolean>(isMuted);
+  isMutedRef.current = isMuted;
+  const playbackSpeedRef = useRef<number>(playbackSpeed);
+  playbackSpeedRef.current = playbackSpeed;
+  const volumeRef = useRef<number>(volume);
+  volumeRef.current = volume;
+  const currentLectureRef = useRef<CourseLectureItem>(currentLecture);
+  currentLectureRef.current = currentLecture;
+
+  // Pre-synthesize & cache Chunk 0 of the active lecture on idle load
+  useEffect(() => {
+    if (!isQuizMode && currentTranscript.length > 0) {
+      audioNarrator.prefetchLecture(currentTranscript.map(t => t.text));
+    }
+  }, [currentLecture.id, isQuizMode, currentTranscript]);
+
+  // Clean stop on unmount
+  useEffect(() => {
+    return () => {
+      audioNarrator.stop();
+    };
+  }, []);
 
   // Toggle Section in accordion
   const toggleSectionAccordion = (secId: string) => {
@@ -157,115 +378,281 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
     }));
   };
 
-  // Format seconds MM:SS
-  const formatSeconds = (secs: number) => {
-    const mins = Math.floor(secs / 60);
-    const remainder = Math.floor(secs % 60);
-    return `${mins}:${remainder < 10 ? '0' : ''}${remainder}`;
-  };
+  // Format seconds H:MM:SS or M:SS
+  const formatSeconds = (secs: number) => formatClockDuration(secs);
 
-  // Play / Pause handler
-  const handleTogglePlay = () => {
-    audioNarrator.getAudioContext();
-    audioNarrator.playSound('click');
-
-    if (!isPlaying) {
-      setIsPlaying(true);
-      // Play speech line
-      if (currentCaption) {
-        audioNarrator.speak({
-          text: currentCaption.text,
-          rate: playbackSpeed,
-          volume: isMuted ? 0 : volume,
-          onEnd: () => {
-            // Advance sentence if still playing
-            setActiveSentenceIdx(prev => {
-              const next = (prev + 1) % currentTranscript.length;
-              // Advance slide proportionally
-              const nextSlide = Math.floor((next / currentTranscript.length) * currentLecture.slides.length);
-              setCurrentSlideIdx(nextSlide);
-              return next;
-            });
-          }
-        });
+  // Fullscreen state sync (handles both native Fullscreen API & CSS fallback inside iframes)
+  useEffect(() => {
+    const onFsChange = () => {
+      if (!document.fullscreenElement) {
+        setIsFullscreen(false);
+      } else {
+        setIsFullscreen(true);
       }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen && !document.fullscreenElement) {
+        setIsFullscreen(false);
+      }
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isFullscreen]);
+
+  const handleToggleFullscreen = async () => {
+    audioNarrator.playSound('click');
+    const el = videoContainerRef.current;
+    if (!isFullscreen) {
+      try {
+        if (el && el.requestFullscreen) {
+          await el.requestFullscreen();
+          setIsFullscreen(true);
+          return;
+        }
+      } catch {
+        // Iframe may disallow native fullscreen; fall back to theater fullscreen
+      }
+      setIsFullscreen(true);
     } else {
-      setIsPlaying(false);
-      audioNarrator.stop();
+      try {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          await document.exitFullscreen();
+        }
+      } catch {
+        // Ignore
+      }
+      setIsFullscreen(false);
     }
   };
 
-  // Timer tick for video simulation
+  // Resolve exact slide index for a given sentence
+  const resolveSlideForSentence = useCallback((lecture: CourseLectureItem, transcriptIdx: number) => {
+    const lines = lecture.transcript || [];
+    const line = lines[transcriptIdx];
+    if (line && typeof line.slideIndex === 'number') {
+      return Math.min(lecture.slides.length - 1, Math.max(0, line.slideIndex));
+    }
+    return Math.min(
+      lecture.slides.length - 1,
+      Math.floor((transcriptIdx / Math.max(1, lines.length)) * lecture.slides.length)
+    );
+  }, []);
+
+  const autoplayNextRef = useRef<boolean>(autoplayNext);
+  autoplayNextRef.current = autoplayNext;
+  const activeSectionIdxRef = useRef<number>(activeSectionIdx);
+  activeSectionIdxRef.current = activeSectionIdx;
+  const activeLectureIdxRef = useRef<number>(activeLectureIdx);
+  activeLectureIdxRef.current = activeLectureIdx;
+
+  const sentenceStartTimesRef = useRef<number[]>(sentenceStartTimes);
+  sentenceStartTimesRef.current = sentenceStartTimes;
+
+  // Start continuous unified lecture voice + live word & slide sync from any sentence/timestamp
+  const playSentence = useCallback((index: number, explicitStartSeconds?: number) => {
+    const lecture = currentLectureRef.current;
+    const lines = lecture.transcript || [];
+
+    if (index >= lines.length) {
+      setIsPlaying(false);
+      isPlayingRef.current = false;
+      audioNarrator.stop();
+      audioNarrator.playSound('correct');
+      setCompletedLectures(old => new Set([...old, lecture.id]));
+
+      // Autoplay next lecture within the same section if enabled
+      if (autoplayNextRef.current) {
+        const sec = UDEMY_ZERO_WASTE_SECTIONS[activeSectionIdxRef.current];
+        const nextLecIdx = activeLectureIdxRef.current + 1;
+        if (sec && nextLecIdx < sec.lectures.length) {
+          const nextLecture = sec.lectures[nextLecIdx];
+          setTimeout(() => {
+            currentLectureRef.current = nextLecture;
+            setActiveLectureIdx(nextLecIdx);
+            setCurrentSlideIdx(0);
+            setActiveSentenceIdx(0);
+            setSentenceElapsed(0);
+            setActiveWordIndex(-1);
+            setIsPlaying(true);
+            isPlayingRef.current = true;
+            playSentence(0, 0);
+          }, 500);
+        }
+      }
+      return;
+    }
+
+    setActiveSentenceIdx(index);
+    setSentenceElapsed(0);
+    setActiveWordIndex(-1);
+    setCurrentSlideIdx(resolveSlideForSentence(lecture, index));
+
+    if (isMutedRef.current) {
+      audioNarrator.stop();
+      return;
+    }
+
+    const startOffset =
+      explicitStartSeconds !== undefined
+        ? Math.max(0, explicitStartSeconds)
+        : (sentenceStartTimesRef.current[index] || 0);
+
+    audioNarrator.speakLecture({
+      sentences: lines.map(l => l.text),
+      startTimeOffset: startOffset,
+      rate: playbackSpeedRef.current,
+      volume: volumeRef.current,
+      onProgress: (p) => {
+        if (!isPlayingRef.current || currentLectureRef.current.id !== lecture.id) return;
+        setActiveSentenceIdx(p.sentenceIndex);
+        setSentenceElapsed(p.sentenceElapsed);
+        setActiveWordIndex(p.wordIndex);
+        setCurrentSlideIdx(resolveSlideForSentence(lecture, p.sentenceIndex));
+      },
+      onEnd: () => {
+        if (currentLectureRef.current.id !== lecture.id) return;
+        setActiveWordIndex(-1);
+        setIsPlaying(false);
+        isPlayingRef.current = false;
+        audioNarrator.playSound('correct');
+        setCompletedLectures(old => new Set([...old, lecture.id]));
+
+        if (autoplayNextRef.current) {
+          const sec = UDEMY_ZERO_WASTE_SECTIONS[activeSectionIdxRef.current];
+          const nextLecIdx = activeLectureIdxRef.current + 1;
+          if (sec && nextLecIdx < sec.lectures.length) {
+            const nextLecture = sec.lectures[nextLecIdx];
+            setTimeout(() => {
+              currentLectureRef.current = nextLecture;
+              setActiveLectureIdx(nextLecIdx);
+              setCurrentSlideIdx(0);
+              setActiveSentenceIdx(0);
+              setSentenceElapsed(0);
+              setActiveWordIndex(-1);
+              setIsPlaying(true);
+              isPlayingRef.current = true;
+              playSentence(0, 0);
+            }, 500);
+          }
+        }
+      },
+    });
+  }, [resolveSlideForSentence]);
+
+  // Play / Pause handler (supports exact pause/resume without restarting sentence)
+  const handleTogglePlay = () => {
+    audioNarrator.getAudioContext();
+
+    if (!isPlaying) {
+      setIsPlaying(true);
+      isPlayingRef.current = true;
+      if (!isMuted && audioNarrator.getIsSpeaking() && audioNarrator.getIsPaused()) {
+        audioNarrator.resume();
+      } else {
+        playSentence(activeSentenceIdx, currentTimeSeconds);
+      }
+    } else {
+      setIsPlaying(false);
+      isPlayingRef.current = false;
+      if (audioNarrator.getIsSpeaking()) {
+        audioNarrator.pause();
+      } else {
+        audioNarrator.stop();
+      }
+    }
+  };
+
+  // Muted silent visual progress loop (runs only when isPlaying && isMuted)
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying || !isMuted || isQuizMode) return;
     const interval = setInterval(() => {
-      setCurrentTimeSeconds(prev => {
-        const next = prev + 1;
-        if (next >= totalDurationSeconds) {
-          setIsPlaying(false);
-          audioNarrator.playSound('correct');
-          // Mark lecture complete
-          setCompletedLectures(old => new Set([...old, currentLecture.id]));
-          return totalDurationSeconds;
+      setSentenceElapsed(prev => {
+        const next = prev + 0.08 * playbackSpeedRef.current;
+        const dur = sentenceDurations[activeSentenceIdx] || 5;
+        const words = (currentTranscript[activeSentenceIdx]?.text || '').split(/\s+/).filter(Boolean);
+        const fraction = Math.min(1, next / Math.max(0.5, dur));
+        setActiveWordIndex(Math.min(Math.max(0, words.length - 1), Math.floor(fraction * words.length)));
+
+        if (next >= dur) {
+          if (activeSentenceIdx + 1 < currentTranscript.length) {
+            const nextIdx = activeSentenceIdx + 1;
+            setActiveSentenceIdx(nextIdx);
+            setActiveWordIndex(-1);
+            setCurrentSlideIdx(resolveSlideForSentence(currentLectureRef.current, nextIdx));
+          } else {
+            setIsPlaying(false);
+            isPlayingRef.current = false;
+            setCompletedLectures(old => new Set([...old, currentLectureRef.current.id]));
+          }
+          return 0;
         }
-
-        // Calculate active slide based on percentage
-        const progress = next / totalDurationSeconds;
-        const slideIndex = Math.min(
-          currentLecture.slides.length - 1,
-          Math.floor(progress * currentLecture.slides.length)
-        );
-        setCurrentSlideIdx(slideIndex);
-
-        // Calculate caption index
-        if (currentTranscript.length > 0) {
-          const capIdx = Math.min(
-            currentTranscript.length - 1,
-            Math.floor(progress * currentTranscript.length)
-          );
-          setActiveSentenceIdx(capIdx);
-        }
-
         return next;
       });
-    }, 1000 / playbackSpeed);
+    }, 80);
 
     return () => clearInterval(interval);
-  }, [isPlaying, playbackSpeed, totalDurationSeconds, currentLecture, currentTranscript]);
+  }, [isPlaying, isMuted, isQuizMode, activeSentenceIdx, sentenceDurations, currentTranscript, resolveSlideForSentence]);
+
+  // Unified seek helper (keeps timeline, slide, captions, and audio locked together)
+  const seekToTime = useCallback((targetSeconds: number, forcePlay?: boolean) => {
+    const clamped = Math.max(0, Math.min(totalDurationSeconds, targetSeconds));
+    let targetSentenceIdx = 0;
+    for (let i = sentenceStartTimes.length - 1; i >= 0; i--) {
+      if (clamped >= sentenceStartTimes[i]) {
+        targetSentenceIdx = i;
+        break;
+      }
+    }
+
+    const offsetInSentence = Math.max(0, clamped - (sentenceStartTimes[targetSentenceIdx] || 0));
+    setActiveSentenceIdx(targetSentenceIdx);
+    setActiveWordIndex(-1);
+    setSentenceElapsed(offsetInSentence);
+    setCurrentSlideIdx(resolveSlideForSentence(currentLectureRef.current, targetSentenceIdx));
+
+    if (forcePlay || isPlayingRef.current) {
+      setIsPlaying(true);
+      isPlayingRef.current = true;
+      // If unified lecture audio is already loaded & playing, seek instantaneously inside the WAV stream
+      if (!isMutedRef.current && audioNarrator.getIsSpeaking() && audioNarrator.seekTo(clamped)) {
+        if (audioNarrator.getIsPaused()) {
+          audioNarrator.resume();
+        }
+      } else {
+        playSentence(targetSentenceIdx, clamped);
+      }
+    } else {
+      audioNarrator.stop();
+    }
+  }, [totalDurationSeconds, sentenceStartTimes, resolveSlideForSentence, playSentence]);
 
   // Handle Seeker Click
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
-    const fraction = Math.max(0, Math.min(1, clickX / rect.width));
-    const targetSeconds = Math.floor(fraction * totalDurationSeconds);
-    setCurrentTimeSeconds(targetSeconds);
-
-    const slideIndex = Math.min(
-      currentLecture.slides.length - 1,
-      Math.floor(fraction * currentLecture.slides.length)
-    );
-    setCurrentSlideIdx(slideIndex);
-
-    if (currentTranscript.length > 0) {
-      const capIdx = Math.min(
-        currentTranscript.length - 1,
-        Math.floor(fraction * currentTranscript.length)
-      );
-      setActiveSentenceIdx(capIdx);
-    }
+    const fraction = Math.max(0, Math.min(1, clickX / Math.max(1, rect.width)));
+    seekToTime(fraction * totalDurationSeconds);
   };
 
-  // Rewind 5 seconds
+  // Rewind 5 seconds (or previous sentence start)
   const handleRewind5s = () => {
     audioNarrator.playSound('click');
-    setCurrentTimeSeconds(prev => Math.max(0, prev - 5));
+    const targetTime = Math.max(0, currentTimeSeconds - 5);
+    seekToTime(targetTime);
   };
 
-  // Forward 5 seconds
+  // Forward 5 seconds (or next sentence start)
   const handleForward5s = () => {
     audioNarrator.playSound('click');
-    setCurrentTimeSeconds(prev => Math.min(totalDurationSeconds, prev + 5));
+    const nextSentTime = sentenceStartTimes[activeSentenceIdx + 1];
+    const targetTime = nextSentTime !== undefined
+      ? Math.max(currentTimeSeconds + 5, nextSentTime)
+      : Math.min(totalDurationSeconds, currentTimeSeconds + 5);
+    seekToTime(targetTime);
   };
 
   // Toggle Lecture Checkbox
@@ -288,12 +675,14 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   const handleSelectLecture = (secIdx: number, lecIdx: number) => {
     audioNarrator.stop();
     setIsPlaying(false);
+    isPlayingRef.current = false;
     setIsQuizMode(false);
     setActiveSectionIdx(secIdx);
     setActiveLectureIdx(lecIdx);
     setCurrentSlideIdx(0);
     setActiveSentenceIdx(0);
-    setCurrentTimeSeconds(0);
+    setSentenceElapsed(0);
+    setActiveWordIndex(-1);
     setOpenResourceMenuId(null);
   };
 
@@ -301,6 +690,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   const handleSelectQuiz = (secIdx: number) => {
     audioNarrator.stop();
     setIsPlaying(false);
+    isPlayingRef.current = false;
     setActiveSectionIdx(secIdx);
     setIsQuizMode(true);
     setCurrentQuizQuestionIdx(0);
@@ -363,21 +753,25 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
 
   // Proceed to Next Chapter after passing quiz
   const handleProceedToNextChapter = () => {
+    audioNarrator.stop();
     audioNarrator.playSound('correct');
     if (activeSectionIdx < UDEMY_ZERO_WASTE_SECTIONS.length - 1) {
       const nextSecIdx = activeSectionIdx + 1;
       setActiveSectionIdx(nextSecIdx);
       setActiveLectureIdx(0);
       setIsQuizMode(false);
+      setIsPlaying(false);
+      isPlayingRef.current = false;
       setCurrentSlideIdx(0);
       setActiveSentenceIdx(0);
-      setCurrentTimeSeconds(0);
+      setSentenceElapsed(0);
+      setActiveWordIndex(-1);
       setOpenSections(prev => ({
         ...prev,
         [UDEMY_ZERO_WASTE_SECTIONS[nextSecIdx].id]: true
       }));
-    } else {
-      // Completed all sections! Open certificate
+    } else if (examStatus.isUnlocked) {
+      // Completed all sections with overall exam >= 37%! Open certificate
       onOpenCertify();
     }
   };
@@ -388,7 +782,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
     audioNarrator.playSound('click');
     const newNote: UserNote = {
       id: `note-${Date.now()}`,
-      timestampSeconds: currentTimeSeconds,
+      timestampSeconds: Math.round(currentTimeSeconds),
       timestampFormatted: formatSeconds(currentTimeSeconds),
       lectureId: currentLecture.id,
       lectureTitle: currentLecture.title,
@@ -403,27 +797,57 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   // Jump to note timestamp
   const handleJumpToNote = (timestampSecs: number) => {
     audioNarrator.playSound('click');
-    setCurrentTimeSeconds(timestampSecs);
-    setIsPlaying(true);
+    seekToTime(timestampSecs, true);
   };
 
-  // Download PDF attachment simulation
-  const handleDownloadResource = (filename: string, title: string) => {
+  // Download comprehensive chapter manual & SOP worksheet
+  const handleDownloadResource = (filename: string, title: string, lectureOverride?: CourseLectureItem) => {
     audioNarrator.playSound('click');
-    const content = `SUPRITAMONE ACADEMY · DR. CHEF SUPRITAM BASU, PhD, CEC\nZero Waste Kitchen Curriculum Protocol\nDocument: ${title}\nFilename: ${filename}\nAccreditation: The CPD Group Approved Provider #791463 & ISO 9001:2015\n\nDownloaded successfully from Supritamone Academy LMS.`;
-    const blob = new Blob([content], { type: 'application/pdf' });
+    const targetLecture = lectureOverride || currentLecture;
+    const sm = targetLecture.studyMaterial;
+    const sectionsText = sm
+      ? [
+          `EXECUTIVE OVERVIEW (${sm.issueCoverage})\n${sm.executiveOverview}`,
+          `\nLEARNING OBJECTIVES\n${sm.learningObjectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}`,
+          `\nBIOCHEMICAL & OPERATIONAL THEORY MODULES\n${sm.theoryModules
+            .map(
+              (m, i) =>
+                `\n[${i + 1}] ${m.heading}\n${m.content}${
+                  m.formulaEquation ? `\nFormula (${m.formulaTitle}): ${m.formulaEquation}` : ''
+                }${m.safetyNote ? `\nSafety Note: ${m.safetyNote}` : ''}`
+            )
+            .join('\n')}`,
+          `\nCRITICAL CONTROL MATRIX\n${sm.controlMatrix
+            .map(
+              (c) =>
+                `• ${c.parameter} | Target: ${c.targetRange} | Tool: ${c.measurementTool} | Corrective Action: ${c.correctiveAction}`
+            )
+            .join('\n')}`,
+          `\nSTATION SOP CHECKLIST\n${sm.sopChecklist.map((s, i) => `[ ] ${i + 1}. ${s}`).join('\n')}`,
+          `\nWORKED ZERO-WASTE FORMULATIONS\n${sm.featuredFormulations
+            .map(
+              (f, i) =>
+                `\nFormulation ${i + 1}: ${f.title}\nByproduct: ${f.mainByproduct} | Yield: ${f.yieldAmount}\nMechanism: ${f.scientificMechanism}\nSteps:\n${f.keySteps.map((st, idx) => `  ${idx + 1}. ${st}`).join('\n')}\nChef Tip: ${f.chefTip}`
+            )
+            .join('\n')}`,
+        ].join('\n\n')
+      : 'Chapter workbook included with Supritamone Academy enrollment.';
+
+    const content = `SUPRITAMONE ACADEMY · DR. CHEF SUPRITAM BASU, PhD, CEC\nThe Zero Waste Kitchen Course: Master Executive Diploma (26h 00m Curriculum)\nDocument: ${title}\nChapter: ${targetLecture.title} (${targetLecture.duration})\nQuality Standard: ISO 9001:2015 Verified Curriculum\nInstructor Support: supritam.basu@supritamone.com\n${'='.repeat(72)}\n\n${sectionsText}`;
+    const safeFilename = filename.replace(/\.(pdf|xlsx)$/i, '.md');
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = filename;
+    a.download = safeFilename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
-  // Calculate overall course progress (12 lectures + 6 quizzes = 18 items)
-  const totalCourseItems = 12 + 6;
+  // Calculate overall course progress (24 chapters + 12 quizzes = 36 items)
+  const totalCourseItems = COURSE_TOTAL_CHAPTERS + COURSE_TOTAL_QUIZZES;
   const completedItemsCount = completedLectures.size + passedQuizzes.size;
   const progressPercentage = Math.round((completedItemsCount / totalCourseItems) * 100);
 
@@ -479,15 +903,20 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
         <div className="flex items-center gap-2 sm:gap-4">
           {/* Your Progress Dropdown Button */}
           <div className="relative group">
-            <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-md hover:bg-[#2d2f31] text-xs font-semibold text-white transition-colors cursor-pointer">
+            <button
+              onClick={() => setShowProgressMenu(prev => !prev)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md hover:bg-[#2d2f31] text-xs font-semibold text-white transition-colors cursor-pointer"
+            >
               <Award className="w-4 h-4 text-[#e59819]" />
               <span className="hidden md:inline">Your progress</span>
               <span className="text-[#c0c4fc] font-mono text-[11px]">{progressPercentage}%</span>
               <ChevronDown className="w-3.5 h-3.5 text-[#8a8b8c]" />
             </button>
 
-            {/* Progress Hover Card */}
-            <div className="absolute right-0 top-full mt-1 w-64 p-4 bg-[#1c1d1f] border border-[#3e4143] rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+            {/* Progress Dropdown Card */}
+            <div className={`absolute right-0 top-full mt-1 w-64 p-4 bg-[#1c1d1f] border border-[#3e4143] rounded-lg shadow-2xl transition-all z-50 ${
+              showProgressMenu ? 'opacity-100 visible' : 'opacity-0 invisible group-hover:opacity-100 group-hover:visible'
+            }`}>
               <div className="flex items-center justify-between text-xs mb-1.5">
                 <span className="font-bold text-white">Course Completion</span>
                 <span className="font-mono text-[#a435f0] font-bold">{progressPercentage}%</span>
@@ -499,13 +928,30 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                 />
               </div>
               <p className="text-[11px] text-[#8a8b8c] leading-relaxed mb-3">
-                {completedItemsCount} of {totalCourseItems} items completed. Complete all 6 sections and pass each 10-question quiz (≥ 37%) to unlock your certified diploma.
+                {completedItemsCount} of {totalCourseItems} items completed · Overall Exam: <strong className="text-white">{examStatus.overallScorePercent}%</strong> ({examStatus.passedCount}/{examStatus.totalQuizzes} passed, ≥ 37% required).
               </p>
               <button
-                onClick={onOpenCertify}
-                className="w-full py-2 bg-[#a435f0] hover:bg-[#8710d8] text-white text-xs font-bold rounded transition-colors text-center cursor-pointer"
+                onClick={() => {
+                  setShowProgressMenu(false);
+                  onOpenCertify();
+                }}
+                className={`w-full py-2 text-xs font-bold rounded transition-colors text-center cursor-pointer flex items-center justify-center gap-1.5 ${
+                  examStatus.isUnlocked
+                    ? 'bg-[#a435f0] hover:bg-[#8710d8] text-white'
+                    : 'bg-[#2d2f31] hover:bg-[#3e4143] text-slate-300 border border-[#3e4143]'
+                }`}
               >
-                View Accredited Certificate
+                {examStatus.isUnlocked ? (
+                  <>
+                    <Award className="w-3.5 h-3.5" />
+                    <span>View Accredited Certificate</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Certificate Locked (Pass Exam ≥ 37%)</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -549,7 +995,14 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
         {/* LEFT COLUMN: Video / Quiz Player + Tabs Below */}
         <div className={`flex-1 flex flex-col overflow-y-auto bg-white text-slate-900 transition-all duration-300 ${isSidebarOpen ? 'lg:mr-0' : ''}`}>
           {/* VIDEO / QUIZ DISPLAY SCREEN */}
-          <div className="bg-[#0e0e10] w-full flex items-center justify-center relative select-none">
+          <div
+            ref={videoContainerRef}
+            className={
+              isFullscreen
+                ? 'fixed inset-0 z-50 bg-[#0e0e10] w-screen h-screen flex items-center justify-center select-none'
+                : 'bg-[#0e0e10] w-full flex items-center justify-center relative select-none'
+            }
+          >
             {isQuizMode ? (
               /* --- QUIZ PLAYER SCREEN (10 Questions, 37% Passing Mark) --- */
               <div className="w-full max-w-4xl min-h-[460px] sm:min-h-[520px] p-4 sm:p-8 flex flex-col justify-between text-white bg-[#1c1d1f]">
@@ -634,14 +1087,8 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                           You have demonstrated validated culinary competency in accordance with Level 7 Curriculum guidelines. Section {activeSectionIdx + 2 <= UDEMY_ZERO_WASTE_SECTIONS.length ? activeSectionIdx + 2 : 'Diploma'} is now unlocked!
                         </p>
 
-                        {/* Official Accreditation Badges */}
-                        <div className="p-4 rounded-xl bg-[#2d2f31] border border-[#3e4143] flex items-center justify-around gap-4 my-4">
-                          <img 
-                            src="/assets/images/cpd_approved_provider_791463.png" 
-                            alt="The CPD Group Provider #791463"
-                            className="h-10 object-contain bg-white rounded p-1"
-                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/791463_9802fbb0.png'; }}
-                          />
+                        {/* Official Quality Badge */}
+                        <div className="p-4 rounded-xl bg-[#2d2f31] border border-[#3e4143] flex items-center justify-center gap-4 my-4">
                           <img 
                             src="/assets/images/iso_9001_certified.png" 
                             alt="ISO 9001:2015 Certified"
@@ -654,14 +1101,29 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                         <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
                           <button
                             onClick={handleProceedToNextChapter}
-                            className="w-full sm:w-auto px-8 py-3.5 bg-[#a435f0] hover:bg-[#8710d8] text-white font-bold text-sm rounded-lg shadow-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+                            disabled={activeSectionIdx === UDEMY_ZERO_WASTE_SECTIONS.length - 1 && !examStatus.isUnlocked}
+                            className="w-full sm:w-auto px-8 py-3.5 bg-[#a435f0] hover:bg-[#8710d8] disabled:opacity-50 text-white font-bold text-sm rounded-lg shadow-xl transition-all cursor-pointer flex items-center justify-center gap-2"
                           >
-                            <span>Proceed to Next Chapter</span>
-                            <ChevronRight className="w-4 h-4" />
+                            {activeSectionIdx < UDEMY_ZERO_WASTE_SECTIONS.length - 1 ? (
+                              <>
+                                <span>Proceed to Next Chapter</span>
+                                <ChevronRight className="w-4 h-4" />
+                              </>
+                            ) : examStatus.isUnlocked ? (
+                              <>
+                                <Award className="w-4 h-4" />
+                                <span>Claim Official Certificate ({examStatus.overallScorePercent}% Overall)</span>
+                              </>
+                            ) : (
+                              <>
+                                <Lock className="w-4 h-4" />
+                                <span>Pass All {COURSE_TOTAL_QUIZZES} Exams (≥ 37% Overall) to Unlock Certificate</span>
+                              </>
+                            )}
                           </button>
                           <button
                             onClick={handleRetakeQuiz}
-                            className="w-full sm:w-auto px-5 py-3.5 bg-[#2d2f31] hover:bg-[#3e4143] text-slate-300 text-xs font-semibold rounded-lg border border-[#3e4143] transition-colors"
+                            className="w-full sm:w-auto px-5 py-3.5 bg-[#2d2f31] hover:bg-[#3e4143] text-slate-300 text-xs font-semibold rounded-lg border border-[#3e4143] transition-colors cursor-pointer"
                           >
                             Review & Retake
                           </button>
@@ -735,8 +1197,8 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
               <div className="relative aspect-video w-full flex items-center justify-center overflow-hidden group">
                 {/* 1. REAL SLIDE CANVAS (The Visual presentation deck requested by user) */}
                 <div className="absolute inset-0 bg-[#f7f9fa] text-slate-900 p-6 sm:p-10 flex flex-col justify-between overflow-hidden">
-                  {/* Slide Header: Course program & Title */}
-                  <div className="flex items-start justify-between border-b-2 border-slate-200 pb-3">
+                  {/* Slide Header: Course program & Title (padded right to never touch top-right PiP card) */}
+                  <div className="flex items-start justify-between border-b-2 border-slate-200 pb-3 sm:pr-48">
                     <div>
                       <span className="text-[11px] uppercase tracking-wider font-extrabold text-[#5624d0] block">
                         {currentSlide.conceptTag}
@@ -745,17 +1207,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                         {currentSlide.title}
                       </h2>
                     </div>
-
-                    {/* Academy Mini Brand Badge */}
-                    <div className="hidden sm:flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
-                      <div className="w-4 h-4 rounded bg-[#a435f0] text-white text-[9px] font-black flex items-center justify-center">SA</div>
-                      <span className="text-xs font-bold text-slate-800">Supritamone Academy</span>
-                    </div>
                   </div>
 
                   {/* Slide Body: Bullets on Left + High-Res Image/Formula on Right */}
                   <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-6 my-4 items-center">
-                    {/* Left Col: Bullets (Hearts 💛 and Highlighted boxes exactly like image 5 & 9) */}
+                    {/* Left Col: Bullets (Hearts 💛 and Highlighted boxes) */}
                     <div className="md:col-span-7 space-y-3 sm:space-y-4">
                       {currentSlide.bullets.map((bullet, bIdx) => (
                         <div key={bIdx} className="flex items-start gap-2.5 text-xs sm:text-sm md:text-base leading-snug sm:leading-relaxed text-slate-800">
@@ -768,16 +1224,16 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                     </div>
 
                     {/* Right Col: High Quality Visual / Diagram / Metric Card */}
-                    <div className="hidden md:flex md:col-span-5 flex-col items-center justify-center">
+                    <div className="hidden md:flex md:col-span-5 flex-col items-center justify-center pt-4">
                       {currentSlide.visualImage && (
                         <div className="w-full max-w-sm rounded-xl overflow-hidden shadow-lg border border-slate-200 bg-white p-2">
                           <img 
                             src={currentSlide.visualImage} 
                             alt={currentSlide.title} 
-                            className="w-full h-40 object-cover rounded-lg"
+                            className="w-full h-36 object-cover rounded-lg"
                           />
                           {currentSlide.visualCaption && (
-                            <p className="text-[11px] text-slate-500 italic text-center mt-2">
+                            <p className="text-[11px] text-slate-500 italic text-center mt-1.5">
                               {currentSlide.visualCaption}
                             </p>
                           )}
@@ -785,11 +1241,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       )}
 
                       {currentSlide.keyMetricOrFormula && (
-                        <div className="mt-3 w-full max-w-sm bg-gradient-to-r from-amber-50 to-amber-100/60 border border-amber-300 rounded-xl p-3 text-left">
+                        <div className="mt-2.5 w-full max-w-sm bg-gradient-to-r from-amber-50 to-amber-100/60 border border-amber-300 rounded-xl p-2.5 text-left">
                           <span className="text-[10px] uppercase font-bold text-amber-900 block tracking-wider">
                             {currentSlide.keyMetricOrFormula.label}
                           </span>
-                          <span className="text-lg font-black text-slate-900 block font-mono">
+                          <span className="text-base font-black text-slate-900 block font-mono">
                             {currentSlide.keyMetricOrFormula.value}
                           </span>
                           <span className="text-[10px] text-slate-600 block">
@@ -801,8 +1257,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   </div>
 
                   {/* Slide Footer */}
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-200 pt-2 font-mono">
-                    <span>Dr. Chef Supritam Basu, PhD, CEC · Facilitation & Sustainable Gastronomy</span>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-200 pt-2 font-mono">
+                    <div className="flex items-center gap-2">
+                      <span className="w-4 h-4 rounded bg-[#a435f0] text-white text-[9px] font-black flex items-center justify-center font-sans">SA</span>
+                      <span>Supritamone Academy · Dr. Chef Supritam Basu, PhD, CEC</span>
+                    </div>
                     <span>Slide {currentSlideIdx + 1} of {currentLecture.slides.length}</span>
                   </div>
                 </div>
@@ -842,11 +1301,28 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   </button>
                 )}
 
-                {/* 4. SUBTITLES / CLOSED CAPTIONS BANNER (Matching Image 5 & 9) */}
+                {/* 4. LIVE-SYNCED SUBTITLES / CLOSED CAPTIONS BANNER (Word-by-word karaoke highlight) */}
                 {showCaptions && currentCaption && (
                   <div className="absolute bottom-14 left-4 right-4 z-20 flex justify-center pointer-events-none">
-                    <div className="bg-black/85 text-white text-xs sm:text-sm font-medium px-4 py-2 rounded-lg max-w-xl text-center shadow-2xl backdrop-blur-xs border border-white/10 leading-relaxed">
-                      {currentCaption.text}
+                    <div className="bg-black/85 text-white text-xs sm:text-sm font-medium px-4 py-2 rounded-lg max-w-2xl text-center shadow-2xl backdrop-blur-xs border border-white/10 leading-relaxed">
+                      {tokenizeTextIntoWords(currentCaption.text).map((tok, wIdx) => {
+                        const isActiveWord = isPlaying && wIdx === activeWordIndex;
+                        const isSpoken = isPlaying && activeWordIndex >= 0 && wIdx < activeWordIndex;
+                        return (
+                          <span
+                            key={wIdx}
+                            className={`transition-colors duration-75 ${
+                              isActiveWord
+                                ? 'text-[#ffea79] font-bold underline decoration-[#a435f0] decoration-2 underline-offset-4'
+                                : isSpoken
+                                  ? 'text-white'
+                                  : 'text-slate-200'
+                            }`}
+                          >
+                            {tok.word}{wIdx < tokenizeTextIntoWords(currentCaption.text).length - 1 ? ' ' : ''}
+                          </span>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -913,6 +1389,8 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                                 key={speed}
                                 onClick={() => {
                                   setPlaybackSpeed(speed);
+                                  playbackSpeedRef.current = speed;
+                                  audioNarrator.setRate(speed);
                                   setShowSpeedMenu(false);
                                 }}
                                 className={`w-full px-3 py-1 text-left hover:bg-[#2d2f31] ${playbackSpeed === speed ? 'text-[#a435f0] font-bold' : 'text-white'}`}
@@ -933,7 +1411,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                         <RotateCw className="w-3.5 h-3.5" />
                       </button>
 
-                      {/* Time display: 0:13 / 27:41 */}
+                      {/* Time display */}
                       <span className="font-mono text-[11px] text-slate-300">
                         {formatSeconds(currentTimeSeconds)} / {formatSeconds(totalDurationSeconds)}
                       </span>
@@ -944,8 +1422,17 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       {/* Audio mute */}
                       <button
                         onClick={() => {
-                          setIsMuted(prev => !prev);
-                          if (isMuted) audioNarrator.playSound('click');
+                          const nextMuted = !isMuted;
+                          setIsMuted(nextMuted);
+                          isMutedRef.current = nextMuted;
+                          if (nextMuted) {
+                            audioNarrator.stop();
+                          } else {
+                            audioNarrator.playSound('click');
+                            if (isPlayingRef.current) {
+                              playSentence(activeSentenceIdx, currentTimeSeconds);
+                            }
+                          }
                         }}
                         className="hover:text-white text-slate-300 transition-colors cursor-pointer"
                         title={isMuted ? 'Unmute' : 'Mute'}
@@ -964,14 +1451,119 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                         CC
                       </button>
 
-                      {/* Settings */}
-                      <button className="hover:text-white text-slate-300 transition-colors" title="Settings">
-                        <Settings className="w-3.5 h-3.5" />
-                      </button>
+                      {/* Settings Popover */}
+                      <div className="relative">
+                        <button
+                          onClick={() => {
+                            setShowSettingsMenu(prev => !prev);
+                            setShowSpeedMenu(false);
+                          }}
+                          className={`hover:text-white transition-colors cursor-pointer p-1 rounded ${
+                            showSettingsMenu ? 'text-[#a435f0]' : 'text-slate-300'
+                          }`}
+                          title="Settings"
+                          aria-label="Player Settings"
+                        >
+                          <Settings className="w-3.5 h-3.5" />
+                        </button>
+
+                        {showSettingsMenu && (
+                          <div className="absolute bottom-full right-0 mb-2 w-64 bg-[#1c1d1f] border border-[#3e4143] rounded-xl shadow-2xl p-3 z-50 text-xs text-white space-y-3">
+                            <div className="flex items-center justify-between border-b border-[#2d2f31] pb-2">
+                              <span className="font-bold text-white">Player Settings</span>
+                              <button
+                                onClick={() => setShowSettingsMenu(false)}
+                                className="text-slate-400 hover:text-white cursor-pointer"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            {/* Volume Slider */}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[11px] text-slate-300">
+                                <span>Voice Volume</span>
+                                <span className="font-mono">{isMuted ? '0%' : `${Math.round(volume * 100)}%`}</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                value={isMuted ? 0 : Math.round(volume * 100)}
+                                onChange={(e) => {
+                                  const nextVol = parseInt(e.target.value, 10) / 100;
+                                  setVolume(nextVol);
+                                  volumeRef.current = nextVol;
+                                  audioNarrator.setVolume(nextVol);
+                                  if (nextVol > 0 && isMuted) {
+                                    setIsMuted(false);
+                                    isMutedRef.current = false;
+                                  } else if (nextVol === 0 && !isMuted) {
+                                    setIsMuted(true);
+                                    isMutedRef.current = true;
+                                  }
+                                }}
+                                className="w-full accent-[#a435f0] cursor-pointer"
+                              />
+                            </div>
+
+                            {/* Playback Speed */}
+                            <div className="space-y-1">
+                              <span className="text-[11px] text-slate-300 block">Playback Speed</span>
+                              <div className="grid grid-cols-5 gap-1">
+                                {[0.75, 1, 1.25, 1.5, 2].map(spd => (
+                                  <button
+                                    key={spd}
+                                    onClick={() => {
+                                      setPlaybackSpeed(spd);
+                                      playbackSpeedRef.current = spd;
+                                      audioNarrator.setRate(spd);
+                                    }}
+                                    className={`py-1 rounded text-[10px] font-bold cursor-pointer ${
+                                      playbackSpeed === spd
+                                        ? 'bg-[#a435f0] text-white'
+                                        : 'bg-[#2d2f31] text-slate-300 hover:bg-[#3e4143]'
+                                    }`}
+                                  >
+                                    {spd}x
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Autoplay Toggle */}
+                            <label className="flex items-center justify-between cursor-pointer pt-1">
+                              <span className="text-[11px] text-slate-300">Autoplay next lecture</span>
+                              <input
+                                type="checkbox"
+                                checked={autoplayNext}
+                                onChange={(e) => setAutoplayNext(e.target.checked)}
+                                className="accent-[#a435f0] w-3.5 h-3.5 cursor-pointer"
+                              />
+                            </label>
+
+                            {/* Subtitles Toggle */}
+                            <label className="flex items-center justify-between cursor-pointer">
+                              <span className="text-[11px] text-slate-300">Show Closed Captions (CC)</span>
+                              <input
+                                type="checkbox"
+                                checked={showCaptions}
+                                onChange={(e) => setShowCaptions(e.target.checked)}
+                                className="accent-[#a435f0] w-3.5 h-3.5 cursor-pointer"
+                              />
+                            </label>
+                          </div>
+                        )}
+                      </div>
 
                       {/* Fullscreen */}
-                      <button className="hover:text-white text-slate-300 transition-colors" title="Fullscreen">
-                        <Maximize2 className="w-3.5 h-3.5" />
+                      <button
+                        onClick={handleToggleFullscreen}
+                        className="hover:text-white text-slate-300 transition-colors cursor-pointer p-1 rounded"
+                        title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                        aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                      >
+                        {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-[#a435f0]" /> : <Maximize2 className="w-3.5 h-3.5" />}
                       </button>
                     </div>
                   </div>
@@ -983,26 +1575,47 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
           {/* BELOW VIDEO TABS BAR (Matching Image 1, 6, 7) */}
           <div className="border-b border-slate-200 bg-white px-6 flex items-center gap-6 overflow-x-auto shrink-0 select-none">
             {/* Search Icon */}
-            <button className="text-slate-500 hover:text-slate-900 py-3.5">
+            <button
+              onClick={() => setActiveTab('search')}
+              className={`py-3.5 transition-colors cursor-pointer ${
+                activeTab === 'search' ? 'text-[#a435f0] border-b-2 border-[#a435f0]' : 'text-slate-500 hover:text-slate-900'
+              }`}
+              title="Search course content"
+              aria-label="Search course content"
+            >
               <Search className="w-4 h-4" />
             </button>
 
             {/* Tab Links */}
-            {(['overview', 'qa', 'notes', 'announcements', 'reviews'] as const).map(tab => (
+            {([
+              { id: 'overview', label: 'Overview' },
+              { id: 'study', label: 'Study Guide & SOPs' },
+              { id: 'qa', label: 'Q&A' },
+              { id: 'notes', label: 'Notes' },
+              { id: 'announcements', label: 'Announcements' },
+              { id: 'reviews', label: 'Reviews' },
+            ] as const).map(tab => (
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`py-3.5 text-xs sm:text-sm font-bold tracking-tight capitalize transition-colors relative cursor-pointer ${
-                  activeTab === tab
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`py-3.5 text-xs sm:text-sm font-bold tracking-tight whitespace-nowrap transition-colors relative cursor-pointer ${
+                  activeTab === tab.id
                     ? 'text-slate-900 border-b-2 border-slate-900'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {tab === 'qa' ? 'Q&A' : tab}
+                {tab.label}
               </button>
             ))}
 
-            <button className="py-3.5 text-xs sm:text-sm font-semibold text-slate-500 hover:text-slate-900 cursor-pointer">
+            <button
+              onClick={() => setActiveTab('tools')}
+              className={`py-3.5 text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+                activeTab === 'tools'
+                  ? 'text-slate-900 border-b-2 border-slate-900 font-bold'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
               Learning tools
             </button>
           </div>
@@ -1018,7 +1631,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                     Lead any kitchen to zero waste: master chef training, scrap recovery formulas, fermentation kinetics, circular menu engineering
                   </h2>
 
-                  {/* Rating & Stats row (Image 7) */}
+                  {/* Rating & Video Timing row (Image 2: second part removed, exact total video timing shown) */}
                   <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 mt-3">
                     <div className="flex items-center gap-1 font-bold text-amber-700">
                       <span>4.8</span>
@@ -1032,9 +1645,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       <span className="text-slate-500 font-normal underline">(1,420 ratings)</span>
                     </div>
                     <span>·</span>
-                    <span className="font-semibold text-slate-800">12,850 Students</span>
-                    <span>·</span>
-                    <span>19.5 hours Total</span>
+                    <span className="font-semibold text-slate-800">{courseTotalVideoLabel} Total</span>
                   </div>
 
                   <div className="flex items-center gap-3 text-xs text-slate-500 mt-2 font-mono">
@@ -1047,25 +1658,91 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                 </div>
 
                 {/* Schedule learning time banner card (Exact Image 7) */}
-                <div className="p-4 sm:p-5 rounded-xl border border-slate-200 bg-slate-50/70 flex items-start gap-4 shadow-2xs">
-                  <div className="p-2.5 rounded-full bg-white border border-slate-200 text-slate-700 shrink-0">
-                    <Clock className="w-5 h-5 text-slate-800" />
-                  </div>
-                  <div className="space-y-1.5 flex-1">
-                    <h4 className="text-sm font-bold text-slate-900">Schedule learning time</h4>
-                    <p className="text-xs text-slate-600 leading-relaxed">
-                      Learning a little each day adds up. Research shows that students who make learning a habit are more likely to reach their goals. Set time aside to learn and get reminders using your learning scheduler.
-                    </p>
-                    <div className="flex items-center gap-3 pt-2">
-                      <button className="px-3.5 py-1.5 bg-[#a435f0] hover:bg-[#8710d8] text-white text-xs font-bold rounded transition-colors cursor-pointer">
-                        Get started
-                      </button>
-                      <button className="text-xs text-slate-500 hover:text-slate-800 font-semibold cursor-pointer">
-                        Dismiss
-                      </button>
+                {showScheduleCard && (
+                  <div className="p-4 sm:p-5 rounded-xl border border-slate-200 bg-slate-50/70 flex items-start gap-4 shadow-2xs">
+                    <div className="p-2.5 rounded-full bg-white border border-slate-200 text-slate-700 shrink-0">
+                      <Clock className="w-5 h-5 text-slate-800" />
+                    </div>
+                    <div className="space-y-2 flex-1">
+                      <h4 className="text-sm font-bold text-slate-900">Schedule learning time</h4>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        Learning a little each day adds up. Research shows that students who make learning a habit are more likely to reach their goals. Set time aside to learn and get reminders using your learning scheduler.
+                      </p>
+
+                      {scheduleSavedToast && (
+                        <div className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 shrink-0" />
+                          <span>Study goal saved: {studyGoalMinutes} mins ({studyFrequency})</span>
+                        </div>
+                      )}
+
+                      {isConfiguringSchedule ? (
+                        <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-3 mt-2">
+                          <div className="flex flex-wrap items-center gap-3 text-xs">
+                            <label className="font-semibold text-slate-700">
+                              Frequency:
+                              <select
+                                value={studyFrequency}
+                                onChange={(e) => setStudyFrequency(e.target.value as 'Daily' | 'Weekdays' | 'Weekends')}
+                                className="ml-2 px-2 py-1 border border-slate-300 rounded text-slate-900"
+                              >
+                                <option value="Daily">Daily</option>
+                                <option value="Weekdays">Weekdays</option>
+                                <option value="Weekends">Weekends</option>
+                              </select>
+                            </label>
+                            <label className="font-semibold text-slate-700">
+                              Duration:
+                              <select
+                                value={studyGoalMinutes}
+                                onChange={(e) => setStudyGoalMinutes(Number(e.target.value))}
+                                className="ml-2 px-2 py-1 border border-slate-300 rounded text-slate-900"
+                              >
+                                <option value={10}>10 min</option>
+                                <option value={20}>20 min</option>
+                                <option value={30}>30 min</option>
+                                <option value={45}>45 min</option>
+                              </select>
+                            </label>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                setIsConfiguringSchedule(false);
+                                setScheduleSavedToast(true);
+                                audioNarrator.playSound('correct');
+                              }}
+                              className="px-3.5 py-1.5 bg-[#a435f0] hover:bg-[#8710d8] text-white text-xs font-bold rounded cursor-pointer"
+                            >
+                              Save schedule
+                            </button>
+                            <button
+                              onClick={() => setIsConfiguringSchedule(false)}
+                              className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-900 font-semibold cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-3 pt-1">
+                          <button
+                            onClick={() => setIsConfiguringSchedule(true)}
+                            className="px-3.5 py-1.5 bg-[#a435f0] hover:bg-[#8710d8] text-white text-xs font-bold rounded transition-colors cursor-pointer"
+                          >
+                            Get started
+                          </button>
+                          <button
+                            onClick={() => setShowScheduleCard(false)}
+                            className="text-xs text-slate-500 hover:text-slate-800 font-semibold cursor-pointer"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
-                </div>
+                )}
 
                 {/* By the numbers grid (Exact Image 7) */}
                 <div className="border-t border-slate-200 pt-6">
@@ -1076,8 +1753,8 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       <span className="font-bold text-slate-900">All Levels</span>
                     </div>
                     <div>
-                      <span className="text-slate-500 block">Students:</span>
-                      <span className="font-bold text-slate-900">12,850</span>
+                      <span className="text-slate-500 block">Passing Score:</span>
+                      <span className="font-bold text-slate-900">37% Overall</span>
                     </div>
                     <div>
                       <span className="text-slate-500 block">Languages:</span>
@@ -1089,34 +1766,50 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                     </div>
                     <div>
                       <span className="text-slate-500 block">Practice tests:</span>
-                      <span className="font-bold text-slate-900">6 Comprehensive</span>
+                      <span className="font-bold text-slate-900">{COURSE_TOTAL_QUIZZES} Comprehensive</span>
                     </div>
                     <div>
                       <span className="text-slate-500 block">Questions:</span>
-                      <span className="font-bold text-slate-900">60 (10 per Quiz)</span>
+                      <span className="font-bold text-slate-900">{COURSE_TOTAL_QUESTIONS} (10 per Quiz)</span>
                     </div>
                     <div>
                       <span className="text-slate-500 block">Lectures:</span>
-                      <span className="font-bold text-slate-900">12 Chapters</span>
+                      <span className="font-bold text-slate-900">{COURSE_TOTAL_CHAPTERS} Chapters</span>
                     </div>
                     <div>
                       <span className="text-slate-500 block">Video:</span>
-                      <span className="font-bold text-slate-900">19.5 total hours</span>
+                      <span className="font-bold text-slate-900">{courseTotalVideoLabel} total</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Certificates section (Exact Image 7) */}
+                {/* Certificates section (Locked until overall total exam >= 37% passed) */}
                 <div className="border-t border-slate-200 pt-6">
-                  <h3 className="text-sm font-bold text-slate-900 mb-2">Certificates</h3>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <h3 className="text-sm font-bold text-slate-900">Certificates</h3>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
+                      examStatus.isUnlocked
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : 'bg-amber-50 text-amber-800 border border-amber-200'
+                    }`}>
+                      {examStatus.isUnlocked
+                        ? `Unlocked · Overall Exam: ${examStatus.overallScorePercent}%`
+                        : `Locked · Exam ${examStatus.passedCount}/${examStatus.totalQuizzes} Passed (${examStatus.overallScorePercent}% / 37% pass mark)`}
+                    </span>
+                  </div>
                   <p className="text-xs text-slate-600 mb-3">
-                    Get Supritamone Academy certificate by completing entire course and passing all section assessments with ≥ 37%.
+                    Get Supritamone Academy certificate only after passing the entire course total examination with ≥ 37% overall marks ({examStatus.passedCount}/{examStatus.totalQuizzes} section exams completed).
                   </p>
                   <button
                     onClick={onOpenCertify}
-                    className="px-4 py-2 border border-[#a435f0] text-[#a435f0] hover:bg-[#a435f0]/5 text-xs font-bold rounded transition-colors cursor-pointer"
+                    className={`px-4 py-2 text-xs font-bold rounded transition-colors cursor-pointer inline-flex items-center gap-2 ${
+                      examStatus.isUnlocked
+                        ? 'border border-[#a435f0] text-[#a435f0] hover:bg-[#a435f0]/5'
+                        : 'border border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
                   >
-                    Supritamone Academy Certificate
+                    {examStatus.isUnlocked ? <Award className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5 text-amber-600" />}
+                    <span>{examStatus.isUnlocked ? 'Supritamone Academy Certificate' : 'Certificate Locked (Complete Overall Exam ≥ 37%)'}</span>
                   </button>
                 </div>
 
@@ -1155,15 +1848,226 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                           4.8 Instructor Rating
                         </span>
                         <span>·</span>
-                        <span>12,850 Students</span>
-                        <span>·</span>
                         <span>1 Course</span>
                       </div>
                     </div>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
-                    Dr. Chef Supritam Basu is an international culinary educator, author of the 252-issue series "The Zero Waste Kitchen", and Dean of Sustainable Gastronomy at Supritamone Academy. Officially accredited under The CPD Group Approved Provider #791463 and ISO 9001:2015 Quality Management standards.
+                    Dr. Chef Supritam Basu is an international culinary educator, author of the 252-issue series "The Zero Waste Kitchen", and Dean of Sustainable Gastronomy at Supritamone Academy, ISO 9001:2015 Quality Management certified.
                   </p>
+                </div>
+              </div>
+            )}
+
+            {/* EXTENSIVE CHAPTER STUDY GUIDE, THEORY, CONTROL MATRIX, CHECKLIST & LAB FORMULATIONS */}
+            {activeTab === 'study' && currentLecture.studyMaterial && (
+              <div className="space-y-8 max-w-5xl">
+                {/* Chapter Study Header */}
+                <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 text-white shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+                      <span className="bg-[#a435f0] text-white px-2.5 py-0.5 rounded font-bold uppercase">
+                        Chapter {currentLecture.globalChapterNumber} Study Manual
+                      </span>
+                      <span className="bg-white/10 text-indigo-200 px-2.5 py-0.5 rounded border border-white/15">
+                        {currentLecture.studyMaterial.issueCoverage}
+                      </span>
+                      <span className="text-slate-300">
+                        {formatSeconds(getExactLectureSeconds(currentLecture))} Lecture Runtime
+                      </span>
+                    </div>
+                    <h2 className="text-lg sm:text-xl font-extrabold leading-snug">
+                      {currentLecture.title}
+                    </h2>
+                    <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-3xl">
+                      {currentLecture.studyMaterial.executiveOverview}
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() =>
+                      handleDownloadResource(
+                        `Ch${currentLecture.globalChapterNumber}_Complete_Study_Manual.md`,
+                        `Chapter ${currentLecture.globalChapterNumber} Extensive Study Guide & SOPs`,
+                        currentLecture
+                      )
+                    }
+                    className="shrink-0 px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs rounded-xl shadow flex items-center gap-2 transition-colors cursor-pointer self-start md:self-center"
+                  >
+                    <Download className="w-4 h-4 text-[#a435f0]" />
+                    <span>Download Chapter Study Manual</span>
+                  </button>
+                </div>
+
+                {/* Learning Objectives */}
+                <div className="p-5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+                  <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                    <GraduationCap className="w-4 h-4 text-[#a435f0]" />
+                    <span>Chapter Learning Objectives</span>
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    {currentLecture.studyMaterial.learningObjectives.map((obj, oIdx) => (
+                      <div key={oIdx} className="flex items-start gap-2.5 p-3 rounded-lg bg-white border border-slate-200/80 text-xs sm:text-sm text-slate-700">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <span className="leading-relaxed">{obj}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Deep Biochemical & Operational Theory Modules */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                    <FlaskConical className="w-4 h-4 text-indigo-600" />
+                    <span>Biochemical & Operational Science Modules</span>
+                  </h3>
+                  <div className="space-y-4">
+                    {currentLecture.studyMaterial.theoryModules.map((mod, mIdx) => (
+                      <div key={mIdx} className="p-5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-3">
+                        <h4 className="text-sm sm:text-base font-bold text-slate-900">
+                          {mod.heading}
+                        </h4>
+                        <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
+                          {mod.content}
+                        </p>
+                        {mod.formulaEquation && (
+                          <div className="p-3.5 rounded-xl bg-amber-50/80 border border-amber-200 space-y-1">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800 block">
+                              {mod.formulaTitle || 'Quantitative Kitchen Formula'}
+                            </span>
+                            <code className="text-xs sm:text-sm font-mono font-bold text-slate-900 block">
+                              {mod.formulaEquation}
+                            </code>
+                          </div>
+                        )}
+                        {mod.safetyNote && (
+                          <div className="p-3 rounded-lg bg-red-50/80 border border-red-200 flex items-start gap-2 text-xs text-red-900">
+                            <ShieldCheck className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                            <span>
+                              <strong>HACCP / Safety Guardrail:</strong> {mod.safetyNote}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Critical Control Matrix Table */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-blue-600" />
+                    <span>Critical Control & Calibration Matrix</span>
+                  </h3>
+                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead className="bg-slate-900 text-white uppercase text-[10px] tracking-wider">
+                        <tr>
+                          <th className="p-3">Control Parameter</th>
+                          <th className="p-3">Target Range</th>
+                          <th className="p-3">Measurement Tool</th>
+                          <th className="p-3">Corrective Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 bg-white">
+                        {currentLecture.studyMaterial.controlMatrix.map((row, rIdx) => (
+                          <tr key={rIdx} className="hover:bg-slate-50">
+                            <td className="p-3 font-bold text-slate-900">{row.parameter}</td>
+                            <td className="p-3 font-mono font-bold text-[#a435f0] whitespace-nowrap">{row.targetRange}</td>
+                            <td className="p-3 text-slate-700">{row.measurementTool}</td>
+                            <td className="p-3 text-slate-600 leading-relaxed">{row.correctiveAction}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Interactive Station SOP Checklist */}
+                <div className="p-5 rounded-xl border border-emerald-200 bg-emerald-50/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-extrabold uppercase tracking-wider text-emerald-950 flex items-center gap-2">
+                      <CheckSquare className="w-4 h-4 text-emerald-600" />
+                      <span>Station Implementation SOP Checklist</span>
+                    </h3>
+                    <span className="text-xs font-mono font-bold text-emerald-700">
+                      {currentLecture.studyMaterial.sopChecklist.filter((_, idx) => checkedSops.has(`${currentLecture.id}-sop-${idx}`)).length} / {currentLecture.studyMaterial.sopChecklist.length} Verified
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {currentLecture.studyMaterial.sopChecklist.map((step, sIdx) => {
+                      const key = `${currentLecture.id}-sop-${sIdx}`;
+                      const checked = checkedSops.has(key);
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => toggleSopCheck(key)}
+                          className={`w-full text-left p-3 rounded-lg border flex items-start gap-3 transition-colors cursor-pointer ${
+                            checked
+                              ? 'bg-emerald-100/70 border-emerald-300 text-emerald-950'
+                              : 'bg-white border-slate-200 hover:border-emerald-300 text-slate-800'
+                          }`}
+                        >
+                          {checked ? (
+                            <CheckSquare className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                          ) : (
+                            <Square className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                          )}
+                          <span className={`text-xs sm:text-sm leading-relaxed ${checked ? 'line-through opacity-75' : ''}`}>
+                            {step}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Worked Zero-Waste Formulations Grid */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-amber-600" />
+                    <span>Worked Byproduct Lab Formulations ({currentLecture.studyMaterial.featuredFormulations.length})</span>
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {currentLecture.studyMaterial.featuredFormulations.map((form, fIdx) => (
+                      <div key={fIdx} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-2xs flex flex-col">
+                        <div className="relative h-40 bg-slate-900">
+                          <img
+                            src={form.image}
+                            alt={form.title}
+                            className="w-full h-full object-cover"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/assets/ingredients/lemon.jpg'; }}
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                          <div className="absolute bottom-3 left-3 right-3 text-white">
+                            <span className="text-[10px] font-mono uppercase tracking-wider bg-[#a435f0] px-2 py-0.5 rounded font-bold">
+                              Yield: {form.yieldAmount}
+                            </span>
+                            <h4 className="font-bold text-sm mt-1 leading-snug">{form.title}</h4>
+                          </div>
+                        </div>
+                        <div className="p-4 space-y-2.5 text-xs flex-1">
+                          <p className="text-slate-600">
+                            <strong className="text-slate-900">Byproduct Stream:</strong> {form.mainByproduct}
+                          </p>
+                          <p className="text-indigo-950 bg-indigo-50/70 p-2 rounded border border-indigo-100">
+                            <strong>Science:</strong> {form.scientificMechanism}
+                          </p>
+                          <div className="space-y-1">
+                            <span className="font-bold text-slate-800 block">Production Method:</span>
+                            <ol className="list-decimal list-inside space-y-1 text-slate-600">
+                              {form.keySteps.slice(0, 4).map((st, stIdx) => (
+                                <li key={stIdx} className="leading-relaxed">{st}</li>
+                              ))}
+                            </ol>
+                          </div>
+                          <p className="text-[11px] text-amber-900 bg-amber-50 p-2 rounded border border-amber-200">
+                            <strong>Chef Tip:</strong> {form.chefTip}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -1182,13 +2086,47 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   <div className="flex-1 border-2 border-slate-300 focus-within:border-[#a435f0] rounded-xl p-3 bg-white shadow-2xs space-y-3">
                     {/* Toolbar */}
                     <div className="flex items-center justify-between border-b border-slate-200 pb-2 text-xs text-slate-600">
-                      <div className="flex items-center gap-3">
-                        <span className="font-semibold cursor-pointer hover:text-slate-900">Styles v</span>
-                        <span className="font-bold cursor-pointer hover:text-slate-900">B</span>
-                        <span className="italic cursor-pointer hover:text-slate-900">I</span>
-                        <span className="cursor-pointer hover:text-slate-900">1.</span>
-                        <span className="cursor-pointer hover:text-slate-900">•</span>
-                        <span className="font-mono cursor-pointer hover:text-slate-900">&lt;&gt;</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setNewNoteContent(prev => prev + (prev && !prev.endsWith(' ') ? ' ' : '') + '**Key Point** ')}
+                          className="font-bold px-2 py-0.5 rounded hover:bg-slate-100 cursor-pointer"
+                          title="Bold text"
+                        >
+                          B
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewNoteContent(prev => prev + (prev && !prev.endsWith(' ') ? ' ' : '') + '*note* ')}
+                          className="italic px-2 py-0.5 rounded hover:bg-slate-100 cursor-pointer"
+                          title="Italic text"
+                        >
+                          I
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewNoteContent(prev => prev + (prev && !prev.endsWith('\n') ? '\n1. ' : '1. '))}
+                          className="px-2 py-0.5 rounded hover:bg-slate-100 cursor-pointer"
+                          title="Numbered item"
+                        >
+                          1.
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewNoteContent(prev => prev + (prev && !prev.endsWith('\n') ? '\n• ' : '• '))}
+                          className="px-2 py-0.5 rounded hover:bg-slate-100 cursor-pointer"
+                          title="Bullet point"
+                        >
+                          •
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewNoteContent(prev => prev + ' `Ratio: ` ')}
+                          className="font-mono px-2 py-0.5 rounded hover:bg-slate-100 cursor-pointer"
+                          title="Formula snippet"
+                        >
+                          &lt;&gt;
+                        </button>
                       </div>
                       <span className="text-[11px] font-mono text-slate-400">
                         {1000 - newNoteContent.length}
@@ -1239,9 +2177,18 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                           <Play className="w-2.5 h-2.5 fill-current" />
                           <span>{note.timestampFormatted}</span>
                         </button>
-                        <span className="text-[11px] text-slate-400 font-mono">{note.createdAt}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[11px] text-slate-400 font-mono">{note.createdAt}</span>
+                          <button
+                            onClick={() => setNotesList(prev => prev.filter(n => n.id !== note.id))}
+                            className="text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
+                            title="Delete note"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
-                      <p className="text-xs sm:text-sm text-slate-800 leading-relaxed">
+                      <p className="text-xs sm:text-sm text-slate-800 leading-relaxed whitespace-pre-line">
                         {note.content}
                       </p>
                       <span className="text-[10px] text-slate-500 italic block">
@@ -1261,24 +2208,82 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                     <input 
                       type="text" 
+                      value={qaSearchQuery}
+                      onChange={(e) => setQaSearchQuery(e.target.value)}
                       placeholder="Search all course questions..."
                       className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-[#a435f0]"
                     />
                   </div>
-                  <button className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shrink-0">
-                    Ask a new question
+                  <button
+                    onClick={() => setIsComposingQa(prev => !prev)}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shrink-0"
+                  >
+                    {isComposingQa ? 'Close Form' : 'Ask a new question'}
                   </button>
                 </div>
 
-                <div className="space-y-3">
-                  <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
-                    <h5 className="font-bold text-xs sm:text-sm text-slate-900">
-                      How long can wild lacto-fermented vegetable trimmings be safely held in walk-in cold rooms?
-                    </h5>
-                    <p className="text-xs text-slate-600">
-                      Answered by <strong className="text-[#a435f0]">Dr. Chef Supritam Basu</strong>: Once the pH drops below 4.6 and bubbling stabilizes, sealed crocks at 2°C–4°C hold prime crunch and acidity for 6 to 9 months.
-                    </p>
+                {isComposingQa && (
+                  <div className="p-4 rounded-xl border border-[#a435f0]/40 bg-purple-50/30 space-y-3">
+                    <textarea
+                      rows={3}
+                      value={newQaQuestion}
+                      onChange={(e) => setNewQaQuestion(e.target.value)}
+                      placeholder="Ask a question about this lecture, yield formula, or waste audit..."
+                      className="w-full p-2.5 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-[#a435f0]"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => {
+                          setIsComposingQa(false);
+                          setNewQaQuestion('');
+                        }}
+                        className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        disabled={!newQaQuestion.trim()}
+                        onClick={() => {
+                          const qText = newQaQuestion.trim();
+                          if (!qText) return;
+                          setQaItems(prev => [
+                            {
+                              id: `qa-${Date.now()}`,
+                              question: qText,
+                              author: 'Dr. Chef Supritam Basu',
+                              answer: `Thank you for your question on "${currentLecture.title}". Apply station-level tare weights and documented SOP controls before scaling prep batches. For private consultation, contact supritam.basu@supritamone.com.`,
+                            },
+                            ...prev,
+                          ]);
+                          setNewQaQuestion('');
+                          setIsComposingQa(false);
+                          audioNarrator.playSound('correct');
+                        }}
+                        className="px-4 py-1.5 bg-[#a435f0] hover:bg-[#8710d8] disabled:opacity-40 text-white text-xs font-bold rounded-lg cursor-pointer"
+                      >
+                        Publish Question
+                      </button>
+                    </div>
                   </div>
+                )}
+
+                <div className="space-y-3">
+                  {qaItems
+                    .filter(item =>
+                      !qaSearchQuery.trim() ||
+                      item.question.toLowerCase().includes(qaSearchQuery.toLowerCase()) ||
+                      item.answer.toLowerCase().includes(qaSearchQuery.toLowerCase())
+                    )
+                    .map(item => (
+                      <div key={item.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                        <h5 className="font-bold text-xs sm:text-sm text-slate-900">
+                          {item.question}
+                        </h5>
+                        <p className="text-xs text-slate-600">
+                          Answered by <strong className="text-[#a435f0]">{item.author}</strong>: {item.answer}
+                        </p>
+                      </div>
+                    ))}
                 </div>
               </div>
             )}
@@ -1309,10 +2314,110 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
               <div className="space-y-4 max-w-3xl text-xs sm:text-sm text-slate-700">
                 <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-1.5">
                   <span className="text-[10px] font-mono uppercase text-slate-500 block">November 2026 Update</span>
-                  <h5 className="font-bold text-slate-900 text-sm">Full 252 Newsletter Synthesis & Verified CPD Group Accreditation</h5>
+                  <h5 className="font-bold text-slate-900 text-sm">Full 26-Hour Zero Waste Kitchen Curriculum (24 Extensive Chapters · 252 Issues)</h5>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    All 12 modules have been synchronized with the latest commercial kitchen inspection rubric and verified under CPD Group Provider #791463.
+                    All 12 sections ({COURSE_TOTAL_CHAPTERS} extensive chapters, {courseTotalVideoLabel} total video, and {COURSE_TOTAL_QUESTIONS} examination questions) have been expanded with full biochemical theory manuals, station control matrices, and ISO 9001:2015 quality standards.
                   </p>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 6: COURSE SEARCH */}
+            {activeTab === 'search' && (
+              <div className="space-y-4 max-w-3xl">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    value={courseSearchQuery}
+                    onChange={(e) => setCourseSearchQuery(e.target.value)}
+                    placeholder={`Search across all ${COURSE_TOTAL_CHAPTERS} chapters, study guides, and transcripts...`}
+                    className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-[#a435f0]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  {UDEMY_ZERO_WASTE_SECTIONS.map((sec, sIdx) => {
+                    const secUnlocked = isSectionUnlocked(sIdx);
+                    return sec.lectures.map((lec, lIdx) => {
+                      const q = courseSearchQuery.trim().toLowerCase();
+                      const matchText = (
+                        lec.title +
+                        ' ' +
+                        lec.slides.map(sl => sl.title + ' ' + sl.bullets.join(' ')).join(' ') +
+                        ' ' +
+                        lec.transcript.map(t => t.text).join(' ')
+                      ).toLowerCase();
+                      if (q && !matchText.includes(q)) return null;
+                      return (
+                        <button
+                          key={lec.id}
+                          disabled={!secUnlocked}
+                          onClick={() => {
+                            if (secUnlocked) {
+                              handleSelectLecture(sIdx, lIdx);
+                              setActiveTab('overview');
+                            }
+                          }}
+                          className="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-[#a435f0] hover:bg-purple-50/30 disabled:opacity-45 flex items-center justify-between gap-3 transition-colors cursor-pointer"
+                        >
+                          <div>
+                            <span className="text-[10px] font-bold uppercase text-[#a435f0] block">
+                              Section {sec.sectionNumber}
+                            </span>
+                            <span className="text-xs sm:text-sm font-bold text-slate-900">{lec.title}</span>
+                          </div>
+                          <span className="text-xs font-mono text-slate-500 shrink-0">
+                            {secUnlocked ? 'Jump to Lecture →' : 'Locked'}
+                          </span>
+                        </button>
+                      );
+                    });
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 7: LEARNING TOOLS */}
+            {activeTab === 'tools' && (
+              <div className="space-y-4 max-w-3xl text-xs sm:text-sm">
+                <h3 className="text-base font-bold text-slate-900">Learning Tools & Kitchen Utilities</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="font-bold text-slate-900 text-sm">Official Zero Waste Certificate</h4>
+                      {!examStatus.isUnlocked && (
+                        <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+                          Locked ({examStatus.overallScorePercent}% / 37%)
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-600">
+                      {examStatus.isUnlocked
+                        ? 'Overall exam passed! Download your high-resolution completion certificate.'
+                        : `Pass all ${COURSE_TOTAL_QUIZZES} section exams (${examStatus.passedCount}/${examStatus.totalQuizzes} completed) with ≥ 37% overall total marks to unlock.`}
+                    </p>
+                    <button
+                      onClick={onOpenCertify}
+                      className={`px-4 py-2 text-xs font-bold rounded-lg cursor-pointer inline-flex items-center gap-1.5 ${
+                        examStatus.isUnlocked
+                          ? 'bg-[#a435f0] hover:bg-[#8710d8] text-white'
+                          : 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                      }`}
+                    >
+                      {examStatus.isUnlocked ? <Award className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5 text-amber-600" />}
+                      <span>{examStatus.isUnlocked ? 'Open Certificate' : 'Locked — View Exam Progress'}</span>
+                    </button>
+                  </div>
+                  <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                    <h4 className="font-bold text-slate-900 text-sm">Instructor Direct Support</h4>
+                    <p className="text-xs text-slate-600">Need culinary audit advice or certification verification assistance?</p>
+                    <a
+                      href="mailto:supritam.basu@supritamone.com"
+                      className="inline-block px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg"
+                    >
+                      Email supritam.basu@supritamone.com
+                    </a>
+                  </div>
                 </div>
               </div>
             )}
@@ -1385,7 +2490,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                           <div className="flex items-center gap-2 text-[11px] text-[#8a8b8c]">
                             <span>{sectionCompletedTotal} / {sectionTotalItems}</span>
                             <span>|</span>
-                            <span>{section.durationLabel}</span>
+                            <span>
+                              {formatCompactDuration(
+                                section.lectures.reduce((sum, l) => sum + getExactLectureSeconds(l), 0)
+                              )}
+                            </span>
                             {!isUnlocked && (
                               <span className="flex items-center gap-1 text-amber-400 font-mono text-[10px]">
                                 <Lock className="w-3 h-3" /> Locked
@@ -1445,7 +2554,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                                   <div className="flex items-center justify-between text-[11px] text-[#8a8b8c]">
                                     <span className="flex items-center gap-1 font-mono">
                                       <Play className="w-3 h-3 fill-current text-slate-400" />
-                                      {lecture.duration}
+                                      {formatClockDuration(getExactLectureSeconds(lecture))}
                                     </span>
 
                                     {/* Resources Pill Button (Exact Image 3 & 4) */}
@@ -1476,7 +2585,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                                                   if (res.isExternal && res.url) {
                                                     window.open(res.url, '_blank');
                                                   } else {
-                                                    handleDownloadResource(res.filename || `${res.title.replace(/\s+/g, '_')}.pdf`, res.title);
+                                                    handleDownloadResource(res.filename || `${res.title.replace(/\s+/g, '_')}.md`, res.title, lecture);
                                                   }
                                                   setOpenResourceMenuId(null);
                                                 }}
@@ -1560,23 +2669,81 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
               </div>
             ) : (
               /* AI ASSISTANT SIDEBAR TAB */
-              <div className="p-4 space-y-4 flex-1 text-xs text-slate-300">
-                <div className="p-3 rounded-lg bg-[#2d2f31] border border-[#3e4143] space-y-1">
-                  <span className="text-[#a435f0] font-bold block">Chef AI Assistant</span>
-                  <p className="text-[11px] leading-relaxed">
-                    Ask questions regarding Dr. Chef Basu's 252-issue curriculum, station tare logs, or fermentation ratios.
-                  </p>
+              <div className="p-4 space-y-4 flex-1 flex flex-col justify-between text-xs text-slate-300">
+                <div className="space-y-3 overflow-y-auto flex-1 pr-1">
+                  <div className="p-3 rounded-lg bg-[#2d2f31] border border-[#3e4143] space-y-1">
+                    <span className="text-[#a435f0] font-bold block">Chef AI Assistant</span>
+                    <p className="text-[11px] leading-relaxed">
+                      Ask questions regarding <strong className="text-white">{currentLecture.title}</strong>, station tare logs, or fermentation ratios.
+                    </p>
+                  </div>
+
+                  {aiMessages.map((msg, mIdx) => (
+                    <div
+                      key={mIdx}
+                      className={`p-3 rounded-lg text-[11px] leading-relaxed ${
+                        msg.role === 'user'
+                          ? 'bg-[#a435f0]/20 border border-[#a435f0]/40 text-white ml-4'
+                          : 'bg-[#25272a] border border-[#3e4143] text-slate-200 mr-2'
+                      }`}
+                    >
+                      <span className="font-bold block mb-0.5 text-[10px] uppercase tracking-wider text-slate-400">
+                        {msg.role === 'user' ? 'You' : 'Chef AI'}
+                      </span>
+                      {msg.text}
+                    </div>
+                  ))}
                 </div>
-                <div className="space-y-2">
+
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const q = aiQuestion.trim();
+                    if (!q || isAiThinking) return;
+                    setAiMessages(prev => [...prev, { role: 'user', text: q }]);
+                    setAiQuestion('');
+                    setIsAiThinking(true);
+                    try {
+                      const res = await fetch('/api/ai/ask', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          question: q,
+                          lectureTitle: currentLecture.title,
+                          context: currentSlide.bullets.join(' '),
+                        }),
+                      });
+                      const data = await res.json();
+                      setAiMessages(prev => [
+                        ...prev,
+                        { role: 'assistant', text: data.answer || 'Apply the tare-weight protocol on the active slide.' },
+                      ]);
+                    } catch {
+                      setAiMessages(prev => [
+                        ...prev,
+                        { role: 'assistant', text: `In "${currentLecture.title}", measure prep trims by weight before repurposing. Contact supritam.basu@supritamone.com for brigade support.` },
+                      ]);
+                    } finally {
+                      setIsAiThinking(false);
+                    }
+                  }}
+                  className="space-y-2 pt-2 border-t border-[#2d2f31]"
+                >
                   <input
                     type="text"
+                    value={aiQuestion}
+                    onChange={(e) => setAiQuestion(e.target.value)}
                     placeholder="Ask about this lecture..."
                     className="w-full p-2.5 rounded bg-[#25272a] border border-[#3e4143] text-white text-xs focus:outline-none focus:border-[#a435f0]"
                   />
-                  <button className="w-full py-2 bg-[#a435f0] hover:bg-[#8710d8] text-white font-bold rounded text-xs transition-colors cursor-pointer">
-                    Submit Question
+                  <button
+                    type="submit"
+                    disabled={!aiQuestion.trim() || isAiThinking}
+                    className="w-full py-2 bg-[#a435f0] hover:bg-[#8710d8] disabled:opacity-40 text-white font-bold rounded text-xs transition-colors cursor-pointer"
+                  >
+                    {isAiThinking ? 'Thinking...' : 'Submit Question'}
                   </button>
-                </div>
+                </form>
               </div>
             )}
           </aside>

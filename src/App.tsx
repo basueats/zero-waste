@@ -15,7 +15,37 @@ import { SurplusCertificateModal } from './components/SurplusCertificateModal';
 import { ExportModal } from './components/ExportModal';
 import { SurplusCulinaryCoursesView } from './components/SurplusCulinaryCoursesView';
 import { SurplusWasteCalculator } from './components/SurplusWasteCalculator';
-import { Compass, BookOpen, GraduationCap, Calculator, ChefHat, Sparkles } from 'lucide-react';
+import { Compass, BookOpen, GraduationCap, Calculator, ChefHat, Mail, User, X, CheckCircle2, Lock, Award } from 'lucide-react';
+import {
+  ExamUnlockStatus,
+  computeExamUnlockStatus,
+  loadStoredExamProgress
+} from './data/udemyCourseStructure';
+
+const LEARNER_STORAGE_KEY = 'supritamone_learner_account';
+
+function deriveNameFromEmail(email: string): string {
+  const cleanEmail = (email || '').trim().toLowerCase();
+  if (cleanEmail === 'basueats@gmail.com') {
+    return 'Supritam Basu';
+  }
+  const local = cleanEmail.split('@')[0] || '';
+  const words = local
+    .replace(/[._-]+/g, ' ')
+    .replace(/\d+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 0) return 'Culinary Professional';
+  return words
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
+interface LearnerAccount {
+  email: string;
+  chosenName: string;
+}
 
 export default function App() {
   const [course] = React.useState<CourseOverview>(initialCourseData);
@@ -24,7 +54,50 @@ export default function App() {
   const [activeSection, setActiveSection] = React.useState<string>('');
   const [selectedCourseId, setSelectedCourseId] = React.useState<string | null>(null);
   const [searchQuery, setSearchQuery] = React.useState<string>('');
-  const [completedLessonsCount, setCompletedLessonsCount] = React.useState<number>(2);
+  const [completedLessonsCount] = React.useState<number>(2);
+
+  // Signed-in learner profile (defaults to user's email/name, persisted in localStorage)
+  const [learnerAccount, setLearnerAccount] = React.useState<LearnerAccount>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(LEARNER_STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && (parsed.email || parsed.chosenName)) {
+            return {
+              email: parsed.email || 'basueats@gmail.com',
+              chosenName: parsed.chosenName || '',
+            };
+          }
+        }
+      } catch {
+        // Ignore storage errors
+      }
+    }
+    return {
+      email: 'basueats@gmail.com',
+      chosenName: 'Supritam Basu',
+    };
+  });
+
+  const resolvedCertificateName = React.useMemo(() => {
+    const trimmed = learnerAccount.chosenName.trim();
+    if (trimmed) return trimmed;
+    return deriveNameFromEmail(learnerAccount.email);
+  }, [learnerAccount]);
+
+  const todayFormatted = React.useMemo(() => {
+    return new Date().toLocaleDateString('en-US', {
+      month: '2-digit',
+      day: '2-digit',
+      year: 'numeric',
+    });
+  }, []);
+
+  // Account Sign-In Modal draft state
+  const [showAccountModal, setShowAccountModal] = React.useState<boolean>(false);
+  const [draftEmail, setDraftEmail] = React.useState<string>(learnerAccount.email);
+  const [draftName, setDraftName] = React.useState<string>(learnerAccount.chosenName);
 
   // Mobile Auto-Calibration & Drawer state
   const [isMobileScreen, setIsMobileScreen] = React.useState<boolean>(() => {
@@ -34,7 +107,23 @@ export default function App() {
 
   // Modals
   const [showCertifyModal, setShowCertifyModal] = React.useState<boolean>(false);
+  const [showCertLockedModal, setShowCertLockedModal] = React.useState<boolean>(false);
   const [showExportModal, setShowExportModal] = React.useState<boolean>(false);
+
+  // Global Overall Exam Status (Certificate unlocks ONLY when all 12 section exams passed with >= 37% overall score)
+  const [examStatus, setExamStatus] = React.useState<ExamUnlockStatus>(() => {
+    const stored = loadStoredExamProgress();
+    return computeExamUnlockStatus(stored.passedQuizzes, stored.quizScores);
+  });
+
+  const handleOpenCertificate = React.useCallback(() => {
+    if (examStatus.isUnlocked) {
+      setShowCertLockedModal(false);
+      setShowCertifyModal(true);
+    } else {
+      setShowCertLockedModal(true);
+    }
+  }, [examStatus.isUnlocked]);
 
   // Auto-calibrate on viewport resize / device orientation change
   React.useEffect(() => {
@@ -67,7 +156,7 @@ export default function App() {
     setIsMobileDrawerOpen(false);
     if (sectionId === 'waste-calculator') {
       setActiveNavTab('calculator');
-    } else if (sectionId === 'ask-dr-basu' || sectionId === 'monthly-recordings') {
+    } else if (sectionId === 'ask-dr-basu') {
       setActiveNavTab('community');
     } else {
       setActiveNavTab('quick-wins');
@@ -88,8 +177,10 @@ export default function App() {
         <main className="flex-1 w-full">
           <SurplusCoursePlayer
             courseId={selectedCourseId}
+            learnerName={resolvedCertificateName}
             onBackToCourses={() => setSelectedCourseId(null)}
-            onOpenCertify={() => setShowCertifyModal(true)}
+            onOpenCertify={handleOpenCertificate}
+            onExamStatusChange={setExamStatus}
           />
         </main>
       ) : (
@@ -100,12 +191,20 @@ export default function App() {
             onToggleViewMode={setViewMode}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
-            onOpenCertify={() => setShowCertifyModal(true)}
+            onOpenCertify={handleOpenCertificate}
             onOpenExporter={() => setShowExportModal(true)}
             activeNavTab={activeNavTab}
             onSelectNavTab={handleSelectNavTab}
             isMobileDrawerOpen={isMobileDrawerOpen}
             onToggleMobileDrawer={() => setIsMobileDrawerOpen(prev => !prev)}
+            learnerName={resolvedCertificateName}
+            learnerEmail={learnerAccount.email}
+            isCertificateUnlocked={examStatus.isUnlocked}
+            onOpenAccountModal={() => {
+              setDraftEmail(learnerAccount.email);
+              setDraftName(learnerAccount.chosenName);
+              setShowAccountModal(true);
+            }}
           />
 
           {/* Mobile Drawer Overlay for Small / Mobile Viewports */}
@@ -124,8 +223,10 @@ export default function App() {
                   activeNavTab={activeNavTab}
                   onSelectNavTab={handleSelectNavTab}
                   completedLessonsCount={completedLessonsCount}
+                  isCertificateUnlocked={examStatus.isUnlocked}
+                  examStatus={examStatus}
                   onOpenCertify={() => {
-                    setShowCertifyModal(true);
+                    handleOpenCertificate();
                     setIsMobileDrawerOpen(false);
                   }}
                   onOpenExporter={() => {
@@ -143,7 +244,7 @@ export default function App() {
             <main className="flex-1 flex items-center justify-center bg-slate-100/80 py-4">
               <SurplusMobilePreview
                 onOpenDesktop={() => setViewMode('desktop')}
-                onOpenCertify={() => setShowCertifyModal(true)}
+                onOpenCertify={handleOpenCertificate}
                 onOpenExporter={() => setShowExportModal(true)}
               />
             </main>
@@ -158,7 +259,9 @@ export default function App() {
                   activeNavTab={activeNavTab}
                   onSelectNavTab={handleSelectNavTab}
                   completedLessonsCount={completedLessonsCount}
-                  onOpenCertify={() => setShowCertifyModal(true)}
+                  isCertificateUnlocked={examStatus.isUnlocked}
+                  examStatus={examStatus}
+                  onOpenCertify={handleOpenCertificate}
                   onOpenExporter={() => setShowExportModal(true)}
                 />
               </div>
@@ -169,8 +272,10 @@ export default function App() {
                   <SurplusHomeView
                     onOpenCourse={handleOpenCourse}
                     onOpenLibrary={() => handleSelectNavTab('library')}
-                    onOpenCertify={() => setShowCertifyModal(true)}
+                    onOpenCertify={handleOpenCertificate}
                     onOpenSection={handleSelectSection}
+                    isCertificateUnlocked={examStatus.isUnlocked}
+                    examStatus={examStatus}
                   />
                 ) : activeNavTab === 'culinary-courses' ? (
                   <SurplusCulinaryCoursesView
@@ -193,10 +298,8 @@ export default function App() {
                     onOpenCourse={handleOpenCourse}
                     searchQuery={searchQuery}
                   />
-                ) : activeSection === 'ask-dr-basu' || activeSection === 'monthly-recordings' || activeNavTab === 'events' ? (
-                  <SurplusCommunityView
-                    initialSubTab={activeSection === 'monthly-recordings' ? 'recordings' : 'ask'}
-                  />
+                ) : activeSection === 'ask-dr-basu' || activeNavTab === 'events' ? (
+                  <SurplusCommunityView initialSubTab="ask" />
                 ) : (
                   <SurplusQuickWinsView
                     sectionId={activeSection || 'start-here'}
@@ -271,12 +374,12 @@ export default function App() {
         </>
       )}
 
-      {/* MODAL 1: Official Supritamone Academy Executive Diploma Certificate Generator */}
+      {/* MODAL 1: Official Supritamone Academy Zero Waste Certificate Generator (Only Name & Date change) */}
       <SurplusCertificateModal
         isOpen={showCertifyModal}
         onClose={() => setShowCertifyModal(false)}
-        defaultLearnerName="Chef Alex Vance"
-        courseTitle="Executive Diploma in Sustainable Gastronomy & Zero-Waste Culinary Science (Level 7)"
+        defaultLearnerName={resolvedCertificateName}
+        completionDateDefault={todayFormatted}
       />
 
       {/* MODAL 2: Alison, SCORM & LMS Publishing Kit Downloader */}
@@ -285,6 +388,166 @@ export default function App() {
         isOpen={showExportModal}
         onClose={() => setShowExportModal(false)}
       />
+
+      {/* MODAL 3: Learner Login / Account Identity Modal (Sets Certificate Name from Email or Login Choice) */}
+      {showAccountModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden">
+            <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <User className="w-5 h-5 text-amber-400" />
+                <div>
+                  <h3 className="font-bold text-sm">Learner Sign-In & Certificate Name</h3>
+                  <p className="text-[11px] text-slate-400">Your certificate uses your chosen name or email ID</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAccountModal(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const updated: LearnerAccount = {
+                  email: draftEmail.trim() || 'basueats@gmail.com',
+                  chosenName: draftName.trim(),
+                };
+                setLearnerAccount(updated);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem(LEARNER_STORAGE_KEY, JSON.stringify(updated));
+                }
+                setShowAccountModal(false);
+              }}
+              className="p-5 space-y-4 text-xs"
+            >
+              <div className="space-y-1.5">
+                <label htmlFor="learner-email-input" className="font-bold text-slate-700 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Login Email ID</span>
+                </label>
+                <input
+                  id="learner-email-input"
+                  type="email"
+                  required
+                  value={draftEmail}
+                  onChange={(e) => setDraftEmail(e.target.value)}
+                  placeholder="chef@restaurant.com"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="learner-name-input" className="font-bold text-slate-700 flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Chosen Full Name (Optional — defaults to Email ID)</span>
+                </label>
+                <input
+                  id="learner-name-input"
+                  type="text"
+                  value={draftName}
+                  onChange={(e) => setDraftName(e.target.value)}
+                  placeholder={`Leave blank to use "${deriveNameFromEmail(draftEmail)}"`}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                />
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-center gap-2.5 text-slate-800">
+                <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0" />
+                <div>
+                  <span className="text-[11px] text-amber-900 block font-semibold">Name Printed on Certificate:</span>
+                  <span className="text-sm font-bold text-slate-900">
+                    {draftName.trim() || deriveNameFromEmail(draftEmail)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAccountModal(false)}
+                  className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-semibold hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold cursor-pointer"
+                >
+                  Save & Apply to Certificate
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: Certificate Locked Notice Modal (Requires Overall Total Exam >= 37% Pass) */}
+      {showCertLockedModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden">
+            <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Lock className="w-5 h-5 text-amber-400" />
+                <div>
+                  <h3 className="font-bold text-sm">Certificate Locked</h3>
+                  <p className="text-[11px] text-slate-400">Pass overall total exam (≥ 37%) to unlock</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCertLockedModal(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs text-slate-700">
+              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 space-y-2">
+                <div className="flex items-center justify-between font-bold text-amber-900">
+                  <span>Overall Total Exam Score</span>
+                  <span className="font-mono">{examStatus.overallScorePercent}% / 37% Required</span>
+                </div>
+                <div className="w-full bg-amber-200/70 h-2 rounded-full overflow-hidden">
+                  <div
+                    className="bg-amber-600 h-full rounded-full transition-all duration-300"
+                    style={{ width: `${Math.min(100, examStatus.overallScorePercent)}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-amber-800">
+                  Section Exams Passed: <strong>{examStatus.passedCount} of {examStatus.totalQuizzes}</strong> (10 questions per quiz, ≥ 37% passing mark).
+                </p>
+              </div>
+
+              <p className="leading-relaxed text-slate-600">
+                Your official <strong>Supritamone Academy Zero Waste Certificate</strong> unlocks automatically once all {examStatus.totalQuizzes} section exams are completed with an overall total score of <strong>37% or higher</strong>.
+              </p>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setShowCertLockedModal(false)}
+                  className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-semibold hover:bg-slate-50 cursor-pointer"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => {
+                    setShowCertLockedModal(false);
+                    setSelectedCourseId('food-waste-prevention-chefs');
+                  }}
+                  className="px-5 py-2 rounded-lg bg-[#a435f0] hover:bg-[#8710d8] text-white font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Award className="w-3.5 h-3.5" />
+                  <span>Open Course Exams</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

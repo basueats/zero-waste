@@ -4,6 +4,7 @@ import {
   SurplusCourse,
   heroSustainableKitchenImg
 } from '../data/surplusData';
+import { COURSE_TOTAL_VIDEO_LABEL } from '../data/udemyCourseStructure';
 import { 
   Play, 
   Clock, 
@@ -158,7 +159,7 @@ export const SurplusCoursesView: React.FC<SurplusCoursesViewProps> = ({
 
               <div className="absolute bottom-4 left-4 right-4 text-white">
                 <p className="text-xs text-blue-200 font-bold">{featuredCourse.instructor}, {featuredCourse.instructorCredentials}</p>
-                <p className="text-sm font-semibold text-white drop-shadow-xs">12 In-Depth Modules · Complete 252 Publication Series</p>
+                <p className="text-sm font-semibold text-white drop-shadow-xs">12 Sections · 24 Extensive Chapters · 252 Issues</p>
               </div>
             </div>
 
@@ -219,9 +220,9 @@ export const SurplusCoursesView: React.FC<SurplusCoursesViewProps> = ({
             <div className="border-t border-slate-200 bg-slate-50/70 p-6 space-y-3">
               <div className="flex items-center justify-between mb-2">
                 <h4 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider">
-                  The 12 Master Curriculum Modules (Issues #1–#252)
+                  12 Curriculum Sections · 24 Chapters (Issues #1–#252)
                 </h4>
-                <span className="text-xs font-mono text-slate-500">18 Hours Total Content</span>
+                <span className="text-xs font-mono text-slate-500">{COURSE_TOTAL_VIDEO_LABEL} Total Video</span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

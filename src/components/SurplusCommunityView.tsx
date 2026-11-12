@@ -1,37 +1,69 @@
 import React from 'react';
 import { 
   communityQuestions, 
-  monthlyRecordings, 
-  CommunityQuestion, 
-  MonthlyRecording 
+  CommunityQuestion
 } from '../data/surplusData';
 import { 
   Send, 
   Heart, 
-  MessageSquare, 
-  Video, 
-  Play, 
-  Clock, 
-  CheckCircle2, 
-  HelpCircle, 
-  Sparkles,
-  ExternalLink,
-  Share2
+  MessageSquare
 } from 'lucide-react';
 
 interface SurplusCommunityViewProps {
-  initialSubTab?: 'ask' | 'recordings';
+  initialSubTab?: 'ask';
 }
 
-export const SurplusCommunityView: React.FC<SurplusCommunityViewProps> = ({ 
-  initialSubTab = 'ask' 
-}) => {
-  const [subTab, setSubTab] = React.useState<'ask' | 'recordings'>(initialSubTab);
+export const SurplusCommunityView: React.FC<SurplusCommunityViewProps> = () => {
   const [questions, setQuestions] = React.useState<CommunityQuestion[]>(communityQuestions);
+  const [likedIds, setLikedIds] = React.useState<Set<string>>(() => new Set());
+  const [replyingToId, setReplyingToId] = React.useState<string | null>(null);
+  const [replyDraft, setReplyDraft] = React.useState<string>('');
   const [newQuestionText, setNewQuestionText] = React.useState('');
   const [newQuestionCategory, setNewQuestionCategory] = React.useState('Prep Waste');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [activeRecording, setActiveRecording] = React.useState<MonthlyRecording | null>(null);
+
+  const handleToggleLike = (qId: string) => {
+    setLikedIds(prev => {
+      const next = new Set(prev);
+      const isCurrentlyLiked = next.has(qId);
+      if (isCurrentlyLiked) {
+        next.delete(qId);
+      } else {
+        next.add(qId);
+      }
+      setQuestions(qs =>
+        qs.map(item =>
+          item.id === qId
+            ? { ...item, likes: Math.max(0, item.likes + (isCurrentlyLiked ? -1 : 1)) }
+            : item
+        )
+      );
+      return next;
+    });
+  };
+
+  const handleSubmitReply = (qId: string) => {
+    if (!replyDraft.trim()) return;
+    setQuestions(qs =>
+      qs.map(item =>
+        item.id === qId
+          ? {
+              ...item,
+              answeredByDrBasu: true,
+              reply: {
+                author: 'Community Member',
+                role: 'Supritamone Academy Chef',
+                avatar: 'CM',
+                date: 'Just now',
+                text: replyDraft.trim(),
+              },
+            }
+          : item
+      )
+    );
+    setReplyDraft('');
+    setReplyingToId(null);
+  };
 
   const handlePostQuestion = (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,29 +99,12 @@ export const SurplusCommunityView: React.FC<SurplusCommunityViewProps> = ({
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-16">
-      {/* Sub-tab Navigation */}
+      {/* Navigation Header */}
       <div className="flex items-center justify-between border-b border-slate-200 pb-3">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setSubTab('ask')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors ${
-              subTab === 'ask'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
+          <span className="px-4 py-2 text-xs font-bold rounded-lg bg-blue-600 text-white shadow-xs">
             Ask Dr. Chef Supritam Basu
-          </button>
-          <button
-            onClick={() => setSubTab('recordings')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors ${
-              subTab === 'recordings'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            Monthly Call Recordings ({monthlyRecordings.length})
-          </button>
+          </span>
         </div>
 
         <span className="text-xs text-slate-400 hidden sm:inline">
@@ -97,9 +112,8 @@ export const SurplusCommunityView: React.FC<SurplusCommunityViewProps> = ({
         </span>
       </div>
 
-      {/* SUB-VIEW 1: ASK VOJTECH CHANNEL (Matching image_be4b9ee5.png) */}
-      {subTab === 'ask' && (
-        <div className="space-y-6">
+      {/* ASK DR. CHEF BASU CHANNEL */}
+      <div className="space-y-6">
           {/* Channel Header Banner (matching screenshot) */}
           <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 text-white p-6 sm:p-8 rounded-2xl shadow-sm relative overflow-hidden">
             <div className="relative z-10 max-w-2xl space-y-3">
@@ -217,141 +231,49 @@ export const SurplusCommunityView: React.FC<SurplusCommunityViewProps> = ({
 
                 {/* Footer Reactions */}
                 <div className="flex items-center gap-4 text-xs text-slate-500 pt-2 border-t border-slate-100">
-                  <button className="flex items-center gap-1 hover:text-rose-600 transition-colors">
-                    <Heart className="w-3.5 h-3.5" />
+                  <button
+                    onClick={() => handleToggleLike(q.id)}
+                    className={`flex items-center gap-1 transition-colors cursor-pointer ${
+                      likedIds.has(q.id) ? 'text-rose-600 font-semibold' : 'hover:text-rose-600'
+                    }`}
+                  >
+                    <Heart className={`w-3.5 h-3.5 ${likedIds.has(q.id) ? 'fill-rose-600' : ''}`} />
                     <span>{q.likes} likes</span>
                   </button>
-                  <button className="flex items-center gap-1 hover:text-blue-600 transition-colors">
+                  <button
+                    onClick={() => {
+                      setReplyingToId(replyingToId === q.id ? null : q.id);
+                      setReplyDraft('');
+                    }}
+                    className="flex items-center gap-1 hover:text-blue-600 transition-colors cursor-pointer"
+                  >
                     <MessageSquare className="w-3.5 h-3.5" />
                     <span>Reply</span>
                   </button>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      {/* SUB-VIEW 2: MONTHLY CALL RECORDINGS (Matching image_be4b9ee5.png) */}
-      {subTab === 'recordings' && (
-        <div className="space-y-6">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900">
-              Monthly Masterclass Recordings
-            </h2>
-            <p className="text-xs text-slate-500 mt-1">
-              Catch up on all recorded live coaching sessions with Dr. Chef Supritam Basu and authors, chefs.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {monthlyRecordings.map((rec) => (
-              <div
-                key={rec.id}
-                className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
-              >
-                <div>
-                  {/* Poster Thumbnail matching image_be4b9ee5.png */}
-                  <div className="relative aspect-video bg-slate-900 overflow-hidden group cursor-pointer" onClick={() => setActiveRecording(rec)}>
-                    <img
-                      src={rec.posterImage}
-                      alt={rec.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 opacity-80"
+                {replyingToId === q.id && (
+                  <div className="pt-2 flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={replyDraft}
+                      onChange={(e) => setReplyDraft(e.target.value)}
+                      placeholder="Write a reply..."
+                      className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
                     />
-                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                      <div className="w-12 h-12 rounded-full bg-white/90 text-slate-900 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-                        <Play className="w-5 h-5 ml-0.5 fill-slate-900" />
-                      </div>
-                    </div>
-                    <span className="absolute bottom-2.5 right-2.5 bg-black/70 text-white text-[10px] font-mono font-medium px-2 py-0.5 rounded backdrop-blur-xs flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {rec.duration}
-                    </span>
-                    <span className="absolute top-2.5 left-2.5 bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase">
-                      {rec.date}
-                    </span>
+                    <button
+                      onClick={() => handleSubmitReply(q.id)}
+                      disabled={!replyDraft.trim()}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg cursor-pointer"
+                    >
+                      Post
+                    </button>
                   </div>
-
-                  <div className="p-5 space-y-3">
-                    <h3 className="font-bold text-slate-900 text-base">
-                      {rec.title}
-                    </h3>
-                    <p className="text-xs text-slate-500 leading-relaxed">
-                      {rec.description}
-                    </p>
-
-                    <div className="space-y-1.5 pt-1">
-                      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                        Featured Topics:
-                      </p>
-                      {rec.featuredQuestions.map((q, i) => (
-                        <p key={i} className="text-xs text-slate-700 flex items-start gap-1.5">
-                          <span className="text-blue-500 font-bold">•</span>
-                          <span>{q}</span>
-                        </p>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-5 pt-0">
-                  <button
-                    onClick={() => setActiveRecording(rec)}
-                    className="w-full py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-white" />
-                    <span>Watch Recording</span>
-                  </button>
-                </div>
+                )}
               </div>
             ))}
           </div>
-
-          {/* Video Modal if open */}
-          {activeRecording && (
-            <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-xs">
-              <div className="bg-white rounded-2xl max-w-3xl w-full overflow-hidden shadow-2xl space-y-4 p-6">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                  <h3 className="font-bold text-slate-900 text-base">{activeRecording.title}</h3>
-                  <button
-                    onClick={() => setActiveRecording(null)}
-                    className="text-xs font-bold text-slate-400 hover:text-slate-600 px-2 py-1"
-                  >
-                    Close ✕
-                  </button>
-                </div>
-
-                <div className="aspect-video bg-black rounded-xl overflow-hidden relative flex items-center justify-center">
-                  <img
-                    src={activeRecording.posterImage}
-                    alt={activeRecording.title}
-                    className="w-full h-full object-cover opacity-60"
-                  />
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-white p-6 text-center space-y-3">
-                    <div className="w-16 h-16 rounded-full bg-blue-600 flex items-center justify-center text-white shadow-lg">
-                      <Play className="w-7 h-7 ml-1 fill-white" />
-                    </div>
-                    <p className="text-sm font-semibold">{activeRecording.title} (Live Session Archive)</p>
-                    <p className="text-xs text-slate-300">Instructor: Dr. Chef Supritam Basu, PhD · 58 Minutes</p>
-                  </div>
-                </div>
-
-                <div className="space-y-2 text-xs text-slate-700">
-                  <h4 className="font-bold text-slate-900">Key Takeaways:</h4>
-                  <ul className="space-y-1">
-                    {activeRecording.keyTakeaways.map((k, i) => (
-                      <li key={i} className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>{k}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
-      )}
     </div>
   );
 };

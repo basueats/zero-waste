@@ -28,26 +28,36 @@ interface SurplusCertificateModalProps {
 export const SurplusCertificateModal: React.FC<SurplusCertificateModalProps> = ({
   isOpen,
   onClose,
-  defaultLearnerName = 'Supritam Basu', // Defaulted from user login / email basueats@gmail.com
-  courseTitle = 'The Food Waste & Culinary Foundation Course for chefs & Professionals',
-  completionDateDefault = '11/11/2026',
+  defaultLearnerName = 'Supritam Basu',
+  courseTitle: _courseTitle = 'The Food Waste & Culinary Foundation Course for chefs & Professionals',
+  completionDateDefault,
   customCertId,
 }) => {
+  const formattedToday = completionDateDefault || new Date().toLocaleDateString('en-US', {
+    month: '2-digit',
+    day: '2-digit',
+    year: 'numeric',
+  });
   const [learnerName, setLearnerName] = useState<string>(defaultLearnerName);
-  const [completionDate, setCompletionDate] = useState<string>(completionDateDefault);
+  const [completionDate, setCompletionDate] = useState<string>(formattedToday);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
   const [isGeneratingDownload, setIsGeneratingDownload] = useState<boolean>(false);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Sync if defaultLearnerName changes
+  // Sync if defaultLearnerName or date changes (e.g. after user logs in or switches email)
   useEffect(() => {
     if (defaultLearnerName) {
       setLearnerName(defaultLearnerName);
     }
   }, [defaultLearnerName]);
 
-  const certCode = customCertId || 'CERT-2026-791463';
-  const verificationUrl = `https://thecpdregister.com/verify/791463/${certCode}`;
+  useEffect(() => {
+    if (completionDateDefault) {
+      setCompletionDate(completionDateDefault);
+    }
+  }, [completionDateDefault]);
+
+  const certCode = customCertId || 'SUPRITAMONE-2026-ZW26H';
+  const verificationUrl = `${typeof window !== 'undefined' ? window.location.origin : 'https://supritamone.com'}/verify/${certCode}`;
 
   // Image source: Exact certificate template uploaded by user
   const certificateTemplateSrc = '/assets/images/certificate_official_template.png';
@@ -126,7 +136,7 @@ export const SurplusCertificateModal: React.FC<SurplusCertificateModalProps> = (
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.font = '600 28px Arial, Helvetica, sans-serif';
-      ctx.fillText(completionDate || '11/11/2026', 530, 1018);
+      ctx.fillText(completionDate || formattedToday, 530, 1018);
 
       // 8. Trigger PNG Download
       const dataUrl = canvas.toDataURL('image/png', 1.0);
@@ -159,7 +169,7 @@ export const SurplusCertificateModal: React.FC<SurplusCertificateModalProps> = (
                 Official Zero Waste Certificate of Completion
               </h3>
               <p className="text-[11px] text-slate-400">
-                Accredited by The CPD Group (Provider #791463) & ISO 9001:2015 Certified
+                Supritamone Academy · 26.0 Hours ISO 9001:2015 Certified Mastery Curriculum
               </p>
             </div>
           </div>
@@ -296,13 +306,8 @@ export const SurplusCertificateModal: React.FC<SurplusCertificateModalProps> = (
                   fontSize: 'clamp(0.65rem, 1.4vw, 1.15rem)'
                 }}
               >
-                {completionDate || '11/11/2026'}
+                {completionDate || formattedToday}
               </div>
-            </div>
-
-            {/* 4. VERIFIABLE MICRO SERIAL PILL (Non-intrusive metadata in bottom margin) */}
-            <div className="absolute bottom-2 right-4 text-[7px] sm:text-[9px] font-mono text-slate-400 z-10 print:hidden">
-              Reg #791463 · ISO 9001:2015 · thecpdregister.com
             </div>
           </div>
         </div>

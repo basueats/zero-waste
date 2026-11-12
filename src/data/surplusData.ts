@@ -124,10 +124,10 @@ export const surplusCourses: SurplusCourse[] = [
   {
     id: 'food-waste-prevention-chefs',
     title: 'The Zero Waste Kitchen: Master Chef Diploma (Issues #1–#252)',
-    subtitle: 'The comprehensive 12-Module master curriculum synthesized from all 252 issues of "The Zero Waste Kitchen" publication series by Dr. Chef Supritam Basu, PhD, CEC. Covers biochemical waste auditing, cellular root-to-stem butchery, collagen scrap extraction, wild scrap fermentation, and circular menu engineering.',
-    badge: 'Certified Diploma · Level 7',
-    duration: '18 hours · 12 Modules',
-    lessonCount: 12,
+    subtitle: 'The comprehensive 12-Section (24-Chapter) master curriculum synthesized from all 252 issues of "The Zero Waste Kitchen" publication series by Dr. Chef Supritam Basu, PhD, CEC. Covers biochemical waste auditing, cellular root-to-stem butchery, collagen scrap extraction, wild scrap fermentation, and circular menu engineering.',
+    badge: 'Executive Master Diploma',
+    duration: '26h 00m · 24 Chapters',
+    lessonCount: 24,
     progressPercent: 14,
     coverImage: heroSustainableKitchenImg,
     isMasterCourse: true,
@@ -138,7 +138,7 @@ export const surplusCourses: SurplusCourse[] = [
       {
         id: 'm1',
         title: 'Module 1: Biochemical Waste Auditing, Landfill Methane Methanogenesis & Mass-Balance Analysis',
-        duration: '90 min',
+        duration: '2h 10m',
         newsletterRef: 'Issues #1 – #20',
         description: 'Quantifying avoidable vs unavoidable kitchen waste streams, anaerobic microbial decomposition kinetics in municipal landfills, and implementing a 7-day tare-weighted station separation audit.',
         scientificConcept: 'Anaerobic methanogenesis by Archaea produces CH4 with 28x the GWP of CO2.',
@@ -147,7 +147,7 @@ export const surplusCourses: SurplusCourse[] = [
       {
         id: 'm2',
         title: 'Module 2: Advanced Vegetable Butchery & Cellular Root-to-Stem Architecture',
-        duration: '85 min',
+        duration: '2h 10m',
         newsletterRef: 'Issues #21 – #42',
         description: 'Pectin demethoxylation, cellulose tenderization in brassica stems, chlorophyll pigment stabilization via rapid blanch-shock cycles, and allium sheath extraction.',
         scientificConcept: 'Thermal enzyme deactivation at 85°C halts chlorophyllase degradation.',
@@ -156,7 +156,7 @@ export const surplusCourses: SurplusCourse[] = [
       {
         id: 'm3',
         title: 'Module 3: Precision Nose-to-Tail Butchery, Collagen Hydrolysis & Scrap Stock Science',
-        duration: '95 min',
+        duration: '2h 10m',
         newsletterRef: 'Issues #43 – #64',
         description: 'Hydrolyzing type I & III collagen from carcass trimmings, roasting maillard kinetics at 165°C, gelatin concentration, and clarified scrap consommés.',
         scientificConcept: 'Triple-helix collagen denaturation into soluble gelatin occurs between 60°C and 70°C.',
@@ -165,7 +165,7 @@ export const surplusCourses: SurplusCourse[] = [
       {
         id: 'm4',
         title: 'Module 4: Commercial Yield Analytics, Station Logistics & Mid-Term Auditing Exam',
-        duration: '80 min',
+        duration: '2h 10m',
         newsletterRef: 'Issues #65 – #85',
         description: 'Standardized operational procedures for line-cook scrap separation, knife yield tests, food-cost variance tracking, and practical station inspection rubrics.',
         scientificConcept: 'Yield variance coefficient across knife angles and dull blade bevels.',
@@ -174,7 +174,7 @@ export const surplusCourses: SurplusCourse[] = [
       {
         id: 'm5',
         title: 'Module 5: Microbial Upcycling: Wild Lacto-Fermentation, Koji Inoculation & Garums',
-        duration: '100 min',
+        duration: '2h 10m',
         newsletterRef: 'Issues #86 – #110',
         description: 'Employing homofermentative lactic acid bacteria (Leuconostoc, Lactobacillus) in 2.5% saline scrap brines, fungal Aspergillus oryzae proteolysis, and enzymatic scrap amino sauces.',
         scientificConcept: 'Rapid acidification to pH < 4.2 inhibits Clostridium botulinum and pathogenic spoilage.',
@@ -183,7 +183,7 @@ export const surplusCourses: SurplusCourse[] = [
       {
         id: 'm6',
         title: 'Module 6: Thermal Preservation: Dehydration, Lyophilization, Maillard Powders & Oleo Saccharums',
-        duration: '85 min',
+        duration: '2h 10m',
         newsletterRef: 'Issues #111 – #132',
         description: 'Water activity (Aw) reduction below 0.60, non-enzymatic browning of vegetable skins, osmotic pressure sugar extraction of citrus essential oils, and savory finishing ashes.',
         scientificConcept: 'Osmotic extraction ruptures oil glands in citrus flavedo without thermal degradation.',
@@ -192,7 +192,7 @@ export const surplusCourses: SurplusCourse[] = [
       {
         id: 'm7',
         title: 'Module 7: Starch Retrogradation & Ancient Bakery Revitalization: Kvas, Emulsion Sauces & Pangrattato',
-        duration: '90 min',
+        duration: '2h 10m',
         newsletterRef: 'Issues #133 – #155',
         description: 'Amylose and amylopectin recrystallization chemistry in stale bread, thermal gelatinization, high-shear mechanical emulsification of croissant butter, and wild kvas beverage fermentation.',
         scientificConcept: 'Laminated croissant butter (82% fat) + retrograded starches form stable velvet emulsions.',
@@ -201,7 +201,7 @@ export const surplusCourses: SurplusCourse[] = [
       {
         id: 'm8',
         title: 'Module 8: Biochemical Acid & Enzyme Formulation: Scrap Vinegars & Clarified Consommés',
-        duration: '85 min',
+        duration: '2h 10m',
         newsletterRef: 'Issues #156 – #178',
         description: 'Acetobacter aceti ethanol oxidation kinetics, mother-of-vinegar cultivation from fruit cores, freeze-thaw syneresis clarification, and pectinase enzyme digestive washes.',
         scientificConcept: 'Two-stage fermentation: Saccharomyces yeast anaerobic ethanol conversion followed by aerobic acetic acid bacteria.',
@@ -210,7 +210,7 @@ export const surplusCourses: SurplusCourse[] = [
       {
         id: 'm9',
         title: 'Module 9: Dairy Byproduct Reclamation: Whey Proteins, Cultured Buttermilks & Acid Clots',
-        duration: '75 min',
+        duration: '2h 10m',
         newsletterRef: 'Issues #179 – #200',
         description: 'Casein micelle coagulation kinetics, utilizing liquid sweet and acid whey in culinary glazes, lacto-fermented butter washes, and scrap ricotta from curdling trim.',
         scientificConcept: 'Isoelectric precipitation of casein proteins at pH 4.6.',
@@ -219,7 +219,7 @@ export const surplusCourses: SurplusCourse[] = [
       {
         id: 'm10',
         title: 'Module 10: Circular Menu Engineering: Dynamic Sinks, Mass-Balance Forecasting & Kitchen Ergonomics',
-        duration: '95 min',
+        duration: '2h 10m',
         newsletterRef: 'Issues #201 – #222',
         description: 'Developing the Input/Output Recipe Matrix where primary dish byproducts immediately serve as input ingredients for larder, pastry, and bar stations.',
         scientificConcept: 'Zero-waste circular ergonomics minimizes cross-station waste hauling.',
@@ -228,7 +228,7 @@ export const surplusCourses: SurplusCourse[] = [
       {
         id: 'm11',
         title: 'Module 11: Enterprise Food Waste Mitigation at Scale: Banquets, Hotels & Cruise Systems',
-        duration: '90 min',
+        duration: '2h 10m',
         newsletterRef: 'Issues #223 – #242',
         description: 'Buffet display geometry, shallow GN insert thermodynamics, live-cooking station replenishment rhythms, blast-chilling HACCP compliance, and commercial waste diversion ROI.',
         scientificConcept: 'Surface-area-to-volume ratio in shallow GN pans preserves heat while cutting batch exposure.',
@@ -237,11 +237,11 @@ export const surplusCourses: SurplusCourse[] = [
       {
         id: 'm12',
         title: 'Module 12: Executive Capstone, HACCP Compliance for Upcycled Byproducts & Final Examination',
-        duration: '110 min',
+        duration: '2h 10m',
         newsletterRef: 'Issues #243 – #252',
-        description: 'Comprehensive regulatory validation for commercial upcycled foods, critical control point (CCP) hazard analysis, kitchen culture leadership, and the 50-question master examination.',
+        description: 'Comprehensive regulatory validation for commercial upcycled foods, critical control point (CCP) hazard analysis, kitchen culture leadership, and the final examination.',
         scientificConcept: 'HACCP critical limit verification for ambient and cold fermented kitchen scraps.',
-        culinaryFormula: 'Accreditation Requirement: >= 80% passing grade on final exam'
+        culinaryFormula: 'Certification Requirement: >= 37% overall exam score to unlock certificate'
       }
     ]
   },

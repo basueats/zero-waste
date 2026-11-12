@@ -6,7 +6,7 @@ export const initialCourseData: CourseOverview = {
   category: 'Hospitality & Culinary Sustainability',
   accreditationLevel: 'Accredited Professional Diploma · Level 7',
   totalModules: 12,
-  totalHours: 18,
+  totalHours: 26,
   totalNewslettersCovered: 252,
   originalNewsletterTitle: 'The Zero Waste Kitchen',
   originalNewsletterUrl: 'https://www.linkedin.com/newsletters/the-zero-waste-kitchen-7293401149716459520/',

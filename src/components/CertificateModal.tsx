@@ -107,7 +107,7 @@ export const CertificateModal: React.FC<CertificateModalProps> = ({
           </div>
 
           <div className="text-xs text-slate-500 mb-8">
-            Synthesized from 252 Issues of <em>&quot;The Zero Waste Kitchen&quot;</em> · 18.0 Active Instructional Hours (Level 7 Mastery) · Distinction Grade with {xpPoints} XP
+            Synthesized from 252 Issues of <em>&quot;The Zero Waste Kitchen&quot;</em> · 26.0 Active Instructional Hours (Level 7 Mastery) · Distinction Grade with {xpPoints} XP
           </div>
 
           {/* Signatures & Seal */}

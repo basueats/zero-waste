@@ -65,7 +65,6 @@ export const SurplusQuickWinsView: React.FC<SurplusQuickWinsViewProps> = ({
                 <li className="flex items-center gap-2">✓ Downloadable resources, SOP worksheets and kitchen posters</li>
                 <li className="flex items-center gap-2">✓ Quick Wins guides for Prep, Buffet, Plate, and Spoilage waste</li>
                 <li className="flex items-center gap-2">✓ Deep-dive into circular menu engineering</li>
-                <li className="flex items-center gap-2">✓ Live monthly Q&A sessions for direct support</li>
                 <li className="flex items-center gap-2">✓ 252 LinkedIn newsletters searchable directory</li>
               </ul>
             </div>
@@ -106,8 +105,15 @@ export const SurplusQuickWinsView: React.FC<SurplusQuickWinsViewProps> = ({
         </p>
         <div className="p-4 bg-blue-50 rounded-xl border border-blue-200 text-xs text-blue-900 space-y-2">
           <p className="font-bold">Contact Supritamone Academy Support:</p>
-          <p>Email: <strong>support@supritamone.academy</strong></p>
-          <p>Live Q&A Support: Every 2nd Thursday of the month at 15:00 CET via Zoom.</p>
+          <p>
+            Email:{' '}
+            <a
+              href="mailto:supritam.basu@supritamone.com"
+              className="font-bold underline hover:text-blue-700"
+            >
+              supritam.basu@supritamone.com
+            </a>
+          </p>
         </div>
       </div>
     );
