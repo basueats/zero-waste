@@ -159,29 +159,58 @@ export default function App() {
       } catch {
         // Ignore storage errors
       }
+      fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {
+        // Ignore network errors on logout
+      });
     }
   }, []);
 
-  // Verify Partner Redirect (https://zerowaste.supritamone.com/) or Stored Auth Session on startup
+  // Verify Partner Redirect (https://zerowaste.supritamone.com/) or Stored Auth Session Cookie/Token on startup
   React.useEffect(() => {
     let cancelled = false;
     const verifyAccess = async () => {
       try {
-        const params = new URLSearchParams(window.location.search);
-        const fromParam = params.get('from') || params.get('source') || params.get('ref') || (params.get('sso') ? 'partner_sso' : '');
-        const emailParam = params.get('email') || '';
-        const nameParam = params.get('name') || '';
-        const planParam = params.get('plan') || 'trial';
+        const searchParams = new URLSearchParams(window.location.search);
+        const hashQuery = window.location.hash.includes('?')
+          ? window.location.hash.slice(window.location.hash.indexOf('?'))
+          : '';
+        const hashParams = new URLSearchParams(hashQuery);
+
+        const getParam = (key: string) => searchParams.get(key) || hashParams.get(key) || '';
+        const fromParam =
+          getParam('from') ||
+          getParam('source') ||
+          getParam('ref') ||
+          getParam('partner') ||
+          (getParam('sso') ? 'partner_sso' : '');
+        const emailParam = getParam('email');
+        const nameParam = getParam('name');
+        const planParam = getParam('plan') || getParam('trial') || 'partner_member';
         const refUrl = document.referrer || '';
 
+        const partnerSources = [
+          'zerowaste',
+          'zerowaste.supritamone.com',
+          'partner_sso',
+          'supritamone',
+          'trial',
+          'paid',
+          'pro',
+          'individual',
+          'team',
+          'training',
+        ];
+        const refLower = refUrl.toLowerCase();
+        const looksLikePartnerReferrer =
+          /(?:^|\/\/)(?:www\.)?zerowaste\.supritamone\.com(?:[/:?#]|$)/i.test(refLower);
         const looksLikePartnerRedirect =
-          refUrl.toLowerCase().includes('zerowaste.supritamone.com') ||
-          ['zerowaste', 'zerowaste.supritamone.com', 'partner_sso'].includes(fromParam.toLowerCase());
+          looksLikePartnerReferrer || partnerSources.includes(fromParam.toLowerCase());
 
-        // 1. Check incoming redirect from https://zerowaste.supritamone.com/
+        // 1. Auto-unlock immediately if routed from https://zerowaste.supritamone.com/
         if (looksLikePartnerRedirect) {
           const res = await fetch('/api/auth/verify-redirect', {
             method: 'POST',
+            credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               referrer: refUrl,
@@ -195,35 +224,37 @@ export default function App() {
             const data = await res.json();
             if (!cancelled && data?.authenticated && data?.user && data?.token) {
               applyAuthenticatedSession(data.user, data.token);
+              if (window.location.search && fromParam) {
+                window.history.replaceState({}, '', window.location.pathname);
+              }
               setIsCheckingAccess(false);
               return;
             }
           }
         }
 
-        // 2. Verify previously issued signed session token
+        // 2. Always check server session (verifies HttpOnly SSO cookie set on GET / OR Bearer token in localStorage)
         const savedToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
-        if (savedToken) {
-          const res = await fetch('/api/auth/session', {
-            headers: { Authorization: `Bearer ${savedToken}` },
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (!cancelled && data?.authenticated && data?.user) {
-              applyAuthenticatedSession(data.user, data.token || savedToken);
-              setIsCheckingAccess(false);
-              return;
-            }
-          } else {
-            localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-            localStorage.removeItem(AUTH_USER_STORAGE_KEY);
-            if (!cancelled && res.status === 401) {
-              setGateNotice('Your session or trial has expired. Sign in or select a plan to restore access.');
-            }
+        const res = await fetch('/api/auth/session', {
+          credentials: 'include',
+          headers: savedToken ? { Authorization: `Bearer ${savedToken}` } : undefined,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled && data?.authenticated && data?.user) {
+            applyAuthenticatedSession(data.user, data.token || savedToken || '');
+            setIsCheckingAccess(false);
+            return;
+          }
+        } else if (savedToken) {
+          localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+          localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+          if (!cancelled && res.status === 401) {
+            setGateNotice('Your session or trial has expired. Sign in or select a plan to restore access.');
           }
         }
       } catch {
-        // Fallback: remain locked if server check fails
+        // Fallback: remain locked for direct visitors if server check fails
       } finally {
         if (!cancelled) {
           setIsCheckingAccess(false);

@@ -244,6 +244,56 @@ function verifySessionToken(token: string): {
   }
 }
 
+const SESSION_COOKIE_NAME = 'supritamone_academy_session';
+
+function parseCookies(cookieHeader: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!cookieHeader) return out;
+  for (const part of cookieHeader.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    const key = part.slice(0, idx).trim();
+    const val = part.slice(idx + 1).trim();
+    if (key) {
+      try {
+        out[key] = decodeURIComponent(val);
+      } catch {
+        out[key] = val;
+      }
+    }
+  }
+  return out;
+}
+
+function buildCookieAttributes(req: express.Request, maxAgeSeconds: number): string[] {
+  const host = String(req.hostname || req.headers.host || '').toLowerCase().split(':')[0];
+  const isHttps = req.secure || String(req.headers['x-forwarded-proto'] || '').toLowerCase() === 'https';
+  const attrs = ['Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${maxAgeSeconds}`];
+  if (isHttps) {
+    attrs.push('Secure');
+  }
+  if (host === 'supritamone.com' || host.endsWith('.supritamone.com')) {
+    attrs.push('Domain=.supritamone.com');
+  }
+  return attrs;
+}
+
+function setSessionCookie(req: express.Request, res: express.Response, token: string): void {
+  const attrs = buildCookieAttributes(req, 30 * 24 * 60 * 60);
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; ${attrs.join('; ')}`);
+}
+
+function clearSessionCookie(req: express.Request, res: express.Response): void {
+  const host = String(req.hostname || req.headers.host || '').toLowerCase().split(':')[0];
+  const isHttps = req.secure || String(req.headers['x-forwarded-proto'] || '').toLowerCase() === 'https';
+  const base = ['Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0', ...(isHttps ? ['Secure'] : [])];
+  const cookiesToClear = [`${SESSION_COOKIE_NAME}=; ${base.join('; ')}`];
+  if (host === 'supritamone.com' || host.endsWith('.supritamone.com')) {
+    cookiesToClear.push(`${SESSION_COOKIE_NAME}=; ${[...base, 'Domain=.supritamone.com'].join('; ')}`);
+  }
+  res.setHeader('Set-Cookie', cookiesToClear);
+}
+
 function isPartnerOriginUrl(rawUrl: string | undefined | null): boolean {
   if (!rawUrl || typeof rawUrl !== 'string') return false;
   try {
@@ -251,8 +301,67 @@ function isPartnerOriginUrl(rawUrl: string | undefined | null): boolean {
     const host = u.hostname.toLowerCase();
     return host === 'zerowaste.supritamone.com' || host === 'www.zerowaste.supritamone.com';
   } catch {
-    return rawUrl.toLowerCase().includes('zerowaste.supritamone.com');
+    return /(?:^|\/\/)(?:www\.)?zerowaste\.supritamone\.com(?:[/:?#]|$)/i.test(rawUrl);
   }
+}
+
+function isPartnerQueryIndicator(val: unknown): boolean {
+  const clean = String(val || '').trim().toLowerCase();
+  return [
+    'zerowaste',
+    'zerowaste.supritamone.com',
+    'partner_sso',
+    'supritamone',
+    'trial',
+    'paid',
+    'pro',
+    'individual',
+    'team',
+    'training',
+  ].includes(clean);
+}
+
+function issuePartnerRedirectSession(opts: {
+  email?: string;
+  name?: string;
+  planId?: string;
+}) {
+  const store = loadAuthStore();
+  const rawEmail = String(opts.email || '').trim().toLowerCase();
+  const cleanEmail = rawEmail && rawEmail.includes('@') ? rawEmail : 'member@zerowaste.supritamone.com';
+  const existing = store.users[cleanEmail];
+  const isAdmin = cleanEmail === PERMANENT_ADMIN_EMAIL || existing?.role === 'admin';
+  const resolvedName =
+    String(opts.name || '').trim() ||
+    existing?.name ||
+    (cleanEmail === 'member@zerowaste.supritamone.com'
+      ? 'Zero Waste Member'
+      : (cleanEmail.split('@')[0] || 'Zero Waste Member')
+          .replace(/[._-]+/g, ' ')
+          .replace(/\b\w/g, (c) => c.toUpperCase()));
+
+  const requestedPlan = String(opts.planId || '').trim().toLowerCase();
+  const resolvedPlanId = isAdmin ? 'admin' : existing?.planId || requestedPlan || 'partner_member';
+  const resolvedPlanTitle = isAdmin
+    ? 'Permanent Executive Admin Access'
+    : existing?.planTitle || 'Verified Member · zerowaste.supritamone.com';
+
+  // Verified redirect from zerowaste.supritamone.com always grants active unlocked access (never carryover stale expired date)
+  const minActiveExpiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
+  const resolvedExpiry = isAdmin ? null : Math.max(Number(existing?.expiresAt || 0), minActiveExpiry);
+
+  const sessionPayload = {
+    email: cleanEmail,
+    name: resolvedName,
+    role: (isAdmin ? 'admin' : 'member') as 'admin' | 'member',
+    planId: resolvedPlanId,
+    planTitle: resolvedPlanTitle,
+    expiresAt: resolvedExpiry,
+    source: 'redirect_zerowaste.supritamone.com',
+  };
+
+  const token = signSessionToken(sessionPayload);
+  return { user: sessionPayload, token };
 }
 
 const app = express();
@@ -545,19 +654,36 @@ app.get('/api/ai/status', (req, res) => {
 
 // ==================== SUPRITAMONE ACCESS GATE & AUTH ENDPOINTS ====================
 
-// Verify existing bearer session token
+// Verify existing bearer token, HTTP session cookie, or direct Referer from zerowaste.supritamone.com
 app.get('/api/auth/session', (req, res) => {
   const authHeader = req.headers.authorization || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-  const verified = verifySessionToken(token);
-  if (!verified) {
-    return res.status(401).json({ authenticated: false, error: 'Session locked or expired' });
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const cookies = parseCookies(req.headers.cookie);
+  const cookieToken = cookies[SESSION_COOKIE_NAME] || '';
+
+  const candidateToken = bearerToken || cookieToken;
+  const verified = verifySessionToken(candidateToken);
+  if (verified) {
+    setSessionCookie(req, res, candidateToken);
+    return res.json({
+      authenticated: true,
+      user: verified,
+      token: candidateToken,
+    });
   }
-  return res.json({
-    authenticated: true,
-    user: verified,
-    token,
-  });
+
+  const headerReferrer = String(req.headers.referer || req.headers.referrer || '');
+  if (isPartnerOriginUrl(headerReferrer)) {
+    const partnerSession = issuePartnerRedirectSession({});
+    setSessionCookie(req, res, partnerSession.token);
+    return res.json({
+      authenticated: true,
+      user: partnerSession.user,
+      token: partnerSession.token,
+    });
+  }
+
+  return res.status(401).json({ authenticated: false, error: 'Session locked or expired' });
 });
 
 // Verify redirect arriving from https://zerowaste.supritamone.com/
@@ -567,17 +693,18 @@ app.post('/api/auth/verify-redirect', (req, res) => {
     fromParam = '',
     email = '',
     name = '',
-    planId = 'trial',
+    planId = 'partner_member',
   } = req.body || {};
 
   const headerReferrer = String(req.headers.referer || req.headers.referrer || '');
-  const cleanFrom = String(fromParam || '').toLowerCase();
+  const cookies = parseCookies(req.headers.cookie);
+  const existingCookieUser = verifySessionToken(cookies[SESSION_COOKIE_NAME] || '');
+
   const isVerifiedRedirect =
     isPartnerOriginUrl(referrer) ||
     isPartnerOriginUrl(headerReferrer) ||
-    cleanFrom === 'zerowaste' ||
-    cleanFrom === 'zerowaste.supritamone.com' ||
-    cleanFrom === 'partner_sso';
+    isPartnerQueryIndicator(fromParam) ||
+    Boolean(existingCookieUser && existingCookieUser.source === 'redirect_zerowaste.supritamone.com');
 
   if (!isVerifiedRedirect) {
     return res.status(403).json({
@@ -586,35 +713,24 @@ app.post('/api/auth/verify-redirect', (req, res) => {
     });
   }
 
-  const store = loadAuthStore();
-  const cleanEmail = String(email || 'member@zerowaste.supritamone.com').trim().toLowerCase();
-  const existing = store.users[cleanEmail];
-  const isAdmin = cleanEmail === PERMANENT_ADMIN_EMAIL || existing?.role === 'admin';
-  const resolvedName =
-    String(name || '').trim() ||
-    existing?.name ||
-    (cleanEmail.split('@')[0] || 'Brigade Chef')
-      .replace(/[._-]+/g, ' ')
-      .replace(/\b\w/g, (c) => c.toUpperCase());
+  const { user, token } = issuePartnerRedirectSession({
+    email: email || existingCookieUser?.email,
+    name: name || existingCookieUser?.name,
+    planId: planId || existingCookieUser?.planId,
+  });
 
-  const sessionPayload = {
-    email: cleanEmail,
-    name: resolvedName,
-    role: (isAdmin ? 'admin' : 'member') as 'admin' | 'member',
-    planId: existing?.planId || (isAdmin ? 'admin' : String(planId || 'trial')),
-    planTitle:
-      existing?.planTitle ||
-      (isAdmin ? 'Permanent Executive Admin Access' : 'Verified Redirect · zerowaste.supritamone.com'),
-    expiresAt: isAdmin ? null : existing?.expiresAt ?? Date.now() + 3 * 24 * 60 * 60 * 1000,
-    source: 'redirect_zerowaste.supritamone.com',
-  };
-
-  const token = signSessionToken(sessionPayload);
+  setSessionCookie(req, res, token);
   return res.json({
     authenticated: true,
-    user: sessionPayload,
+    user,
     token,
   });
+});
+
+// Explicit logout clears HTTP session cookie
+app.post('/api/auth/logout', (req, res) => {
+  clearSessionCookie(req, res);
+  return res.json({ authenticated: false, loggedOut: true });
 });
 
 // Member & Permanent Admin Sign-In (supritamone@gmail.com always accessible)
@@ -643,6 +759,7 @@ app.post('/api/auth/login', (req, res) => {
       source: 'permanent_admin',
     };
     const token = signSessionToken(sessionPayload);
+    setSessionCookie(req, res, token);
     return res.json({ authenticated: true, user: sessionPayload, token });
   }
 
@@ -686,6 +803,7 @@ app.post('/api/auth/login', (req, res) => {
     source: record.source || 'login_credentials',
   };
   const token = signSessionToken(sessionPayload);
+  setSessionCookie(req, res, token);
   return res.json({ authenticated: true, user: sessionPayload, token });
 });
 
@@ -726,7 +844,9 @@ app.post('/api/auth/activate-plan', (req, res) => {
       expiresAt: null,
       source: 'permanent_admin',
     };
-    return res.json({ authenticated: true, user: adminPayload, token: signSessionToken(adminPayload) });
+    const adminToken = signSessionToken(adminPayload);
+    setSessionCookie(req, res, adminToken);
+    return res.json({ authenticated: true, user: adminPayload, token: adminToken });
   }
 
   if (cleanPlan === 'trial' && existing && existing.planId === 'trial' && existing.status === 'expired') {
@@ -778,6 +898,7 @@ app.post('/api/auth/activate-plan', (req, res) => {
   };
 
   const token = signSessionToken(sessionPayload);
+  setSessionCookie(req, res, token);
   return res.json({ authenticated: true, user: sessionPayload, token });
 });
 
@@ -1121,6 +1242,36 @@ Respond ONLY with valid JSON. Do not include markdown blocks or other text.`;
 
 // Setup Vite Dev Server or Production Static Serving
 async function startServer() {
+  // Intercept incoming document navigations arriving from https://zerowaste.supritamone.com/
+  // and immediately issue a signed HttpOnly SSO session cookie so members never have to log in again.
+  app.use((req, res, next) => {
+    if (
+      req.method === 'GET' &&
+      !req.path.startsWith('/api/') &&
+      !req.path.startsWith('/assets/') &&
+      !req.path.startsWith('/@') &&
+      !req.path.startsWith('/src/') &&
+      !req.path.startsWith('/node_modules/')
+    ) {
+      const headerReferrer = String(req.headers.referer || req.headers.referrer || '');
+      const fromQuery = req.query.from || req.query.source || req.query.ref || req.query.partner || (req.query.sso ? 'partner_sso' : '');
+      const isPartnerArrival = isPartnerOriginUrl(headerReferrer) || isPartnerQueryIndicator(fromQuery);
+      if (isPartnerArrival) {
+        const cookies = parseCookies(req.headers.cookie);
+        const existingValid = verifySessionToken(cookies[SESSION_COOKIE_NAME] || '');
+        if (!existingValid) {
+          const { token } = issuePartnerRedirectSession({
+            email: typeof req.query.email === 'string' ? req.query.email : undefined,
+            name: typeof req.query.name === 'string' ? req.query.name : undefined,
+            planId: typeof req.query.plan === 'string' ? req.query.plan : undefined,
+          });
+          setSessionCookie(req, res, token);
+        }
+      }
+    }
+    next();
+  });
+
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__dirname, 'dist')));
     app.get('*', (req, res) => {

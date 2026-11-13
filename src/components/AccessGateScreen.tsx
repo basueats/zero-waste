@@ -157,6 +157,7 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: loginEmail.trim(),
@@ -196,6 +197,7 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
     try {
       const res = await fetch('/api/auth/activate-plan', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           planId: selectedPlan.id,
@@ -273,14 +275,14 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
             </h1>
 
             <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-2xl">
-              This portal is locked for public visitors. Unlock instant access automatically when redirected from{' '}
+              Already signed in on{' '}
               <a
                 href="https://zerowaste.supritamone.com/"
                 className="text-emerald-400 underline hover:text-emerald-300 font-semibold"
               >
                 https://zerowaste.supritamone.com/
-              </a>
-              , by signing in with your existing member email and password, or by choosing a membership plan below.
+              </a>{' '}
+              (Free Trial or any paid plan)? Routing from that site unlocks the Academy automatically with no extra login required. Direct visitors can sign in with their email &amp; password or choose a plan below.
             </p>
 
             {/* 3 Clear Ways to Unlock */}
@@ -288,10 +290,10 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
               <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1">
                 <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>1. Partner Redirect</span>
+                  <span>1. No Second Login</span>
                 </span>
                 <p className="text-[11px] text-slate-400 leading-snug">
-                  Automatic unlock when arriving via <strong className="text-slate-200">zerowaste.supritamone.com</strong>
+                  Users routed from <strong className="text-slate-200">zerowaste.supritamone.com</strong> enter automatically
                 </p>
               </div>
               <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1">
