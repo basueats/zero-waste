@@ -47,11 +47,18 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
       {/* Welcome Hero Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 text-white rounded-2xl p-6 sm:p-10 shadow-sm relative overflow-hidden">
         <div className="relative z-10 max-w-2xl space-y-4">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <span className="text-[10px] uppercase font-bold tracking-widest bg-blue-500/20 text-blue-300 px-2.5 py-1 rounded">
               Advanced Food Waste Science
             </span>
-            <span className="text-xs text-slate-300">· Dr. Chef Supritam Basu, PhD, CEC</span>
+            <div className="flex items-center gap-1.5">
+              <img
+                src="/assets/aistudio/Untitled_design_0fea8cc4.png"
+                alt="Dr. Chef Supritam Basu"
+                className="w-6 h-6 rounded-full object-cover object-top border border-blue-400/60"
+              />
+              <span className="text-xs text-slate-300 font-medium">Dr. Chef Supritam Basu, PhD, CEC</span>
+            </div>
           </div>
 
           <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight leading-tight">

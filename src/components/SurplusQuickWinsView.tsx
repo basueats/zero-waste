@@ -10,7 +10,6 @@ import {
   Sparkles, 
   DollarSign, 
   HelpCircle,
-  Trophy,
   ArrowRight,
   Calculator
 } from 'lucide-react';
@@ -114,27 +113,6 @@ export const SurplusQuickWinsView: React.FC<SurplusQuickWinsViewProps> = ({
               supritam.basu@supritamone.com
             </a>
           </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (sectionId === 'your-wins') {
-    return (
-      <div className="max-w-3xl mx-auto bg-white p-8 rounded-2xl border border-slate-200 space-y-6">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">Your Kitchen Wins & Triumphs</h2>
-          <p className="text-xs text-slate-500">Celebrate reduction milestones achieved by chefs across the Supritamone Academy community.</p>
-        </div>
-        <div className="space-y-3">
-          <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-xs space-y-1">
-            <p className="font-bold text-emerald-900">🏆 The Grand Hotel Zurich · Buffet Waste Down 42%</p>
-            <p className="text-emerald-800">Switched all morning egg stations to 1/3 GN shallow pans and saved over $3,400 on food cost in March alone!</p>
-          </div>
-          <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-xs space-y-1">
-            <p className="font-bold text-emerald-900">🏆 Bistro Flora (Copenhagen) · 100% Cauliflower Utilization</p>
-            <p className="text-emerald-800">Using Dr. Chef Supritam Basu's Cauliflower Leaf Chutney recipe to eliminate 25kg of weekly leaf disposal.</p>
-          </div>
         </div>
       </div>
     );

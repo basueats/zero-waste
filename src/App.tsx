@@ -10,12 +10,12 @@ import { SurplusCommunityView } from './components/SurplusCommunityView';
 import { SurplusQuickWinsView } from './components/SurplusQuickWinsView';
 import { SurplusNewslettersView } from './components/SurplusNewslettersView';
 import { SurplusHomeView } from './components/SurplusHomeView';
-import { SurplusMobilePreview } from './components/SurplusMobilePreview';
 import { SurplusCertificateModal } from './components/SurplusCertificateModal';
 import { ExportModal } from './components/ExportModal';
 import { SurplusCulinaryCoursesView } from './components/SurplusCulinaryCoursesView';
 import { SurplusWasteCalculator } from './components/SurplusWasteCalculator';
-import { Compass, BookOpen, GraduationCap, Calculator, ChefHat, Mail, User, X, CheckCircle2, Lock, Award } from 'lucide-react';
+import { AccessGateScreen, AuthenticatedSessionUser } from './components/AccessGateScreen';
+import { Compass, BookOpen, GraduationCap, Calculator, ChefHat, Mail, User, X, CheckCircle2, Lock, Award, Loader2 } from 'lucide-react';
 import {
   ExamUnlockStatus,
   computeExamUnlockStatus,
@@ -23,6 +23,8 @@ import {
 } from './data/udemyCourseStructure';
 
 const LEARNER_STORAGE_KEY = 'supritamone_learner_account';
+const AUTH_TOKEN_STORAGE_KEY = 'supritamone_academy_session_token_v1';
+const AUTH_USER_STORAGE_KEY = 'supritamone_academy_session_user_v1';
 
 function deriveNameFromEmail(email: string): string {
   const cleanEmail = (email || '').trim().toLowerCase();
@@ -49,12 +51,16 @@ interface LearnerAccount {
 
 export default function App() {
   const [course] = React.useState<CourseOverview>(initialCourseData);
-  const [viewMode, setViewMode] = React.useState<'desktop' | 'mobile'>('desktop');
-  const [activeNavTab, setActiveNavTab] = React.useState<string>('courses');
+  const [activeNavTab, setActiveNavTab] = React.useState<string>('home');
   const [activeSection, setActiveSection] = React.useState<string>('');
   const [selectedCourseId, setSelectedCourseId] = React.useState<string | null>(null);
   const [searchQuery, setSearchQuery] = React.useState<string>('');
   const [completedLessonsCount] = React.useState<number>(2);
+
+  // Access Gate State (Locked by default unless verified redirect from zerowaste.supritamone.com, valid login, supritamone@gmail.com admin, or active plan)
+  const [authUser, setAuthUser] = React.useState<AuthenticatedSessionUser | null>(null);
+  const [isCheckingAccess, setIsCheckingAccess] = React.useState<boolean>(true);
+  const [gateNotice, setGateNotice] = React.useState<string | null>(null);
 
   // Signed-in learner profile (defaults to user's email/name, persisted in localStorage)
   const [learnerAccount, setLearnerAccount] = React.useState<LearnerAccount>(() => {
@@ -99,10 +105,7 @@ export default function App() {
   const [draftEmail, setDraftEmail] = React.useState<string>(learnerAccount.email);
   const [draftName, setDraftName] = React.useState<string>(learnerAccount.chosenName);
 
-  // Mobile Auto-Calibration & Drawer state
-  const [isMobileScreen, setIsMobileScreen] = React.useState<boolean>(() => {
-    return typeof window !== 'undefined' ? window.innerWidth < 1024 : false;
-  });
+  // Auto-adapted Mobile/Tablet Drawer state
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = React.useState<boolean>(false);
 
   // Modals
@@ -125,12 +128,119 @@ export default function App() {
     }
   }, [examStatus.isUnlocked]);
 
-  // Auto-calibrate on viewport resize / device orientation change
+  const applyAuthenticatedSession = React.useCallback((user: AuthenticatedSessionUser, token: string) => {
+    setAuthUser(user);
+    setGateNotice(null);
+    const updatedLearner: LearnerAccount = {
+      email: user.email,
+      chosenName: user.name || deriveNameFromEmail(user.email),
+    };
+    setLearnerAccount(updatedLearner);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+        localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
+        localStorage.setItem(LEARNER_STORAGE_KEY, JSON.stringify(updatedLearner));
+      } catch {
+        // Ignore storage errors
+      }
+    }
+  }, []);
+
+  const handleSignOut = React.useCallback(() => {
+    setAuthUser(null);
+    setSelectedCourseId(null);
+    setActiveNavTab('home');
+    setIsMobileDrawerOpen(false);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+        localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+      } catch {
+        // Ignore storage errors
+      }
+    }
+  }, []);
+
+  // Verify Partner Redirect (https://zerowaste.supritamone.com/) or Stored Auth Session on startup
+  React.useEffect(() => {
+    let cancelled = false;
+    const verifyAccess = async () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const fromParam = params.get('from') || params.get('source') || params.get('ref') || (params.get('sso') ? 'partner_sso' : '');
+        const emailParam = params.get('email') || '';
+        const nameParam = params.get('name') || '';
+        const planParam = params.get('plan') || 'trial';
+        const refUrl = document.referrer || '';
+
+        const looksLikePartnerRedirect =
+          refUrl.toLowerCase().includes('zerowaste.supritamone.com') ||
+          ['zerowaste', 'zerowaste.supritamone.com', 'partner_sso'].includes(fromParam.toLowerCase());
+
+        // 1. Check incoming redirect from https://zerowaste.supritamone.com/
+        if (looksLikePartnerRedirect) {
+          const res = await fetch('/api/auth/verify-redirect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              referrer: refUrl,
+              fromParam,
+              email: emailParam,
+              name: nameParam,
+              planId: planParam,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (!cancelled && data?.authenticated && data?.user && data?.token) {
+              applyAuthenticatedSession(data.user, data.token);
+              setIsCheckingAccess(false);
+              return;
+            }
+          }
+        }
+
+        // 2. Verify previously issued signed session token
+        const savedToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+        if (savedToken) {
+          const res = await fetch('/api/auth/session', {
+            headers: { Authorization: `Bearer ${savedToken}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (!cancelled && data?.authenticated && data?.user) {
+              applyAuthenticatedSession(data.user, data.token || savedToken);
+              setIsCheckingAccess(false);
+              return;
+            }
+          } else {
+            localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+            localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+            if (!cancelled && res.status === 401) {
+              setGateNotice('Your session or trial has expired. Sign in or select a plan to restore access.');
+            }
+          }
+        }
+      } catch {
+        // Fallback: remain locked if server check fails
+      } finally {
+        if (!cancelled) {
+          setIsCheckingAccess(false);
+        }
+      }
+    };
+
+    verifyAccess();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyAuthenticatedSession]);
+
+  // Auto-close slide-out drawer when viewport expands to desktop
   React.useEffect(() => {
     const handleResize = () => {
-      const isMobile = window.innerWidth < 1024;
-      setIsMobileScreen(isMobile);
-      if (!isMobile) {
+      if (window.innerWidth >= 1024) {
         setIsMobileDrawerOpen(false);
       }
     };
@@ -170,6 +280,26 @@ export default function App() {
     setIsMobileDrawerOpen(false);
   };
 
+  if (isCheckingAccess) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center gap-3 p-4">
+        <Loader2 className="w-8 h-8 animate-spin text-[#a435f0]" />
+        <p className="text-xs font-semibold text-slate-300 tracking-wide">
+          Verifying Supritamone Academy access...
+        </p>
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <AccessGateScreen
+        onUnlocked={applyAuthenticatedSession}
+        initialNotice={gateNotice}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased flex flex-col selection:bg-blue-600 selection:text-white">
       {/* If a course player is open, render the full-screen Udemy player interface */}
@@ -179,6 +309,10 @@ export default function App() {
             courseId={selectedCourseId}
             learnerName={resolvedCertificateName}
             onBackToCourses={() => setSelectedCourseId(null)}
+            onGoHome={() => {
+              setSelectedCourseId(null);
+              handleSelectNavTab('home');
+            }}
             onOpenCertify={handleOpenCertificate}
             onExamStatusChange={setExamStatus}
           />
@@ -187,27 +321,26 @@ export default function App() {
         <>
           {/* Top Navigation Bar */}
           <SurplusHeader
-            viewMode={viewMode}
-            onToggleViewMode={setViewMode}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             onOpenCertify={handleOpenCertificate}
             onOpenExporter={() => setShowExportModal(true)}
-            activeNavTab={activeNavTab}
             onSelectNavTab={handleSelectNavTab}
             isMobileDrawerOpen={isMobileDrawerOpen}
             onToggleMobileDrawer={() => setIsMobileDrawerOpen(prev => !prev)}
             learnerName={resolvedCertificateName}
             learnerEmail={learnerAccount.email}
+            planTitle={authUser.planTitle}
             isCertificateUnlocked={examStatus.isUnlocked}
             onOpenAccountModal={() => {
               setDraftEmail(learnerAccount.email);
               setDraftName(learnerAccount.chosenName);
               setShowAccountModal(true);
             }}
+            onSignOut={handleSignOut}
           />
 
-          {/* Mobile Drawer Overlay for Small / Mobile Viewports */}
+          {/* Mobile & Tablet Drawer Overlay */}
           {isMobileDrawerOpen && (
             <div className="fixed inset-0 z-50 lg:hidden flex">
               {/* Backdrop */}
@@ -239,18 +372,8 @@ export default function App() {
             </div>
           )}
 
-          {/* VIEW MODE 1: MOBILE APP SIMULATOR (Explicit simulated iPhone) */}
-          {viewMode === 'mobile' ? (
-            <main className="flex-1 flex items-center justify-center bg-slate-100/80 py-4">
-              <SurplusMobilePreview
-                onOpenDesktop={() => setViewMode('desktop')}
-                onOpenCertify={handleOpenCertificate}
-                onOpenExporter={() => setShowExportModal(true)}
-              />
-            </main>
-          ) : (
-            /* VIEW MODE 2: AUTO-CALIBRATED RESPONSIVE PORTAL (Desktop full grid, tablet, or responsive mobile) */
-            <div className="flex-1 flex max-w-7xl w-full mx-auto">
+          {/* AUTO-CALIBRATED RESPONSIVE PORTAL (Auto-adapts to Mobile, Tablet & Desktop viewports) */}
+          <div className="flex-1 flex max-w-7xl w-full mx-auto">
               {/* Desktop Left Sidebar (hidden on mobile, drawer used instead) */}
               <div className="hidden lg:block shrink-0">
                 <SurplusSidebar
@@ -312,7 +435,6 @@ export default function App() {
                 )}
               </main>
             </div>
-          )}
 
           {/* MOBILE BOTTOM NAVIGATION BAR: Auto-calibrated for phone viewports */}
           <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg">

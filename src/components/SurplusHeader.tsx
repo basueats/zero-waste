@@ -2,47 +2,42 @@ import React from 'react';
 import { 
   Search, 
   Bell, 
-  Smartphone, 
-  Monitor, 
   Sliders,
-  CheckCircle2,
   ExternalLink,
-  GraduationCap
+  LogOut
 } from 'lucide-react';
 import { SupritamoneLogo } from './SupritamoneLogo';
 
 interface SurplusHeaderProps {
-  viewMode: 'desktop' | 'mobile';
-  onToggleViewMode: (mode: 'desktop' | 'mobile') => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onOpenCertify: () => void;
   onOpenExporter: () => void;
-  activeNavTab: string;
   onSelectNavTab: (tab: string) => void;
   isMobileDrawerOpen?: boolean;
   onToggleMobileDrawer?: () => void;
   learnerName?: string;
   learnerEmail?: string;
+  planTitle?: string;
   isCertificateUnlocked?: boolean;
   onOpenAccountModal?: () => void;
+  onSignOut?: () => void;
 }
 
 export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
-  viewMode,
-  onToggleViewMode,
   searchQuery,
   onSearchChange,
   onOpenCertify,
   onOpenExporter,
-  activeNavTab,
   onSelectNavTab,
   isMobileDrawerOpen,
   onToggleMobileDrawer,
   learnerName = 'Supritam Basu',
   learnerEmail = 'basueats@gmail.com',
+  planTitle,
   isCertificateUnlocked = false,
   onOpenAccountModal,
+  onSignOut,
 }) => {
   const initials = React.useMemo(() => {
     const parts = (learnerName || learnerEmail || 'SB').trim().split(/[\s.@_-]+/).filter(Boolean);
@@ -54,33 +49,24 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
   const [showNotifications, setShowNotifications] = React.useState(false);
   const [showAdminMenu, setShowAdminMenu] = React.useState(false);
 
-  const navTabs = [
-    { id: 'home', label: 'Home' },
-    { id: 'courses', label: 'Zero Waste Kitchen Course' },
-    { id: 'culinary-courses', label: 'Culinary Courses', isExternal: true, href: 'https://foundations-of-food.ai.studio/' },
-    { id: 'calculator', label: 'Waste Calculator' },
-    { id: 'library', label: 'Library' },
-    { id: 'events', label: 'Community' },
-  ];
-
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-slate-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-3 sm:gap-4">
-          {/* Left: Mobile Drawer Button + Brand Logo */}
-          <div className="flex items-center gap-3 sm:gap-6 shrink-0">
-            {/* Mobile Hamburger Drawer Button */}
+          {/* Left: Mobile Drawer Button + Brand Logo (always returns to Home) */}
+          <div className="flex items-center gap-3 shrink-0">
+            {/* Mobile / Tablet Hamburger Drawer Button */}
             {onToggleMobileDrawer && (
               <button
                 onClick={onToggleMobileDrawer}
-                className="lg:hidden p-2 -ml-1 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+                className="lg:hidden p-2 -ml-1 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
                 aria-label={isMobileDrawerOpen ? 'Close Menu' : 'Open Navigation Menu'}
               >
                 <Sliders className="w-5 h-5 text-slate-700 rotate-90" />
               </button>
             )}
 
-            {/* Brand Logo - Supritamone Academy */}
+            {/* Brand Logo - Supritamone Academy (Click always goes to Home page) */}
             <button 
               onClick={() => onSelectNavTab('home')}
               className="text-left group focus:outline-none cursor-pointer"
@@ -88,52 +74,6 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
             >
               <SupritamoneLogo size="md" />
             </button>
-
-            {/* Desktop Navigation Tabs */}
-            <nav className="hidden lg:flex items-center gap-1">
-              {navTabs.map((tab) => {
-                const isActive = activeNavTab === tab.id;
-                if (tab.isExternal) {
-                  return (
-                    <div key={tab.id} className="flex items-center">
-                      <button
-                        onClick={() => onSelectNavTab(tab.id)}
-                        className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-1.5 ${
-                          isActive
-                            ? 'bg-emerald-50 text-emerald-700 font-semibold shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                        }`}
-                      >
-                        <GraduationCap className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>{tab.label}</span>
-                      </button>
-                      <a
-                        href={tab.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-slate-400 hover:text-emerald-600 p-1 mr-1"
-                        title="Open Foundations of Food in new window"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    </div>
-                  );
-                }
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => onSelectNavTab(tab.id)}
-                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                      isActive
-                        ? 'bg-blue-50 text-blue-700 font-semibold shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                );
-              })}
-            </nav>
           </div>
 
           {/* Search Bar */}
@@ -160,33 +100,6 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
 
           {/* Right Action Area */}
           <div className="flex items-center gap-2.5 shrink-0">
-            {/* View Mode Toggle: Desktop / Mobile App View */}
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-              <button
-                onClick={() => onToggleViewMode('desktop')}
-                title="Desktop Web Portal view"
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                  viewMode === 'desktop'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Monitor className="w-3.5 h-3.5" />
-                <span className="hidden md:inline">Desktop</span>
-              </button>
-              <button
-                onClick={() => onToggleViewMode('mobile')}
-                title="Simulated iPhone Mobile App view"
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                  viewMode === 'mobile'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-                <span className="hidden md:inline">Mobile App</span>
-              </button>
-            </div>
 
 
 
@@ -264,8 +177,8 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
                   <div className="px-3 py-2 border-b border-slate-100">
                     <p className="font-bold text-slate-900 truncate">{learnerName}</p>
                     <p className="text-slate-500 text-[11px] truncate">{learnerEmail}</p>
-                    <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                      Certificate Identity Active
+                    <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded truncate max-w-full">
+                      {planTitle || 'Certificate Identity Active'}
                     </span>
                   </div>
                   {onOpenAccountModal && (
@@ -321,31 +234,23 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
                       <span>Surplus Food Studio</span>
                       <ExternalLink className="w-3 h-3" />
                     </a>
+                    {onSignOut && (
+                      <button
+                        onClick={() => {
+                          setShowAdminMenu(false);
+                          onSignOut();
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600 font-semibold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Sign Out / Lock Portal</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
             </div>
           </div>
-        </div>
-
-        {/* Mobile Navigation Bar (under header on small screens) */}
-        <div className="lg:hidden flex items-center gap-2 py-2 overflow-x-auto border-t border-slate-100 scrollbar-none">
-          {navTabs.map((tab) => {
-            const isActive = activeNavTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => onSelectNavTab(tab.id)}
-                className={`px-3 py-1 rounded-md text-xs font-medium whitespace-nowrap ${
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'text-slate-600 bg-slate-50'
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
         </div>
       </div>
     </header>

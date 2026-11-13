@@ -75,6 +75,7 @@ interface SurplusCoursePlayerProps {
   initialSectionIndex?: number;
   learnerName?: string;
   onBackToCourses: () => void;
+  onGoHome?: () => void;
   onOpenCertify: () => void;
   onExamStatusChange?: (status: ExamUnlockStatus) => void;
 }
@@ -93,6 +94,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   courseId,
   initialSectionIndex = 0,
   onBackToCourses,
+  onGoHome,
   onOpenCertify,
   onExamStatusChange,
 }) => {
@@ -179,15 +181,85 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   const [sentenceElapsed, setSentenceElapsed] = useState<number>(0);
   const [activeWordIndex, setActiveWordIndex] = useState<number>(-1);
   const [durationsVersion, setDurationsVersion] = useState<number>(0);
-  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
-  const [volume, setVolume] = useState<number>(0.9);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(() => {
+    if (typeof window === 'undefined') return 1;
+    try {
+      const saved = JSON.parse(localStorage.getItem('supritamone_player_prefs_v1') || '{}');
+      return typeof saved.playbackSpeed === 'number' ? saved.playbackSpeed : 1;
+    } catch {
+      return 1;
+    }
+  });
+  const [volume, setVolume] = useState<number>(() => {
+    if (typeof window === 'undefined') return 0.9;
+    try {
+      const saved = JSON.parse(localStorage.getItem('supritamone_player_prefs_v1') || '{}');
+      return typeof saved.volume === 'number' ? saved.volume : 0.9;
+    } catch {
+      return 0.9;
+    }
+  });
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [showCaptions, setShowCaptions] = useState<boolean>(true);
+  const [showCaptions, setShowCaptions] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const saved = JSON.parse(localStorage.getItem('supritamone_player_prefs_v1') || '{}');
+      return typeof saved.showCaptions === 'boolean' ? saved.showCaptions : true;
+    } catch {
+      return true;
+    }
+  });
   const [showSpeedMenu, setShowSpeedMenu] = useState<boolean>(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState<boolean>(false);
-  const [autoplayNext, setAutoplayNext] = useState<boolean>(true);
+  const [autoplayNext, setAutoplayNext] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const saved = JSON.parse(localStorage.getItem('supritamone_player_prefs_v1') || '{}');
+      return typeof saved.autoplayNext === 'boolean' ? saved.autoplayNext : true;
+    } catch {
+      return true;
+    }
+  });
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [showProgressMenu, setShowProgressMenu] = useState<boolean>(false);
+
+  // Sync audio rate, volume & caption settings across tabs/reloads automatically
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(
+        'supritamone_player_prefs_v1',
+        JSON.stringify({ playbackSpeed, volume, showCaptions, autoplayNext })
+      );
+    } catch {
+      // Ignore storage errors
+    }
+  }, [playbackSpeed, volume, showCaptions, autoplayNext]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onStorageSync = (e: StorageEvent) => {
+      if (e.key === 'supritamone_player_prefs_v1' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (typeof parsed.playbackSpeed === 'number') {
+            setPlaybackSpeed(parsed.playbackSpeed);
+            audioNarrator.setRate(parsed.playbackSpeed);
+          }
+          if (typeof parsed.volume === 'number') {
+            setVolume(parsed.volume);
+            audioNarrator.setVolume(parsed.volume);
+          }
+          if (typeof parsed.showCaptions === 'boolean') setShowCaptions(parsed.showCaptions);
+          if (typeof parsed.autoplayNext === 'boolean') setAutoplayNext(parsed.autoplayNext);
+        } catch {
+          // Ignore malformed JSON
+        }
+      }
+    };
+    window.addEventListener('storage', onStorageSync);
+    return () => window.removeEventListener('storage', onStorageSync);
+  }, []);
   const [openResourceMenuId, setOpenResourceMenuId] = useState<string | null>(null);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
@@ -545,7 +617,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
 
   // Play / Pause handler (supports exact pause/resume without restarting sentence)
   const handleTogglePlay = () => {
-    audioNarrator.getAudioContext();
+    audioNarrator.unlockOnUserGesture();
 
     if (!isPlaying) {
       setIsPlaying(true);
@@ -599,6 +671,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
 
   // Unified seek helper (keeps timeline, slide, captions, and audio locked together)
   const seekToTime = useCallback((targetSeconds: number, forcePlay?: boolean) => {
+    audioNarrator.unlockOnUserGesture();
     const clamped = Math.max(0, Math.min(totalDurationSeconds, targetSeconds));
     let targetSentenceIdx = 0;
     for (let i = sentenceStartTimes.length - 1; i >= 0; i--) {
@@ -877,18 +950,19 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
       {/* 1. TOP NAVBAR: EXACT UDEMY BAR (Matches Image 1) */}
       <header className="h-14 bg-[#1c1d1f] border-b border-[#2d2f31] px-4 flex items-center justify-between z-30 shrink-0">
         <div className="flex items-center gap-3">
-          {/* Logo */}
+          {/* Zero Waste by Supritamone Official Logo (Navigates to Home Page) */}
           <button
-            onClick={onBackToCourses}
-            className="flex items-center gap-2 group text-white hover:text-slate-200 transition-colors"
-            title="Back to Courses"
+            onClick={() => (onGoHome ? onGoHome() : onBackToCourses())}
+            className="flex items-center gap-2 group hover:opacity-95 transition-opacity cursor-pointer shrink-0"
+            title="Go to Zero Waste Academy Home"
           >
-            <div className="w-8 h-8 rounded-lg bg-[#a435f0] flex items-center justify-center font-black text-white text-sm shadow-md">
-              SA
+            <div className="bg-white rounded-lg px-2 py-0.5 sm:px-2.5 sm:py-1 shadow-xs flex items-center">
+              <img
+                src="/assets/images/zero_waste_logo.png"
+                alt="Zero Waste Academy"
+                className="h-6 sm:h-7 w-auto object-contain"
+              />
             </div>
-            <span className="font-extrabold tracking-tight text-sm hidden sm:inline-block">
-              Supritamone
-            </span>
           </button>
 
           <span className="text-[#6a6f73] hidden sm:inline">|</span>
@@ -1193,17 +1267,17 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                 )}
               </div>
             ) : (
-              /* --- VIDEO LECTURE PLAYER WITH REAL SLIDE PRESENTATION VISUALS (Exact Image 1, 5, 9) --- */
-              <div className="relative aspect-video w-full flex items-center justify-center overflow-hidden group">
-                {/* 1. REAL SLIDE CANVAS (The Visual presentation deck requested by user) */}
-                <div className="absolute inset-0 bg-[#f7f9fa] text-slate-900 p-6 sm:p-10 flex flex-col justify-between overflow-hidden">
+              /* --- VIDEO LECTURE PLAYER WITH REAL SLIDE PRESENTATION VISUALS --- */
+              <div className="relative min-h-[340px] sm:min-h-0 sm:aspect-video w-full flex items-center justify-center overflow-hidden group">
+                {/* 1. REAL SLIDE CANVAS */}
+                <div className="absolute inset-0 bg-[#f7f9fa] text-slate-900 p-4 sm:p-8 lg:p-10 flex flex-col justify-between overflow-y-auto sm:overflow-hidden pb-16 sm:pb-14">
                   {/* Slide Header: Course program & Title (padded right to never touch top-right PiP card) */}
-                  <div className="flex items-start justify-between border-b-2 border-slate-200 pb-3 sm:pr-48">
+                  <div className="flex items-start justify-between border-b-2 border-slate-200 pb-2 sm:pb-3 pr-28 sm:pr-48">
                     <div>
-                      <span className="text-[11px] uppercase tracking-wider font-extrabold text-[#5624d0] block">
+                      <span className="text-[10px] sm:text-[11px] uppercase tracking-wider font-extrabold text-[#5624d0] block">
                         {currentSlide.conceptTag}
                       </span>
-                      <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-slate-900 tracking-tight mt-0.5">
+                      <h2 className="text-base sm:text-2xl md:text-3xl font-black text-slate-900 tracking-tight mt-0.5 leading-snug">
                         {currentSlide.title}
                       </h2>
                     </div>
@@ -1259,24 +1333,30 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   {/* Slide Footer */}
                   <div className="flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-200 pt-2 font-mono">
                     <div className="flex items-center gap-2">
-                      <span className="w-4 h-4 rounded bg-[#a435f0] text-white text-[9px] font-black flex items-center justify-center font-sans">SA</span>
-                      <span>Supritamone Academy · Dr. Chef Supritam Basu, PhD, CEC</span>
+                      <img
+                        src="/assets/images/zero_waste_logo.png"
+                        alt="Zero Waste Academy"
+                        className="h-4 sm:h-5 w-auto object-contain"
+                      />
+                      <span>· Dr. Chef Supritam Basu, PhD, CEC</span>
                     </div>
                     <span>Slide {currentSlideIdx + 1} of {currentLecture.slides.length}</span>
                   </div>
                 </div>
 
-                {/* 2. INSTRUCTOR PICTURE-IN-PICTURE (Top Right as in Image 5 & 9) */}
-                <div className="absolute top-4 right-4 z-20 w-36 sm:w-44 aspect-video bg-[#1c1d1f] rounded-lg border-2 border-white/20 shadow-2xl overflow-hidden flex flex-col justify-end p-2 pointer-events-none">
-                  {/* Subtle video background representation */}
-                  <div className="absolute inset-0 bg-gradient-to-br from-slate-800 via-slate-900 to-black flex items-center justify-center">
-                    <div className="w-10 h-10 rounded-full bg-[#a435f0] text-white font-bold flex items-center justify-center shadow-md">
-                      SB
-                    </div>
+                {/* 2. INSTRUCTOR PICTURE-IN-PICTURE (Centered rounded portrait of Dr. Supritam Basu cleanly above Host label) */}
+                <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 w-28 sm:w-44 min-h-[68px] sm:aspect-video bg-gradient-to-br from-[#0b193d] via-slate-900 to-black rounded-lg border-2 border-white/25 shadow-2xl overflow-hidden flex flex-col items-center justify-between pt-1.5 sm:pt-2 pb-1 sm:pb-1.5 px-1 sm:px-1.5 pointer-events-none">
+                  {/* Portrait Picture replacing old SB circle */}
+                  <div className="w-9 h-9 sm:w-14 sm:h-14 rounded-full overflow-hidden border-2 border-emerald-400/80 shadow-lg shrink-0 bg-[#0b193d]">
+                    <img
+                      src="/assets/aistudio/Untitled_design_0fea8cc4.png"
+                      alt="Dr. Chef Supritam Basu"
+                      className="w-full h-full object-cover object-top"
+                    />
                   </div>
 
-                  {/* Camera overlay bar */}
-                  <div className="relative z-10 bg-black/80 backdrop-blur-xs px-2 py-1 rounded text-[10px] flex items-center justify-between text-white">
+                  {/* Camera overlay bar cleanly below portrait */}
+                  <div className="w-full bg-black/80 backdrop-blur-xs px-2 py-0.5 sm:py-1 rounded text-[9px] sm:text-[10px] flex items-center justify-between text-white">
                     <span className="truncate font-semibold">Dr. Chef Basu</span>
                     {isPlaying && !isMuted ? (
                       <div className="flex items-center gap-0.5 ml-1">
@@ -1422,6 +1502,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       {/* Audio mute */}
                       <button
                         onClick={() => {
+                          audioNarrator.unlockOnUserGesture();
                           const nextMuted = !isMuted;
                           setIsMuted(nextMuted);
                           isMutedRef.current = nextMuted;
@@ -1491,6 +1572,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                                 max={100}
                                 value={isMuted ? 0 : Math.round(volume * 100)}
                                 onChange={(e) => {
+                                  audioNarrator.unlockOnUserGesture();
                                   const nextVol = parseInt(e.target.value, 10) / 100;
                                   setVolume(nextVol);
                                   volumeRef.current = nextVol;
@@ -1498,6 +1580,9 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                                   if (nextVol > 0 && isMuted) {
                                     setIsMuted(false);
                                     isMutedRef.current = false;
+                                    if (isPlayingRef.current) {
+                                      playSentence(activeSentenceIdx, currentTimeSeconds);
+                                    }
                                   } else if (nextVol === 0 && !isMuted) {
                                     setIsMuted(true);
                                     isMutedRef.current = true;
@@ -1813,13 +1898,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   </button>
                 </div>
 
-                {/* Features (Image 7) */}
-                <div className="border-t border-slate-200 pt-6 flex items-center gap-2 text-xs text-slate-700">
-                  <span className="font-bold">Features:</span>
-                  <span>Available on <strong className="text-slate-900">iOS</strong> and <strong className="text-slate-900">Android</strong></span>
-                </div>
-
-                {/* Description (Image 7) */}
+                {/* Description */}
                 <div className="border-t border-slate-200 pt-6 space-y-3">
                   <h3 className="text-sm font-bold text-slate-900">Description</h3>
                   <p className="text-xs text-slate-500 italic">This course contains the use of artificial intelligence and professional culinary science.</p>
@@ -1832,9 +1911,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                 <div className="border-t border-slate-200 pt-6 space-y-4">
                   <h3 className="text-sm font-bold text-slate-900">Instructor</h3>
                   <div className="flex items-start gap-4">
-                    <div className="w-16 h-16 rounded-full bg-[#a435f0] text-white flex items-center justify-center font-bold text-xl shadow-md shrink-0">
-                      SB
-                    </div>
+                    <img
+                      src="/assets/aistudio/Untitled_design_0fea8cc4.png"
+                      alt="Dr. Chef Supritam Basu, PhD, CEC"
+                      className="w-16 h-16 rounded-full object-cover object-top border-2 border-[#a435f0] shadow-md shrink-0 bg-[#0b193d]"
+                    />
                     <div className="space-y-1">
                       <h4 className="text-base font-bold text-[#a435f0] hover:underline cursor-pointer">
                         Dr. Chef Supritam Basu, PhD, CEC

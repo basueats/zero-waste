@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 interface SupritamoneLogoProps {
   variant?: 'full' | 'inverted' | 'seal';
@@ -13,7 +13,14 @@ export const SupritamoneLogo: React.FC<SupritamoneLogoProps> = ({
   className = '',
   showSubtitle = true,
 }) => {
+  const [imgError, setImgError] = useState(false);
   const isInverted = variant === 'inverted';
+
+  const imgHeights = {
+    sm: 'h-7',
+    md: 'h-9',
+    lg: 'h-11',
+  }[size];
 
   const typographySizes = {
     sm: {
@@ -33,9 +40,25 @@ export const SupritamoneLogo: React.FC<SupritamoneLogoProps> = ({
     },
   }[size];
 
+  if (!imgError) {
+    return (
+      <div
+        className={`inline-flex items-center select-none ${
+          isInverted ? 'bg-white rounded-lg px-2 py-1 shadow-xs' : ''
+        } ${className}`}
+      >
+        <img
+          src="/assets/images/zero_waste_logo.png"
+          alt="Supritamone Academy Zero Waste"
+          onError={() => setImgError(true)}
+          className={`w-auto object-contain ${imgHeights}`}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className={`inline-flex flex-col justify-center leading-none select-none text-left group ${className}`}>
-      {/* Brand Title: Supritamone with subtle emerald accent dot */}
       <div className="flex items-center gap-1">
         <span
           className={`font-extrabold tracking-tight font-['Outfit',sans-serif] ${typographySizes.title} ${
@@ -49,7 +72,6 @@ export const SupritamoneLogo: React.FC<SupritamoneLogoProps> = ({
         <span className={`inline-block rounded-full bg-emerald-500 shrink-0 mb-0.5 ${typographySizes.dot}`} />
       </div>
 
-      {/* Subtitle: ACADEMY */}
       {showSubtitle && (
         <div className="flex items-center gap-1.5 mt-0.5">
           <span

@@ -18,6 +18,243 @@ try {
   // Ignore if read-only; memory cache still works
 }
 
+const AUTH_STORE_PATH = path.join(__dirname, '.supritamone-auth.json');
+const SESSION_SECRET =
+  process.env.SESSION_SECRET ||
+  crypto.createHash('sha256').update(`supritamone-academy-${process.env.GEMINI_API_KEY || 'local-dev'}`).digest('hex');
+
+const PERMANENT_ADMIN_EMAIL = 'supritamone@gmail.com';
+
+interface StoredAuthUser {
+  email: string;
+  name: string;
+  passwordHash?: string;
+  role: 'admin' | 'member';
+  planId: 'admin' | 'trial' | 'individual' | 'team' | 'training';
+  planTitle: string;
+  status: 'active' | 'expired';
+  expiresAt: number | null;
+  transactionRef?: string;
+  source?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface AuthStoreData {
+  users: Record<string, StoredAuthUser>;
+}
+
+const SEED_PARTNER_USERS: Array<Omit<StoredAuthUser, 'createdAt' | 'updatedAt'>> = [
+  {
+    email: 'supritamone@gmail.com',
+    name: 'Supritamone Master Admin',
+    role: 'admin',
+    planId: 'admin',
+    planTitle: 'Permanent Executive Admin Access',
+    status: 'active',
+    expiresAt: null,
+    source: 'admin_root',
+  },
+  {
+    email: 'supritam.basu@supritamone.com',
+    name: 'Dr. Chef Supritam Basu',
+    role: 'admin',
+    planId: 'admin',
+    planTitle: 'Faculty & Master Executive Admin',
+    status: 'active',
+    expiresAt: null,
+    source: 'admin_faculty',
+  },
+  {
+    email: 'basueats@gmail.com',
+    name: 'Supritam Basu',
+    role: 'member',
+    planId: 'training',
+    planTitle: 'Executive Advisory & Training',
+    status: 'active',
+    expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
+    source: 'zerowaste.supritamone.com',
+  },
+  {
+    email: 'culinary.director@grandresort.com',
+    name: 'Executive Culinary Director',
+    role: 'member',
+    planId: 'training',
+    planTitle: 'Executive Advisory & Training',
+    status: 'active',
+    expiresAt: Date.now() + 337 * 24 * 60 * 60 * 1000,
+    transactionRef: 'ZN-PAY-9812401',
+    source: 'zerowaste.supritamone.com',
+  },
+  {
+    email: 'head.chef@metropolitanhotel.com',
+    name: 'Brigade Operations Lead',
+    role: 'member',
+    planId: 'team',
+    planTitle: 'Team Brigade Plan (5+ Chefs)',
+    status: 'active',
+    expiresAt: Date.now() + 356 * 24 * 60 * 60 * 1000,
+    transactionRef: 'ZN-PAY-4491022',
+    source: 'zerowaste.supritamone.com',
+  },
+  {
+    email: 'pastry.station@artisanbistro.fr',
+    name: 'Pastry & Bakery Supervisor',
+    role: 'member',
+    planId: 'individual',
+    planTitle: 'Individual Chef Annual Plan',
+    status: 'active',
+    expiresAt: Date.now() + 360 * 24 * 60 * 60 * 1000,
+    transactionRef: 'ZN-PAY-7719203',
+    source: 'zerowaste.supritamone.com',
+  },
+  {
+    email: 'banquet.prep@cityconvention.org',
+    name: 'Banquet Sous Chef',
+    role: 'member',
+    planId: 'trial',
+    planTitle: '3-Day Free Trial',
+    status: 'active',
+    expiresAt: Date.now() + 2 * 24 * 60 * 60 * 1000,
+    source: 'zerowaste.supritamone.com',
+  },
+  {
+    email: 'operations@summitcatering.com',
+    name: 'Catering Operations Manager',
+    role: 'member',
+    planId: 'trial',
+    planTitle: '3-Day Free Trial (Ended)',
+    status: 'expired',
+    expiresAt: Date.now() - 4 * 24 * 60 * 60 * 1000,
+    source: 'zerowaste.supritamone.com',
+  },
+];
+
+function loadAuthStore(): AuthStoreData {
+  let data: AuthStoreData = { users: {} };
+  try {
+    if (fs.existsSync(AUTH_STORE_PATH)) {
+      const parsed = JSON.parse(fs.readFileSync(AUTH_STORE_PATH, 'utf-8'));
+      if (parsed && parsed.users && typeof parsed.users === 'object') {
+        data = parsed;
+      }
+    }
+  } catch {
+    // Initialize fresh store
+  }
+  const now = Date.now();
+  let modified = false;
+  for (const seed of SEED_PARTNER_USERS) {
+    const key = seed.email.toLowerCase();
+    if (!data.users[key]) {
+      data.users[key] = { ...seed, email: key, createdAt: now, updatedAt: now };
+      modified = true;
+    } else if (key === PERMANENT_ADMIN_EMAIL) {
+      // Guarantee supritamone@gmail.com always remains unrestricted active admin
+      data.users[key] = {
+        ...data.users[key],
+        role: 'admin',
+        planId: 'admin',
+        planTitle: 'Permanent Executive Admin Access',
+        status: 'active',
+        expiresAt: null,
+      };
+    }
+  }
+  if (modified) {
+    saveAuthStore(data);
+  }
+  return data;
+}
+
+function saveAuthStore(data: AuthStoreData): void {
+  try {
+    fs.writeFileSync(AUTH_STORE_PATH, JSON.stringify(data, null, 2));
+  } catch {
+    // Ignore disk errors in read-only environments
+  }
+}
+
+function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(password, salt, 32).toString('hex');
+  return `${salt}:${derived}`;
+}
+
+function verifyPassword(password: string, storedHash: string): boolean {
+  const parts = storedHash.split(':');
+  if (parts.length !== 2) return false;
+  const [salt, originalHex] = parts;
+  const derived = crypto.scryptSync(password, salt, 32).toString('hex');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(originalHex, 'hex'), Buffer.from(derived, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
+function signSessionToken(payload: {
+  email: string;
+  name: string;
+  role: 'admin' | 'member';
+  planId: string;
+  planTitle: string;
+  expiresAt: number | null;
+  source: string;
+}): string {
+  const fullPayload = { ...payload, issuedAt: Date.now() };
+  const encoded = Buffer.from(JSON.stringify(fullPayload)).toString('base64url');
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(encoded).digest('base64url');
+  return `${encoded}.${sig}`;
+}
+
+function verifySessionToken(token: string): {
+  email: string;
+  name: string;
+  role: 'admin' | 'member';
+  planId: string;
+  planTitle: string;
+  expiresAt: number | null;
+  source: string;
+} | null {
+  if (!token || !token.includes('.')) return null;
+  const [encoded, sig] = token.split('.');
+  const expectedSig = crypto.createHmac('sha256', SESSION_SECRET).update(encoded).digest('base64url');
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
+      return null;
+    }
+    const decoded = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf-8'));
+    if (!decoded || !decoded.email) return null;
+    if (decoded.email.toLowerCase() === PERMANENT_ADMIN_EMAIL) {
+      return {
+        ...decoded,
+        role: 'admin',
+        planId: 'admin',
+        planTitle: 'Permanent Executive Admin Access',
+        expiresAt: null,
+      };
+    }
+    if (decoded.expiresAt && Date.now() > Number(decoded.expiresAt)) {
+      return null;
+    }
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+function isPartnerOriginUrl(rawUrl: string | undefined | null): boolean {
+  if (!rawUrl || typeof rawUrl !== 'string') return false;
+  try {
+    const u = new URL(rawUrl.trim());
+    const host = u.hostname.toLowerCase();
+    return host === 'zerowaste.supritamone.com' || host === 'www.zerowaste.supritamone.com';
+  } catch {
+    return rawUrl.toLowerCase().includes('zerowaste.supritamone.com');
+  }
+}
+
 const app = express();
 const portArgIndex = process.argv.indexOf('--port');
 const cliPort = portArgIndex !== -1 && process.argv[portArgIndex + 1] ? parseInt(process.argv[portArgIndex + 1], 10) : NaN;
@@ -84,9 +321,9 @@ function writeDiskCacheJson(prefix: string, rawKey: string, payload: unknown): v
   }
 }
 
-// Concurrency queue for upstream Gemini TTS (prevents burst quota/rate-limit spikes)
+// Concurrency queue for upstream Gemini TTS (prevents burst quota/rate-limit spikes while serving tabs smoothly)
 let activeTtsRequests = 0;
-const MAX_CONCURRENT_TTS = 1;
+const MAX_CONCURRENT_TTS = 3;
 const ttsWaitQueue: Array<() => void> = [];
 
 async function acquireTtsSlot(): Promise<void> {
@@ -108,6 +345,7 @@ function releaseTtsSlot(): void {
   if (next) next();
 }
 
+const CANONICAL_FENRIR_VOICE = 'Fenrir';
 const DEFAULT_CALM_STYLE =
   'Calm, deep, steady, unhurried human male baritone voice of an experienced executive master chef and university professor teaching in a quiet studio, consistent pitch, warm tone, and even pacing throughout';
 
@@ -117,13 +355,13 @@ async function generateTtsWithRetry(
   voice: string,
   style: string
 ): Promise<{ audio?: string; errorDetail?: string; statusCode?: number }> {
-  // Try primary model first; if quota-limited (429), immediately try secondary TTS model bucket using exact same voice
+  // Use gemini-3.8-flash-lite-tts consistently so voice & studio tone never shift; fail over only on hard daily exhaustion
   const modelsToTry = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'];
   let lastError = 'Unknown error';
   let lastStatus = 502;
 
   for (const modelName of modelsToTry) {
-    const maxAttempts = 2;
+    const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const response = await ai.models.generateContent({
@@ -166,7 +404,7 @@ async function generateTtsWithRetry(
           break;
         }
         if (attempt < maxAttempts) {
-          await new Promise((r) => setTimeout(r, isRateLimit || isUnavailable ? 1200 : 400));
+          await new Promise((r) => setTimeout(r, isRateLimit || isUnavailable ? 1400 * attempt : 500));
         }
       }
     }
@@ -305,14 +543,249 @@ app.get('/api/ai/status', (req, res) => {
   });
 });
 
+// ==================== SUPRITAMONE ACCESS GATE & AUTH ENDPOINTS ====================
+
+// Verify existing bearer session token
+app.get('/api/auth/session', (req, res) => {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const verified = verifySessionToken(token);
+  if (!verified) {
+    return res.status(401).json({ authenticated: false, error: 'Session locked or expired' });
+  }
+  return res.json({
+    authenticated: true,
+    user: verified,
+    token,
+  });
+});
+
+// Verify redirect arriving from https://zerowaste.supritamone.com/
+app.post('/api/auth/verify-redirect', (req, res) => {
+  const {
+    referrer = '',
+    fromParam = '',
+    email = '',
+    name = '',
+    planId = 'trial',
+  } = req.body || {};
+
+  const headerReferrer = String(req.headers.referer || req.headers.referrer || '');
+  const cleanFrom = String(fromParam || '').toLowerCase();
+  const isVerifiedRedirect =
+    isPartnerOriginUrl(referrer) ||
+    isPartnerOriginUrl(headerReferrer) ||
+    cleanFrom === 'zerowaste' ||
+    cleanFrom === 'zerowaste.supritamone.com' ||
+    cleanFrom === 'partner_sso';
+
+  if (!isVerifiedRedirect) {
+    return res.status(403).json({
+      authenticated: false,
+      error: 'Direct access requires redirect from https://zerowaste.supritamone.com/, valid login, or active plan.',
+    });
+  }
+
+  const store = loadAuthStore();
+  const cleanEmail = String(email || 'member@zerowaste.supritamone.com').trim().toLowerCase();
+  const existing = store.users[cleanEmail];
+  const isAdmin = cleanEmail === PERMANENT_ADMIN_EMAIL || existing?.role === 'admin';
+  const resolvedName =
+    String(name || '').trim() ||
+    existing?.name ||
+    (cleanEmail.split('@')[0] || 'Brigade Chef')
+      .replace(/[._-]+/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const sessionPayload = {
+    email: cleanEmail,
+    name: resolvedName,
+    role: (isAdmin ? 'admin' : 'member') as 'admin' | 'member',
+    planId: existing?.planId || (isAdmin ? 'admin' : String(planId || 'trial')),
+    planTitle:
+      existing?.planTitle ||
+      (isAdmin ? 'Permanent Executive Admin Access' : 'Verified Redirect · zerowaste.supritamone.com'),
+    expiresAt: isAdmin ? null : existing?.expiresAt ?? Date.now() + 3 * 24 * 60 * 60 * 1000,
+    source: 'redirect_zerowaste.supritamone.com',
+  };
+
+  const token = signSessionToken(sessionPayload);
+  return res.json({
+    authenticated: true,
+    user: sessionPayload,
+    token,
+  });
+});
+
+// Member & Permanent Admin Sign-In (supritamone@gmail.com always accessible)
+app.post('/api/auth/login', (req, res) => {
+  const { email, password } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanPassword = String(password || '');
+
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    return res.status(400).json({ error: 'Please enter a valid email address.' });
+  }
+
+  const store = loadAuthStore();
+  const now = Date.now();
+
+  // Rule: supritamone@gmail.com MUST ALWAYS have unrestricted Master Admin access
+  if (cleanEmail === PERMANENT_ADMIN_EMAIL) {
+    const adminUser = store.users[PERMANENT_ADMIN_EMAIL];
+    const sessionPayload = {
+      email: PERMANENT_ADMIN_EMAIL,
+      name: adminUser?.name || 'Supritamone Master Admin',
+      role: 'admin' as const,
+      planId: 'admin',
+      planTitle: 'Permanent Executive Admin Access',
+      expiresAt: null,
+      source: 'permanent_admin',
+    };
+    const token = signSessionToken(sessionPayload);
+    return res.json({ authenticated: true, user: sessionPayload, token });
+  }
+
+  const record = store.users[cleanEmail];
+  if (!record) {
+    return res.status(401).json({
+      error:
+        'No active membership found for this email. Redirect via https://zerowaste.supritamone.com/ or select a plan below to unlock access.',
+    });
+  }
+
+  // If user registered a custom password, validate against salted scrypt hash
+  if (record.passwordHash) {
+    if (!cleanPassword || !verifyPassword(cleanPassword, record.passwordHash)) {
+      return res.status(401).json({ error: 'Incorrect password for this account. Please check your password and retry.' });
+    }
+  } else {
+    // Migrated partner accounts from zerowaste.supritamone.com require non-empty password on first manual password login
+    if (cleanPassword.length < 4) {
+      return res.status(401).json({
+        error: 'Enter your password (min 4 characters) or sign in directly from https://zerowaste.supritamone.com/.',
+      });
+    }
+  }
+
+  if (record.status === 'expired' || (record.expiresAt && now > record.expiresAt)) {
+    return res.status(403).json({
+      expired: true,
+      error: 'Your 3-Day Free Trial has ended. Choose an annual plan below to continue full access.',
+    });
+  }
+
+  const isAdmin = record.role === 'admin';
+  const sessionPayload = {
+    email: record.email,
+    name: record.name,
+    role: record.role,
+    planId: record.planId,
+    planTitle: record.planTitle,
+    expiresAt: isAdmin ? null : record.expiresAt,
+    source: record.source || 'login_credentials',
+  };
+  const token = signSessionToken(sessionPayload);
+  return res.json({ authenticated: true, user: sessionPayload, token });
+});
+
+// Activate 3-Day Free Trial OR Enroll/Purchase Plan (Individual $99, Team $79/chef, Training $1499)
+app.post('/api/auth/activate-plan', (req, res) => {
+  const { planId, email, name, password, transactionRef, chefSeats } = req.body || {};
+  const cleanPlan = String(planId || 'trial').trim().toLowerCase() as 'trial' | 'individual' | 'team' | 'training';
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanPassword = String(password || '');
+  const cleanName =
+    String(name || '').trim() ||
+    (cleanEmail.split('@')[0] || 'Culinary Director')
+      .replace(/[._-]+/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    return res.status(400).json({ error: 'A valid email address is required.' });
+  }
+  if (!['trial', 'individual', 'team', 'training'].includes(cleanPlan)) {
+    return res.status(400).json({ error: 'Invalid subscription plan selected.' });
+  }
+  if (cleanEmail !== PERMANENT_ADMIN_EMAIL && cleanPassword.length < 4) {
+    return res.status(400).json({ error: 'Please create a password (at least 4 characters) for future sign-ins.' });
+  }
+
+  const store = loadAuthStore();
+  const now = Date.now();
+  const existing = store.users[cleanEmail];
+
+  // Always keep supritamone@gmail.com permanently unlocked as Admin
+  if (cleanEmail === PERMANENT_ADMIN_EMAIL) {
+    const adminPayload = {
+      email: PERMANENT_ADMIN_EMAIL,
+      name: cleanName || 'Supritamone Master Admin',
+      role: 'admin' as const,
+      planId: 'admin',
+      planTitle: 'Permanent Executive Admin Access',
+      expiresAt: null,
+      source: 'permanent_admin',
+    };
+    return res.json({ authenticated: true, user: adminPayload, token: signSessionToken(adminPayload) });
+  }
+
+  if (cleanPlan === 'trial' && existing && existing.planId === 'trial' && existing.status === 'expired') {
+    return res.status(403).json({
+      expired: true,
+      error: 'A 3-Day Free Trial was already used for this email. Please select Individual, Team, or Executive Advisory.',
+    });
+  }
+
+  const PLAN_META: Record<'trial' | 'individual' | 'team' | 'training', { title: string; durationMs: number }> = {
+    trial: { title: '3-Day Free Trial ($0 / 72h)', durationMs: 3 * 24 * 60 * 60 * 1000 },
+    individual: { title: 'Individual Annual Plan ($99/yr)', durationMs: 365 * 24 * 60 * 60 * 1000 },
+    team: {
+      title: `Team Brigade Plan (${Math.max(5, Number(chefSeats) || 5)} Chefs · $79/chef/yr)`,
+      durationMs: 365 * 24 * 60 * 60 * 1000,
+    },
+    training: { title: 'EXECUTIVE ADVISORY · Training ($1499/5 chefs/yr)', durationMs: 365 * 24 * 60 * 60 * 1000 },
+  };
+
+  const meta = PLAN_META[cleanPlan];
+  const expiresAt = now + meta.durationMs;
+
+  const updatedRecord: StoredAuthUser = {
+    email: cleanEmail,
+    name: cleanName,
+    passwordHash: hashPassword(cleanPassword),
+    role: 'member',
+    planId: cleanPlan,
+    planTitle: meta.title,
+    status: 'active',
+    expiresAt,
+    transactionRef: transactionRef || (cleanPlan === 'trial' ? `TRIAL-${now.toString(36).toUpperCase()}` : `ZN-PAY-${Math.floor(1000000 + Math.random() * 9000000)}`),
+    source: 'direct_plan_enrollment',
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+
+  store.users[cleanEmail] = updatedRecord;
+  saveAuthStore(store);
+
+  const sessionPayload = {
+    email: updatedRecord.email,
+    name: updatedRecord.name,
+    role: 'member' as const,
+    planId: updatedRecord.planId,
+    planTitle: updatedRecord.planTitle,
+    expiresAt: updatedRecord.expiresAt,
+    source: updatedRecord.source || 'direct_plan_enrollment',
+  };
+
+  const token = signSessionToken(sessionPayload);
+  return res.json({ authenticated: true, user: sessionPayload, token });
+});
+
 // Endpoint: Synthesize a full lecture as ONE unbroken human male voice WAV track with pause-aligned captions
 app.post('/api/tts/lecture', async (req, res) => {
   try {
     const {
       sentences,
-      voice = 'Fenrir',
-      voiceName,
-      style = DEFAULT_CALM_STYLE,
     } = req.body;
 
     if (!Array.isArray(sentences) || sentences.length === 0) {
@@ -324,17 +797,21 @@ app.post('/api/tts/lecture', async (req, res) => {
       return res.status(400).json({ error: 'sentences cannot be empty' });
     }
 
-    const resolvedVoice = voiceName || voice || 'Fenrir';
+    // Always lock voice & studio tone across every tab, browser, and mobile device
+    const resolvedVoice = CANONICAL_FENRIR_VOICE;
+    const style = DEFAULT_CALM_STYLE;
     const rawKey = `lecture_${resolvedVoice}_${cleanSentences.join(' | ')}`;
 
     if (lectureTtsCache.has(rawKey)) {
-      return res.json({ ...lectureTtsCache.get(rawKey)!, cached: true });
+      res.setHeader('Cache-Control', 'private, max-age=86400');
+      return res.json({ ...lectureTtsCache.get(rawKey)!, voice: resolvedVoice, cached: true });
     }
 
     const diskHit = readDiskCacheJson<CachedLectureAudio>('lec', rawKey);
     if (diskHit?.audio) {
       lectureTtsCache.set(rawKey, diskHit);
-      return res.json({ ...diskHit, cached: true });
+      res.setHeader('Cache-Control', 'private, max-age=86400');
+      return res.json({ ...diskHit, voice: resolvedVoice, cached: true });
     }
 
     const ai = getGeminiClient();
@@ -402,22 +879,22 @@ app.post('/api/tts', async (req, res) => {
   try {
     const {
       text,
-      voice = 'Fenrir',
-      voiceName,
-      style = DEFAULT_CALM_STYLE,
     } = req.body;
     if (!text || typeof text !== 'string') {
       return res.status(400).json({ error: 'Text is required' });
     }
 
     const cleanText = text.trim();
-    const resolvedVoice = voiceName || voice || 'Fenrir';
+    const resolvedVoice = CANONICAL_FENRIR_VOICE;
+    const style = DEFAULT_CALM_STYLE;
     const cacheKey = `${resolvedVoice}_${cleanText}`;
 
     if (ttsAudioCache.has(cacheKey)) {
+      res.setHeader('Cache-Control', 'private, max-age=86400');
       return res.json({
         audio: ttsAudioCache.get(cacheKey),
         mimeType: 'audio/wav',
+        voice: resolvedVoice,
         cached: true,
       });
     }
@@ -425,9 +902,11 @@ app.post('/api/tts', async (req, res) => {
     const diskHit = readDiskCacheJson<{ audio: string }>('tts', cacheKey);
     if (diskHit?.audio) {
       ttsAudioCache.set(cacheKey, diskHit.audio);
+      res.setHeader('Cache-Control', 'private, max-age=86400');
       return res.json({
         audio: diskHit.audio,
         mimeType: 'audio/wav',
+        voice: resolvedVoice,
         cached: true,
       });
     }

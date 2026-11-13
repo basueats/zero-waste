@@ -211,9 +211,11 @@ export const SurplusCommunityView: React.FC<SurplusCommunityViewProps> = () => {
                   <div className="p-4 bg-blue-50/70 border border-blue-100 rounded-xl space-y-2 mt-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-[10px] flex items-center justify-center">
-                          {q.reply.avatar}
-                        </div>
+                        <img
+                          src="/assets/aistudio/Untitled_design_0fea8cc4.png"
+                          alt={q.reply.author}
+                          className="w-7 h-7 rounded-full object-cover object-top border border-blue-500 shrink-0 bg-[#0b193d]"
+                        />
                         <span className="font-bold text-slate-900 text-xs">
                           {q.reply.author}
                         </span>

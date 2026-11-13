@@ -249,6 +249,7 @@ export const SurplusMobilePreview: React.FC<SurplusMobilePreviewProps> = ({
                 {/* Video Banner with Dr. Chef Supritam Basu Picture-in-picture */}
                 <div 
                   onClick={() => {
+                    audioNarrator.unlockOnUserGesture();
                     audioNarrator.playSound('play');
                     audioNarrator.speak(`Welcome to ${activeCourse.title}. In this masterclass lecture, we examine commercial kitchen waste reduction protocols.`, 1.0, 0.9);
                   }}
@@ -567,9 +568,13 @@ export const SurplusMobilePreview: React.FC<SurplusMobilePreviewProps> = ({
             </button>
             <button 
               onClick={onOpenCertify}
-              className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-[9px] flex items-center justify-center"
+              className="w-7 h-7 rounded-full overflow-hidden border border-blue-500 shrink-0"
             >
-              SB
+              <img
+                src="/assets/aistudio/Untitled_design_0fea8cc4.png"
+                alt="Dr. Chef Supritam Basu"
+                className="w-full h-full object-cover object-top"
+              />
             </button>
           </div>
         </div>

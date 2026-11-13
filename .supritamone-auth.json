@@ -1,0 +1,103 @@
+{
+  "users": {
+    "supritamone@gmail.com": {
+      "email": "supritamone@gmail.com",
+      "name": "Supritamone Master Admin",
+      "role": "admin",
+      "planId": "admin",
+      "planTitle": "Permanent Executive Admin Access",
+      "status": "active",
+      "expiresAt": null,
+      "source": "admin_root",
+      "createdAt": 1794601255792,
+      "updatedAt": 1794601255792
+    },
+    "supritam.basu@supritamone.com": {
+      "email": "supritam.basu@supritamone.com",
+      "name": "Dr. Chef Supritam Basu",
+      "role": "admin",
+      "planId": "admin",
+      "planTitle": "Faculty & Master Executive Admin",
+      "status": "active",
+      "expiresAt": null,
+      "source": "admin_faculty",
+      "createdAt": 1794601255792,
+      "updatedAt": 1794601255792
+    },
+    "basueats@gmail.com": {
+      "email": "basueats@gmail.com",
+      "name": "Supritam Basu",
+      "role": "member",
+      "planId": "training",
+      "planTitle": "Executive Advisory & Training",
+      "status": "active",
+      "expiresAt": 1826137243591,
+      "source": "zerowaste.supritamone.com",
+      "createdAt": 1794601255792,
+      "updatedAt": 1794601255792
+    },
+    "culinary.director@grandresort.com": {
+      "email": "culinary.director@grandresort.com",
+      "name": "Executive Culinary Director",
+      "role": "member",
+      "planId": "training",
+      "planTitle": "Executive Advisory & Training",
+      "status": "active",
+      "expiresAt": 1823718043591,
+      "transactionRef": "ZN-PAY-9812401",
+      "source": "zerowaste.supritamone.com",
+      "createdAt": 1794601255792,
+      "updatedAt": 1794601255792
+    },
+    "head.chef@metropolitanhotel.com": {
+      "email": "head.chef@metropolitanhotel.com",
+      "name": "Brigade Operations Lead",
+      "role": "member",
+      "planId": "team",
+      "planTitle": "Team Brigade Plan (5+ Chefs)",
+      "status": "active",
+      "expiresAt": 1825359643591,
+      "transactionRef": "ZN-PAY-4491022",
+      "source": "zerowaste.supritamone.com",
+      "createdAt": 1794601255792,
+      "updatedAt": 1794601255792
+    },
+    "pastry.station@artisanbistro.fr": {
+      "email": "pastry.station@artisanbistro.fr",
+      "name": "Pastry & Bakery Supervisor",
+      "role": "member",
+      "planId": "individual",
+      "planTitle": "Individual Chef Annual Plan",
+      "status": "active",
+      "expiresAt": 1825705243591,
+      "transactionRef": "ZN-PAY-7719203",
+      "source": "zerowaste.supritamone.com",
+      "createdAt": 1794601255792,
+      "updatedAt": 1794601255792
+    },
+    "banquet.prep@cityconvention.org": {
+      "email": "banquet.prep@cityconvention.org",
+      "name": "Banquet Sous Chef",
+      "role": "member",
+      "planId": "trial",
+      "planTitle": "3-Day Free Trial",
+      "status": "active",
+      "expiresAt": 1794774043591,
+      "source": "zerowaste.supritamone.com",
+      "createdAt": 1794601255792,
+      "updatedAt": 1794601255792
+    },
+    "operations@summitcatering.com": {
+      "email": "operations@summitcatering.com",
+      "name": "Catering Operations Manager",
+      "role": "member",
+      "planId": "trial",
+      "planTitle": "3-Day Free Trial (Ended)",
+      "status": "expired",
+      "expiresAt": 1794255643591,
+      "source": "zerowaste.supritamone.com",
+      "createdAt": 1794601255792,
+      "updatedAt": 1794601255792
+    }
+  }
+}

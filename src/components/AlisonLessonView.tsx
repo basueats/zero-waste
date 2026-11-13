@@ -49,59 +49,48 @@ export const AlisonLessonView: React.FC<AlisonLessonViewProps> = ({
   const [selectedQuickAnswer, setSelectedQuickAnswer] = React.useState<number | null>(null);
   const [quickSubmitted, setQuickSubmitted] = React.useState(false);
 
-  // Reset quick check and speech when lesson changes
+  const lectureAudioSentences = React.useMemo(
+    () => [
+      `Topic lecture: ${lesson.title}`,
+      ...lesson.sections.map((sec) => `${sec.heading}. ${sec.content}`),
+    ],
+    [lesson.title, lesson.sections]
+  );
+
+  // Reset quick check & prefetch unified Fenrir audio when lesson changes
   React.useEffect(() => {
     setSelectedQuickAnswer(null);
     setQuickSubmitted(false);
     audioNarrator.stop();
     setIsPlayingAudio(false);
     setActiveReadingSection(null);
-  }, [lesson.id]);
-
-  const readSection = (secIdx: number) => {
-    if (secIdx >= lesson.sections.length) {
-      setIsPlayingAudio(false);
-      setActiveReadingSection(null);
-      audioNarrator.playSound('correct');
-      return;
+    if (lectureAudioSentences.length > 0) {
+      audioNarrator.prefetchLecture(lectureAudioSentences);
     }
-
-    setActiveReadingSection(secIdx);
-    const sec = lesson.sections[secIdx];
-    const textToRead = `${sec.heading}. ${sec.content}`;
-
-    audioNarrator.speak({
-      text: textToRead,
-      rate: 1.0,
-      volume: 0.9,
-      onEnd: () => {
-        readSection(secIdx + 1);
-      },
-      onError: () => {
-        setIsPlayingAudio(false);
-        setActiveReadingSection(null);
-      }
-    });
-  };
+  }, [lesson.id, lectureAudioSentences]);
 
   const toggleSpeech = () => {
+    audioNarrator.unlockOnUserGesture();
     if (isPlayingAudio) {
       audioNarrator.stop();
       setIsPlayingAudio(false);
       setActiveReadingSection(null);
     } else {
-      audioNarrator.getAudioContext();
       setIsPlayingAudio(true);
-      audioNarrator.speak({
-        text: `Topic lecture: ${lesson.title}`,
+      setActiveReadingSection(null);
+      audioNarrator.speakLecture({
+        sentences: lectureAudioSentences,
         rate: 1.0,
         volume: 0.9,
-        onEnd: () => {
-          readSection(0);
+        onProgress: (p) => {
+          // Index 0 is title intro; indices 1..N map cleanly to lesson.sections[0..N-1]
+          setActiveReadingSection(p.sentenceIndex > 0 ? p.sentenceIndex - 1 : null);
         },
-        onError: () => {
-          readSection(0);
-        }
+        onEnd: () => {
+          setIsPlayingAudio(false);
+          setActiveReadingSection(null);
+          audioNarrator.playSound('correct');
+        },
       });
     }
   };

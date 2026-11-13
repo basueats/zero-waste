@@ -7,7 +7,6 @@ import {
   Clock, 
   HelpCircle, 
   LifeBuoy, 
-  Trophy, 
   MessageSquare, 
   BookOpen, 
   Award,
@@ -305,18 +304,6 @@ export const SurplusSidebar: React.FC<SurplusSidebarProps> = ({
             >
               <LifeBuoy className="w-4 h-4 text-slate-400 shrink-0" />
               <span>Helpdesk</span>
-            </button>
-
-            <button
-              onClick={() => handleSectionClick('your-wins')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left ${
-                currentSection === 'your-wins'
-                  ? 'bg-blue-50 text-blue-700 font-semibold'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <Trophy className="w-4 h-4 text-amber-500 shrink-0" />
-              <span>Your wins</span>
             </button>
 
             <button

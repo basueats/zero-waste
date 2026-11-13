@@ -40,23 +40,44 @@ export const InteractiveVideoPlayer: React.FC<InteractiveVideoPlayerProps> = ({
   const [showCaptions, setShowCaptions] = useState<boolean>(true);
 
   const transcript = useMemo(() => video.transcript || [], [video]);
+  const [durationsVersion, setDurationsVersion] = useState<number>(0);
 
-  // Dynamic durations per sentence
+  useEffect(() => {
+    return audioNarrator.onDurationsUpdated(() => {
+      setDurationsVersion((v) => v + 1);
+    });
+  }, []);
+
+  // Exact WAV timings when lecture audio is loaded, otherwise estimated 1.0x durations
+  const lectureTimingsData = useMemo(() => {
+    return audioNarrator.getLectureTimings(transcript.map((t) => t.text));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transcript, durationsVersion]);
+
   const sentenceDurations = useMemo(() => {
-    return transcript.map((item) => audioNarrator.estimateDuration(item.text, playbackSpeed));
-  }, [transcript, playbackSpeed]);
+    if (lectureTimingsData && lectureTimingsData.sentenceTimings.length === transcript.length) {
+      return lectureTimingsData.sentenceTimings.map((t) => Math.max(0.3, t.end - t.start));
+    }
+    return transcript.map((item) => audioNarrator.estimateDuration(item.text, 1.0));
+  }, [transcript, lectureTimingsData]);
 
   const sentenceStartTimes = useMemo(() => {
+    if (lectureTimingsData && lectureTimingsData.sentenceTimings.length === transcript.length) {
+      return lectureTimingsData.sentenceTimings.map((t) => t.start);
+    }
     const starts: number[] = [0];
     for (let i = 0; i < sentenceDurations.length - 1; i++) {
       starts.push(starts[i] + sentenceDurations[i]);
     }
     return starts;
-  }, [sentenceDurations]);
+  }, [sentenceDurations, lectureTimingsData, transcript.length]);
 
   const totalDuration = useMemo(() => {
+    if (lectureTimingsData && lectureTimingsData.duration > 0) {
+      return lectureTimingsData.duration;
+    }
     return Math.max(video.durationSeconds, sentenceDurations.reduce((a, b) => a + b, 0));
-  }, [video.durationSeconds, sentenceDurations]);
+  }, [video.durationSeconds, sentenceDurations, lectureTimingsData]);
 
   const currentTime = Math.min(
     totalDuration,
@@ -67,11 +88,18 @@ export const InteractiveVideoPlayer: React.FC<InteractiveVideoPlayerProps> = ({
 
   const isPlayingRef = useRef<boolean>(isPlaying);
   isPlayingRef.current = isPlaying;
+  const isMutedRef = useRef<boolean>(isMuted);
+  isMutedRef.current = isMuted;
+  const playbackSpeedRef = useRef<number>(playbackSpeed);
+  playbackSpeedRef.current = playbackSpeed;
+  const volumeRef = useRef<number>(volume);
+  volumeRef.current = volume;
+  const lastSentenceIdxRef = useRef<number>(0);
 
-  // Prefetch voice lines
+  // Prefetch unified Fenrir lecture WAV
   useEffect(() => {
     if (transcript.length > 0) {
-      audioNarrator.prefetch(transcript.map((t) => t.text));
+      audioNarrator.prefetchLecture(transcript.map((t) => t.text));
     }
   }, [transcript]);
 
@@ -82,76 +110,98 @@ export const InteractiveVideoPlayer: React.FC<InteractiveVideoPlayerProps> = ({
     };
   }, []);
 
-  // Play a specific sentence with voice and text sync
-  const playSentence = useCallback((index: number) => {
+  // Play continuous unified Fenrir masterclass audio with live word/checkpoint sync
+  const startPlaybackFrom = useCallback((index: number, explicitOffsetSec?: number) => {
     if (index >= transcript.length) {
       setIsPlaying(false);
+      isPlayingRef.current = false;
       audioNarrator.stop();
       audioNarrator.playSound('correct');
       return;
     }
 
+    lastSentenceIdxRef.current = index;
     setActiveSentenceIndex(index);
     setActiveWordIndex(-1);
     setSentenceElapsed(0);
     setSentenceProgress(0);
 
-    const sentence = transcript[index];
-    if (!sentence) return;
+    if (isMutedRef.current) {
+      audioNarrator.stop();
+      return;
+    }
 
-    if (isMuted) return;
+    const startOffset =
+      explicitOffsetSec !== undefined
+        ? Math.max(0, explicitOffsetSec)
+        : (sentenceStartTimes[index] || 0);
 
-    audioNarrator.speak({
-      text: sentence.text,
-      rate: playbackSpeed,
-      volume: volume,
+    audioNarrator.speakLecture({
+      sentences: transcript.map((t) => t.text),
+      startTimeOffset: startOffset,
+      rate: playbackSpeedRef.current,
+      volume: volumeRef.current,
       onProgress: (p) => {
+        if (!isPlayingRef.current) return;
+
+        // Detect crossing into next sentence to check if a checkpoint sits at that timestamp
+        if (p.sentenceIndex > lastSentenceIdxRef.current) {
+          const prevIdx = lastSentenceIdxRef.current;
+          const boundaryTime = (sentenceStartTimes[prevIdx] || 0) + (sentenceDurations[prevIdx] || 0);
+          const hitCheckpoint = video.checkpoints.find(
+            (ck) => Math.abs(ck.timestampSeconds - boundaryTime) < 6 && !answeredCheckpoints.has(ck.id)
+          );
+          lastSentenceIdxRef.current = p.sentenceIndex;
+          if (hitCheckpoint) {
+            audioNarrator.pause();
+            setIsPlaying(false);
+            isPlayingRef.current = false;
+            setActiveSentenceIndex(p.sentenceIndex);
+            setActiveCheckpoint(hitCheckpoint);
+            setSelectedOption(null);
+            setCheckpointSubmitted(false);
+            audioNarrator.playSound('checkpoint');
+            return;
+          }
+        }
+
+        const segDur = Math.max(0.25, sentenceDurations[p.sentenceIndex] || 3);
+        setActiveSentenceIndex(p.sentenceIndex);
         setActiveWordIndex(p.wordIndex);
-        setSentenceProgress(p.progressFraction);
-        setSentenceElapsed(p.currentTime);
+        setSentenceElapsed(p.sentenceElapsed);
+        setSentenceProgress(Math.min(1, p.sentenceElapsed / segDur));
       },
       onEnd: () => {
+        setIsPlaying(false);
+        isPlayingRef.current = false;
         setActiveWordIndex(-1);
         setSentenceProgress(1);
-
-        // Check if an unanswered checkpoint triggers
-        const elapsedSec = (sentenceStartTimes[index] || 0) + (sentenceDurations[index] || 0);
-        const hitCheckpoint = video.checkpoints.find(
-          (ck) => Math.abs(ck.timestampSeconds - elapsedSec) < 6 && !answeredCheckpoints.has(ck.id)
-        );
-
-        if (hitCheckpoint) {
-          setIsPlaying(false);
-          setActiveCheckpoint(hitCheckpoint);
-          setSelectedOption(null);
-          setCheckpointSubmitted(false);
-          audioNarrator.playSound('checkpoint');
-          return;
-        }
-
-        if (isPlayingRef.current) {
-          playSentence(index + 1);
-        }
+        audioNarrator.playSound('correct');
       },
-      onError: () => {
-        if (isPlayingRef.current && index + 1 < transcript.length) {
-          playSentence(index + 1);
-        }
-      }
     });
-  }, [transcript, isMuted, playbackSpeed, volume, sentenceStartTimes, sentenceDurations, video.checkpoints, answeredCheckpoints]);
+  }, [transcript, sentenceStartTimes, sentenceDurations, video.checkpoints, answeredCheckpoints]);
 
-  // Play / Pause toggle
+  // Play / Pause toggle (supports seamless resume cleanly on mobile & desktop)
   const togglePlay = () => {
     if (activeCheckpoint) return;
-    audioNarrator.getAudioContext();
+    audioNarrator.unlockOnUserGesture();
 
     if (!isPlaying) {
       setIsPlaying(true);
-      playSentence(activeSentenceIndex);
+      isPlayingRef.current = true;
+      if (!isMuted && audioNarrator.getIsSpeaking() && audioNarrator.getIsPaused()) {
+        audioNarrator.resume();
+      } else {
+        startPlaybackFrom(activeSentenceIndex, currentTime);
+      }
     } else {
       setIsPlaying(false);
-      audioNarrator.stop();
+      isPlayingRef.current = false;
+      if (audioNarrator.getIsSpeaking()) {
+        audioNarrator.pause();
+      } else {
+        audioNarrator.stop();
+      }
     }
   };
 
@@ -160,34 +210,48 @@ export const InteractiveVideoPlayer: React.FC<InteractiveVideoPlayerProps> = ({
     if (!isPlaying || !isMuted || activeCheckpoint) return;
     const interval = setInterval(() => {
       setSentenceElapsed((prev) => {
-        const next = prev + 0.1;
+        const next = prev + 0.1 * playbackSpeedRef.current;
         const dur = sentenceDurations[activeSentenceIndex] || 5;
-        const fraction = Math.min(1, next / dur);
+        const fraction = Math.min(1, next / Math.max(0.25, dur));
         setSentenceProgress(fraction);
 
         const words = (transcript[activeSentenceIndex]?.text || '').split(/\s+/).filter(Boolean);
-        const wIdx = Math.min(words.length - 1, Math.floor(fraction * words.length));
+        const wIdx = Math.min(Math.max(0, words.length - 1), Math.floor(fraction * words.length));
         setActiveWordIndex(wIdx);
 
         if (next >= dur) {
+          const boundaryTime = (sentenceStartTimes[activeSentenceIndex] || 0) + dur;
+          const hitCheckpoint = video.checkpoints.find(
+            (ck) => Math.abs(ck.timestampSeconds - boundaryTime) < 6 && !answeredCheckpoints.has(ck.id)
+          );
+          if (hitCheckpoint) {
+            setIsPlaying(false);
+            isPlayingRef.current = false;
+            setActiveCheckpoint(hitCheckpoint);
+            setSelectedOption(null);
+            setCheckpointSubmitted(false);
+            audioNarrator.playSound('checkpoint');
+            return 0;
+          }
           if (activeSentenceIndex + 1 < transcript.length) {
-            playSentence(activeSentenceIndex + 1);
+            setActiveSentenceIndex((s) => s + 1);
+            setActiveWordIndex(-1);
           } else {
             setIsPlaying(false);
-            audioNarrator.playSound('correct');
+            isPlayingRef.current = false;
           }
           return 0;
         }
         return next;
       });
-    }, 100 / playbackSpeed);
+    }, 100);
 
     return () => clearInterval(interval);
-  }, [isPlaying, isMuted, activeCheckpoint, activeSentenceIndex, sentenceDurations, transcript, playbackSpeed, playSentence]);
+  }, [isPlaying, isMuted, activeCheckpoint, activeSentenceIndex, sentenceDurations, sentenceStartTimes, transcript, video.checkpoints, answeredCheckpoints]);
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseInt(e.target.value, 10);
-    // Find target sentence
+    audioNarrator.unlockOnUserGesture();
+    const val = parseFloat(e.target.value);
     let targetSentenceIdx = 0;
     for (let i = sentenceStartTimes.length - 1; i >= 0; i--) {
       if (val >= sentenceStartTimes[i]) {
@@ -195,13 +259,21 @@ export const InteractiveVideoPlayer: React.FC<InteractiveVideoPlayerProps> = ({
         break;
       }
     }
+    const localOffset = Math.max(0, val - (sentenceStartTimes[targetSentenceIdx] || 0));
+    lastSentenceIdxRef.current = targetSentenceIdx;
     setActiveSentenceIndex(targetSentenceIdx);
     setActiveWordIndex(-1);
-    setSentenceElapsed(0);
+    setSentenceElapsed(localOffset);
     setSentenceProgress(0);
 
     if (isPlaying) {
-      playSentence(targetSentenceIdx);
+      if (!isMutedRef.current && audioNarrator.getIsSpeaking() && audioNarrator.seekTo(val)) {
+        if (audioNarrator.getIsPaused()) {
+          audioNarrator.resume();
+        }
+      } else {
+        startPlaybackFrom(targetSentenceIdx, val);
+      }
     }
   };
 
@@ -222,21 +294,29 @@ export const InteractiveVideoPlayer: React.FC<InteractiveVideoPlayerProps> = ({
   };
 
   const handleResumeAfterCheckpoint = () => {
+    audioNarrator.unlockOnUserGesture();
     setActiveCheckpoint(null);
     setSelectedOption(null);
     setCheckpointSubmitted(false);
     setIsPlaying(true);
-    playSentence(activeSentenceIndex + 1);
+    isPlayingRef.current = true;
+    if (!isMutedRef.current && audioNarrator.getIsSpeaking() && audioNarrator.getIsPaused()) {
+      audioNarrator.resume();
+    } else {
+      startPlaybackFrom(activeSentenceIndex + 1);
+    }
   };
 
   const handleRewindAndReview = () => {
     if (activeCheckpoint) {
+      audioNarrator.unlockOnUserGesture();
       const prevIdx = Math.max(0, activeSentenceIndex - 1);
       setActiveCheckpoint(null);
       setSelectedOption(null);
       setCheckpointSubmitted(false);
       setIsPlaying(true);
-      playSentence(prevIdx);
+      isPlayingRef.current = true;
+      startPlaybackFrom(prevIdx);
     }
   };
 
@@ -283,9 +363,11 @@ export const InteractiveVideoPlayer: React.FC<InteractiveVideoPlayerProps> = ({
 
         {/* Presenter Camera Watermark & Title Overlay */}
         <div className="absolute top-4 left-4 z-10 flex items-center gap-2 bg-slate-950/70 backdrop-blur-xs px-3 py-1.5 rounded-lg border border-slate-700/60 text-xs">
-          <div className="w-6 h-6 rounded-full bg-emerald-600 flex items-center justify-center font-bold text-[11px] text-white">
-            SB
-          </div>
+          <img
+            src="/assets/aistudio/Untitled_design_0fea8cc4.png"
+            alt={video.instructor}
+            className="w-7 h-7 rounded-full object-cover object-top border border-emerald-400 shrink-0 bg-[#0b193d]"
+          />
           <div>
             <div className="font-bold text-slate-100 text-[11px]">{video.instructor}</div>
             <div className="text-[10px] text-emerald-400">Master Demonstration</div>
@@ -493,8 +575,11 @@ export const InteractiveVideoPlayer: React.FC<InteractiveVideoPlayerProps> = ({
 
               <button
                 onClick={() => {
+                  audioNarrator.unlockOnUserGesture();
                   const prevIdx = Math.max(0, activeSentenceIndex - 1);
-                  playSentence(prevIdx);
+                  setIsPlaying(true);
+                  isPlayingRef.current = true;
+                  startPlaybackFrom(prevIdx);
                 }}
                 className="p-1 text-slate-300 hover:text-white transition-colors flex items-center gap-1 text-[11px]"
                 title="Rewind to previous sentence"
@@ -513,12 +598,14 @@ export const InteractiveVideoPlayer: React.FC<InteractiveVideoPlayerProps> = ({
               {/* Mute toggle */}
               <button
                 onClick={() => {
+                  audioNarrator.unlockOnUserGesture();
                   const nextMuted = !isMuted;
                   setIsMuted(nextMuted);
+                  isMutedRef.current = nextMuted;
                   if (nextMuted) {
                     audioNarrator.stop();
                   } else if (isPlaying) {
-                    playSentence(activeSentenceIndex);
+                    startPlaybackFrom(activeSentenceIndex, currentTime);
                   }
                 }}
                 className="text-slate-300 hover:text-white p-1"
@@ -533,10 +620,10 @@ export const InteractiveVideoPlayer: React.FC<InteractiveVideoPlayerProps> = ({
                   <button
                     key={spd}
                     onClick={() => {
+                      audioNarrator.unlockOnUserGesture();
                       setPlaybackSpeed(spd);
-                      if (isPlaying) {
-                        playSentence(activeSentenceIndex);
-                      }
+                      playbackSpeedRef.current = spd;
+                      audioNarrator.setRate(spd);
                     }}
                     className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
                       playbackSpeed === spd
@@ -600,8 +687,10 @@ export const InteractiveVideoPlayer: React.FC<InteractiveVideoPlayerProps> = ({
                 <div
                   key={idx}
                   onClick={() => {
-                    playSentence(idx);
-                    if (!isPlaying) setIsPlaying(true);
+                    audioNarrator.unlockOnUserGesture();
+                    setIsPlaying(true);
+                    isPlayingRef.current = true;
+                    startPlaybackFrom(idx);
                   }}
                   className={`p-2 rounded-lg cursor-pointer flex items-start gap-3 transition-colors ${
                     isCurrent
