@@ -12,6 +12,22 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function tryStaticFallback<T>(
+  url: string,
+  init: RequestInit
+): Promise<ApiResponse<T> | null> {
+  if (!url.startsWith('/api/auth/') && !url.startsWith('/api/admin/')) {
+    return null;
+  }
+  try {
+    const { handleStaticAuthFallback } = await import('./localAuthFallback');
+    const result = await handleStaticAuthFallback(url, init);
+    return result as ApiResponse<T> | null;
+  } catch {
+    return null;
+  }
+}
+
 export async function apiFetchJson<T = Record<string, unknown>>(
   url: string,
   options: RequestInit & { retries?: number; timeoutMs?: number } = {}
@@ -61,6 +77,15 @@ export async function apiFetchJson<T = Record<string, unknown>>(
         }
       }
 
+      // If static-only host returns 404/405 (or non-JSON 5xx) for auth/admin routes, switch seamlessly to client fallback
+      if (
+        (res.status === 404 || res.status === 405 || (res.status >= 500 && parsed === null)) &&
+        (url.startsWith('/api/auth/') || url.startsWith('/api/admin/'))
+      ) {
+        const fb = await tryStaticFallback<T>(url, fetchInit);
+        if (fb) return fb;
+      }
+
       if (RETRYABLE_STATUSES.has(res.status) && attempt < retries) {
         await wait(350 * (attempt + 1));
         continue;
@@ -90,6 +115,8 @@ export async function apiFetchJson<T = Record<string, unknown>>(
           await wait(350 * (attempt + 1));
           continue;
         }
+        const fb = await tryStaticFallback<T>(url, fetchInit);
+        if (fb) return fb;
         return {
           ok: false,
           status: res.status,
@@ -120,6 +147,9 @@ export async function apiFetchJson<T = Record<string, unknown>>(
       }
     }
   }
+
+  const fb = await tryStaticFallback<T>(url, fetchInit);
+  if (fb) return fb;
 
   return {
     ok: false,

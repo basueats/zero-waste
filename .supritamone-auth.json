@@ -38,17 +38,6 @@
       "timestamp": 1794688371832
     },
     {
-      "email": "supritambasu1991@gmail.com",
-      "name": "Supritambasu1991",
-      "action": "blocked_bad_password",
-      "status": "blocked",
-      "detail": "Login attempt for unregistered email",
-      "ip": "127.0.0.1",
-      "device": "CLI / cURL",
-      "id": "log-mwgux3tq-0c8761",
-      "timestamp": 1794688036767
-    },
-    {
       "email": "supritamone@gmail.com",
       "name": "Dr. Chef Supritam Basu",
       "action": "admin_action",
