@@ -146,9 +146,9 @@ interface ResolvedChunkPlan extends LectureChunkPlan {
 
 // Canonical studio voice prompt aligned 1:1 with server.ts DEFAULT_CALM_STYLE
 const CALM_MALE_STYLE =
-  'Calm, deep, steady, unhurried human male baritone voice of an experienced executive master chef and university professor teaching in a quiet studio, consistent pitch, warm tone, gentle natural pauses between sentences, and even pacing throughout';
+  'Calm, warm, gentle, unhurried human male educator speaking clearly at a slow, relaxed studio pace, natural balanced pitch without heavy or booming tone, and smooth pauses between sentences';
 
-const AUDIO_IDB_NAME = 'supritamone_fenrir_audio_v2';
+const AUDIO_IDB_NAME = 'supritamone_fenrir_audio_v3';
 const AUDIO_IDB_STORE = 'audio_entries';
 
 class PersistentAudioCache {
@@ -233,6 +233,7 @@ class AudioNarrator {
   private progressInterval: ReturnType<typeof setInterval> | null = null;
   private fallbackInterval: ReturnType<typeof setInterval> | null = null;
   private fallbackWatchdog: ReturnType<typeof setTimeout> | null = null;
+  private calibratedBrowserWps: number = 2.05;
 
   private activeGainNode: GainNode | null = null;
   private activeSourceNode: AudioBufferSourceNode | null = null;
@@ -354,7 +355,7 @@ class AudioNarrator {
     try {
       await Promise.race([
         ctx.resume(),
-        new Promise<void>((resolve) => setTimeout(resolve, 350)),
+        new Promise<void>((resolve) => setTimeout(resolve, 900)),
       ]);
     } catch {
       // Ignore resume error
@@ -663,6 +664,9 @@ class AudioNarrator {
             }
             return null;
           }
+          if (res.status === 404 || res.status === 405) {
+            return null;
+          }
           if (!res.ok) {
             throw new Error('Lecture TTS returned ' + res.status);
           }
@@ -741,6 +745,9 @@ class AudioNarrator {
             }
             return null;
           }
+          if (res.status === 404 || res.status === 405) {
+            return null;
+          }
           if (!res.ok) {
             throw new Error('TTS server returned ' + res.status);
           }
@@ -787,7 +794,7 @@ class AudioNarrator {
       'female', 'samantha', 'victoria', 'karen', 'zira', 'jenny', 'aria', 'susan',
       'hazel', 'fiona', 'moira', 'tessa', 'veena', 'serena', 'kate', 'libby', 'sonia',
       'claire', 'allison', 'ava', 'nicky', 'joana', 'monica', 'paulina', 'amelie',
-      'kore', 'zephyr', 'aoede', 'leda', 'us english',
+      'kore', 'zephyr', 'aoede', 'leda', 'us english', 'emma', 'michelle', 'ana', 'natasha',
     ];
     const isFemale = (v: SpeechSynthesisVoice) => {
       const lower = v.name.toLowerCase();
@@ -795,25 +802,32 @@ class AudioNarrator {
       return femaleDenyList.some((token) => lower.includes(token));
     };
 
-    const preferredMaleNames = [
+    // Prefer modern calm natural/neural voices first so fallback is smooth, never robotic or heavy
+    const preferredCalmNames = [
+      'Microsoft Andrew Online',
+      'Microsoft Brian Online',
+      'Microsoft Christopher Online',
+      'Microsoft Steffan Online',
+      'Microsoft Ryan Online',
+      'Microsoft Guy Online',
+      'Google UK English Male',
       'Daniel',
       'Arthur',
-      'George',
       'Oliver',
-      'Google UK English Male',
+      'George',
       'Microsoft Ryan',
       'Microsoft Guy',
       'Microsoft Christopher',
       'Alex',
+      'Microsoft Mark',
+      'Microsoft David',
       'David',
       'Mark',
       'James',
-      'Fred',
       'Aaron',
-      'Ralph',
     ];
 
-    for (const name of preferredMaleNames) {
+    for (const name of preferredCalmNames) {
       const match = voices.find(
         (v) => v.lang.startsWith('en') && !isFemale(v) && v.name.toLowerCase().includes(name.toLowerCase())
       );
@@ -1479,6 +1493,25 @@ class AudioNarrator {
       }
     }
 
+    // Split long multi-sentence paragraphs into sub-clauses so browser TTS never stalls >15s and highlights track smoothly
+    const splitSubClauses = (line: string): Array<{ text: string; charStart: number; wordOffset: number }> => {
+      const rawParts = line.match(/[^.!?]+(?:[.!?]+|$)/g) || [line];
+      const parts: Array<{ text: string; charStart: number; wordOffset: number }> = [];
+      let cursorChar = 0;
+      let wordAcc = 0;
+      for (const raw of rawParts) {
+        const trimmed = raw.trim();
+        if (!trimmed) continue;
+        const foundAt = line.indexOf(trimmed, cursorChar);
+        const charStart = foundAt >= 0 ? foundAt : cursorChar;
+        const tokCount = tokenizeTextIntoWords(trimmed).length;
+        parts.push({ text: trimmed, charStart, wordOffset: wordAcc });
+        cursorChar = charStart + trimmed.length;
+        wordAcc += tokCount;
+      }
+      return parts.length > 0 ? parts : [{ text: line, charStart: 0, wordOffset: 0 }];
+    };
+
     const speakFrom = (idx: number) => {
       if (this.currentSessionId !== sessionId) return;
       if (idx >= sentences.length) {
@@ -1489,85 +1522,164 @@ class AudioNarrator {
       }
       const line = sentences[idx];
       const baseStart = timings[idx].start;
-      const lineOffset = idx === startIdx ? Math.max(0, startOffsetSec - baseStart) : 0;
-      const activeRate = Math.max(0.75, Math.min(2.0, this.currentRate || rate));
-      const estLineDur = Math.max(0.5, (timings[idx].end - timings[idx].start - lineOffset) / activeRate);
       const tokens = tokenizeTextIntoWords(line);
-      const ranges = computeWordProgressRanges(tokens);
+      const subClauses = splitSubClauses(line);
+      const activeRate = Math.max(0.75, Math.min(2.0, this.currentRate || rate));
 
-      const lineStartMs = Date.now();
-      let receivedBoundary = false;
-      this.clearAllTimers();
-      this.fallbackInterval = setInterval(() => {
-        if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused || receivedBoundary) return;
-        const liveRate = Math.max(0.75, Math.min(2.0, this.currentRate || activeRate));
-        const elapsed = (Date.now() - lineStartMs) / 1000;
-        const frac = Math.min(0.99, (lineOffset + elapsed * liveRate) / Math.max(0.5, estDurs[idx]));
-        const wIdx =
-          ranges.length > 0
-            ? findWeightedWordIndex(ranges, frac)
-            : Math.min(tokens.length - 1, Math.floor(frac * tokens.length));
-        opts.onProgress?.({
-          currentTime: Math.min(totalDuration, baseStart + lineOffset + elapsed * liveRate),
-          duration: totalDuration,
-          sentenceIndex: idx,
-          sentenceElapsed: lineOffset + elapsed * liveRate,
-          wordIndex: Math.max(0, wIdx),
-        });
-      }, 60);
-
-      let lineDone = false;
-      const advance = () => {
-        if (lineDone || this.currentSessionId !== sessionId) return;
-        lineDone = true;
-        this.clearAllTimers();
-        speakFrom(idx + 1);
-      };
-
-      if (typeof window !== 'undefined' && window.speechSynthesis && volume > 0) {
-        try {
-          window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(line);
-          const voice = this.getBestBrowserVoice();
-          if (voice) utterance.voice = voice;
-          utterance.rate = Math.max(0.75, Math.min(1.65, activeRate * 0.90));
-          utterance.pitch = 0.86;
-          utterance.volume = Math.max(0, Math.min(1, this.currentVolume ?? volume));
-          utterance.onboundary = (e) => {
-            if (this.currentSessionId !== sessionId || lineDone) return;
-            receivedBoundary = true;
-            const charIdx = e.charIndex;
-            let foundWordIdx = 0;
-            for (let i = 0; i < tokens.length; i++) {
-              if (charIdx >= tokens[i].startChar && charIdx <= tokens[i].endChar) {
-                foundWordIdx = i;
-                break;
-              } else if (charIdx < tokens[i].startChar) {
-                foundWordIdx = Math.max(0, i - 1);
-                break;
-              }
+      const speakSubClause = (subIdx: number) => {
+        if (this.currentSessionId !== sessionId) return;
+        if (subIdx >= subClauses.length) {
+          this.fallbackWatchdog = setTimeout(() => {
+            if (this.currentSessionId === sessionId) {
+              speakFrom(idx + 1);
             }
-            const progressFrac = Math.min(1, (foundWordIdx + 0.5) / Math.max(1, tokens.length));
-            const syncedElapsed = progressFrac * estDurs[idx];
+          }, 220);
+          return;
+        }
+
+        const clause = subClauses[subIdx];
+        const subTokens = tokenizeTextIntoWords(clause.text);
+        const subRanges = computeWordProgressRanges(subTokens);
+        const liveWps = Math.max(1.4, Math.min(3.6, this.calibratedBrowserWps));
+        const estSubDur = Math.max(0.8, (subTokens.length / liveWps) / activeRate);
+
+        let speechStarted = false;
+        let speechStartMs = Date.now();
+        let receivedBoundary = false;
+
+        this.clearAllTimers();
+        const startHighlightLoop = () => {
+          if (this.currentSessionId !== sessionId) return;
+          this.fallbackInterval = setInterval(() => {
+            if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused || receivedBoundary || !speechStarted) {
+              return;
+            }
+            const curRate = Math.max(0.75, Math.min(2.0, this.currentRate || activeRate));
+            const curEstDur = Math.max(0.8, (subTokens.length / Math.max(1.4, Math.min(3.6, this.calibratedBrowserWps))) / curRate);
+            const elapsed = (Date.now() - speechStartMs) / 1000;
+            const frac = Math.min(0.98, elapsed / curEstDur);
+            const localWIdx =
+              subRanges.length > 0
+                ? findWeightedWordIndex(subRanges, frac)
+                : Math.min(Math.max(0, subTokens.length - 1), Math.floor(frac * subTokens.length));
+            const globalWIdx = Math.min(Math.max(0, tokens.length - 1), clause.wordOffset + localWIdx);
+            const lineFrac = (globalWIdx + 0.5) / Math.max(1, tokens.length);
+            const syncedElapsed = lineFrac * estDurs[idx];
+
             opts.onProgress?.({
               currentTime: Math.min(totalDuration, baseStart + syncedElapsed),
               duration: totalDuration,
               sentenceIndex: idx,
               sentenceElapsed: syncedElapsed,
-              wordIndex: foundWordIdx,
+              wordIndex: globalWIdx,
             });
-          };
-          utterance.onend = advance;
-          utterance.onerror = advance;
-          this.fallbackWatchdog = setTimeout(advance, Math.max(4.0, estLineDur * 1.45 + 3.0) * 1000);
-          this.currentUtterance = utterance;
-          window.speechSynthesis.speak(utterance);
-          return;
-        } catch {
-          // Fall through to silent synced advance
+          }, 50);
+        };
+
+        let clauseDone = false;
+        const advanceClause = () => {
+          if (clauseDone || this.currentSessionId !== sessionId) return;
+          clauseDone = true;
+          this.clearAllTimers();
+          if (speechStarted && subTokens.length >= 4) {
+            const actualSec = Math.max(0.5, (Date.now() - speechStartMs) / 1000);
+            const measuredWps = (subTokens.length / actualSec) / activeRate;
+            if (measuredWps >= 1.3 && measuredWps <= 4.0) {
+              this.calibratedBrowserWps = this.calibratedBrowserWps * 0.4 + measuredWps * 0.6;
+            }
+          }
+          speakSubClause(subIdx + 1);
+        };
+
+        if (typeof window !== 'undefined' && window.speechSynthesis && volume > 0) {
+          try {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(clause.text);
+            const voice = this.getBestBrowserVoice();
+            if (voice) utterance.voice = voice;
+            // Calm, slow, natural studio tone (pitch 0.98 prevents heavy booming artifacts)
+            utterance.rate = Math.max(0.68, Math.min(1.5, activeRate * 0.78));
+            utterance.pitch = 0.98;
+            utterance.volume = Math.max(0, Math.min(1, this.currentVolume ?? volume));
+
+            utterance.onstart = () => {
+              if (this.currentSessionId !== sessionId || clauseDone) return;
+              speechStarted = true;
+              speechStartMs = Date.now();
+              const globalWIdx = Math.min(Math.max(0, tokens.length - 1), clause.wordOffset);
+              const syncedElapsed = (globalWIdx / Math.max(1, tokens.length)) * estDurs[idx];
+              opts.onProgress?.({
+                currentTime: Math.min(totalDuration, baseStart + syncedElapsed),
+                duration: totalDuration,
+                sentenceIndex: idx,
+                sentenceElapsed: syncedElapsed,
+                wordIndex: globalWIdx,
+              });
+              startHighlightLoop();
+            };
+
+            utterance.onboundary = (e) => {
+              if (this.currentSessionId !== sessionId || clauseDone) return;
+              if (!speechStarted) {
+                speechStarted = true;
+                speechStartMs = Date.now();
+              }
+              receivedBoundary = true;
+              const charIdx = e.charIndex;
+              let localWIdx = 0;
+              for (let i = 0; i < subTokens.length; i++) {
+                if (charIdx >= subTokens[i].startChar && charIdx <= subTokens[i].endChar) {
+                  localWIdx = i;
+                  break;
+                } else if (charIdx < subTokens[i].startChar) {
+                  localWIdx = Math.max(0, i - 1);
+                  break;
+                }
+              }
+              const globalWIdx = Math.min(Math.max(0, tokens.length - 1), clause.wordOffset + localWIdx);
+              const progressFrac = Math.min(1, (globalWIdx + 0.5) / Math.max(1, tokens.length));
+              const syncedElapsed = progressFrac * estDurs[idx];
+              opts.onProgress?.({
+                currentTime: Math.min(totalDuration, baseStart + syncedElapsed),
+                duration: totalDuration,
+                sentenceIndex: idx,
+                sentenceElapsed: syncedElapsed,
+                wordIndex: globalWIdx,
+              });
+            };
+
+            utterance.onend = advanceClause;
+            utterance.onerror = advanceClause;
+
+            // Safety start trigger if browser omits onstart
+            setTimeout(() => {
+              if (this.currentSessionId === sessionId && !clauseDone && !speechStarted) {
+                speechStarted = true;
+                speechStartMs = Date.now();
+                startHighlightLoop();
+              }
+            }, 350);
+
+            this.fallbackWatchdog = setTimeout(advanceClause, Math.max(4.0, estSubDur * 1.55 + 3.0) * 1000);
+            this.currentUtterance = utterance;
+            window.speechSynthesis.speak(utterance);
+            return;
+          } catch {
+            // Fall through to silent synced advance
+          }
         }
-      }
-      this.fallbackWatchdog = setTimeout(advance, estLineDur * 1000);
+        speechStarted = true;
+        speechStartMs = Date.now();
+        startHighlightLoop();
+        this.fallbackWatchdog = setTimeout(advanceClause, estSubDur * 1000);
+      };
+
+      const lineOffset = idx === startIdx ? Math.max(0, startOffsetSec - baseStart) : 0;
+      const startSubIdx =
+        lineOffset > 0.8 && subClauses.length > 1
+          ? Math.min(subClauses.length - 1, Math.floor((lineOffset / Math.max(1, estDurs[idx])) * subClauses.length))
+          : 0;
+      speakSubClause(startSubIdx);
     };
 
     speakFrom(startIdx);
@@ -1885,8 +1997,8 @@ class AudioNarrator {
       const voice = this.getBestBrowserVoice();
       if (voice) utterance.voice = voice;
 
-      utterance.rate = Math.max(0.8, Math.min(1.8, rate * 0.94));
-      utterance.pitch = 0.86;
+      utterance.rate = Math.max(0.68, Math.min(1.5, rate * 0.78));
+      utterance.pitch = 0.98;
       utterance.volume = Math.max(0, Math.min(1, volume));
 
       utterance.onstart = () => {

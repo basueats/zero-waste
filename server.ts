@@ -885,7 +885,7 @@ function releaseTtsSlot(): void {
 
 const CANONICAL_FENRIR_VOICE = 'Fenrir';
 const DEFAULT_CALM_STYLE =
-  'Calm, deep, steady, unhurried human male baritone voice of an experienced executive master chef and university professor teaching in a quiet studio, consistent pitch, warm tone, gentle natural pauses between sentences, and even pacing throughout';
+  'Calm, warm, gentle, unhurried human male educator speaking clearly at a slow, relaxed studio pace, natural balanced pitch without heavy or booming tone, and smooth pauses between sentences';
 
 async function generateTtsWithRetry(
   ai: GoogleGenAI,
