@@ -17,14 +17,14 @@ import {
   GraduationCap
 } from 'lucide-react';
 import { SupritamoneLogo } from './SupritamoneLogo';
-import { 
-  surplusCourses, 
-  surplusByproducts, 
-  surplusRecipes, 
+import {
+  surplusCourses,
   communityQuestions,
   ByproductItem,
   ZeroWasteRecipe
 } from '../data/surplusData';
+import { surplusByproducts } from '../data/byproducts500Data';
+import { surplusRecipes } from '../data/recipes500Data';
 import { surplusQuizQuestions } from '../data/quizQuestions';
 import { audioNarrator } from '../utils/audioNarrator';
 

@@ -1,10 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  surplusByproducts, 
-  surplusRecipes, 
-  ByproductItem, 
-  ZeroWasteRecipe 
-} from '../data/surplusData';
+import { surplusByproducts } from '../data/byproducts500Data';
+import { surplusRecipes } from '../data/recipes500Data';
+import type { ByproductItem, ZeroWasteRecipe } from '../data/surplusData';
 import { 
   Search, 
   ArrowLeft, 

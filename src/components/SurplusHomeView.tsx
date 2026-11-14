@@ -1,7 +1,14 @@
-import React, { useState } from 'react';
-import { surplusCourses } from '../data/surplusData';
-import { ExamUnlockStatus } from '../data/udemyCourseStructure';
+import React, { useState, Suspense, lazy } from 'react';
+import type { ExamUnlockStatus } from '../data/examStatusUtils';
 import { SupritamoneLogo } from './SupritamoneLogo';
+import type { LegalPolicyType } from './LegalPolicyModal';
+
+const LegalPolicyModal = lazy(() =>
+  import('./LegalPolicyModal').then((m) => ({ default: m.LegalPolicyModal }))
+);
+const AboutDrBasuModal = lazy(() =>
+  import('./AboutDrBasuModal').then((m) => ({ default: m.AboutDrBasuModal }))
+);
 import iso9001Logo from '../assets/images/iso_9001_certified.png';
 import cpdProviderLogo from '../assets/images/cpd_approved_provider_791463.png';
 import msmeOfficialLogo from '../assets/images/msme_official_logo.jpeg';
@@ -372,14 +379,25 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
   onSelectPlan,
   isGuestPreview = false,
 }) => {
-  const masterCourse = surplusCourses[0];
+  const masterCourseId = 'food-waste-prevention-chefs';
   const [journeyTab, setJourneyTab] = useState<JourneyTab>('problem');
   const [demoItem, setDemoItem] = useState<DemoItemKey>('bread');
   const [phoneTab, setPhoneTab] = useState<PhoneTab>('courses');
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
   const [showContactModal, setShowContactModal] = useState(false);
   const [contactSubmitted, setContactSubmitted] = useState(false);
-  const [legalModalTitle, setLegalModalTitle] = useState<string | null>(null);
+  const [showAboutModal, setShowAboutModal] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.location.hash === '#about-dr-basu';
+  });
+  const [activeLegalPolicy, setActiveLegalPolicy] = useState<LegalPolicyType | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const p = window.location.pathname.toLowerCase();
+    if (p.includes('terms-conditions')) return 'terms';
+    if (p.includes('cookie-policy')) return 'cookie';
+    if (p.includes('privacy-policy')) return 'privacy';
+    return null;
+  });
 
   const activeScenario = DEMO_SCENARIOS[demoItem];
 
@@ -421,7 +439,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                     if (isGuestPreview) {
                       scrollToElement('pricing');
                     } else {
-                      onOpenCourse(masterCourse.id);
+                      onOpenCourse(masterCourseId);
                     }
                   }}
                   className="px-8 py-4 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 text-center cursor-pointer"
@@ -499,7 +517,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                     {phoneTab === 'courses' && (
                       <div className="space-y-2.5 animate-fadeIn">
                         <div
-                          onClick={() => onOpenCourse(masterCourse.id)}
+                          onClick={() => onOpenCourse(masterCourseId)}
                           className="bg-neutral-900 hover:bg-black text-white rounded-xl p-3.5 space-y-1 cursor-pointer transition-colors"
                         >
                           <span className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold block">
@@ -514,7 +532,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                         </div>
 
                         <div
-                          onClick={() => onOpenCourse(masterCourse.id)}
+                          onClick={() => onOpenCourse(masterCourseId)}
                           className="bg-neutral-100 hover:bg-neutral-200/70 border border-neutral-200 rounded-xl p-3.5 space-y-1 cursor-pointer transition-colors"
                         >
                           <span className="text-[9px] uppercase tracking-wider text-neutral-500 font-bold block">
@@ -1136,7 +1154,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
               </div>
               <div className="lg:col-span-6 bg-white border border-neutral-200 rounded-2xl p-6 shadow-xs">
                 <div
-                  onClick={() => onOpenCourse(masterCourse.id)}
+                  onClick={() => onOpenCourse(masterCourseId)}
                   className="bg-neutral-950 hover:bg-black text-white rounded-xl p-5 space-y-1.5 cursor-pointer transition-colors"
                 >
                   <span className="text-[10px] font-bold tracking-wider uppercase text-emerald-400 font-mono block">
@@ -1342,7 +1360,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                         if (onSelectPlan) {
                           onSelectPlan(plan.id);
                         } else {
-                          onOpenCourse(masterCourse.id);
+                          onOpenCourse(masterCourseId);
                         }
                       }}
                       className={`w-full py-3 px-4 rounded-xl text-xs font-extrabold uppercase tracking-wider transition-all cursor-pointer ${
@@ -1361,41 +1379,56 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
         </div>
       </section>
 
-      {/* SECTION 7: BUILT BY COMMERCIAL CULINARY EXPERTS (image_677d7364.png) */}
+      {/* SECTION 7: ABOUT DR. SUPRITAM BASU */}
       <section className="py-16 sm:py-20 bg-[#fafbfc] border-t border-neutral-200" id="about">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
             <div className="lg:col-span-6 space-y-4">
+              <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-700">
+                Founder &amp; Executive Culinary Mentor
+              </p>
               <h2 className="text-3xl sm:text-4xl font-bold font-heading text-neutral-900 tracking-tight">
-                Built by Commercial Culinary Experts
+                About Dr. Chef Supritam Basu
               </h2>
               <div className="space-y-3 text-xs sm:text-sm text-neutral-600 leading-relaxed">
                 <p>
-                  Engineered by zero-waste culinary directors, food waste prevention trainers, and
-                  operational consultants helping commercial kitchens eliminate waste. Based on the
-                  acclaimed methodology of <em>Zero Waste: The Food Waste Guide for Chefs</em> and
-                  tested in high-volume commercial kitchens worldwide.
+                  With <strong>14+ years of five-star hospitality mastery</strong> across{' '}
+                  <strong>Taj Hotels, JW Marriott Marquis Dubai, The St. Regis Doha, Anantara Salalah,</strong>{' '}
+                  and <strong>Sheraton Grand Hotel, Dubai</strong>, Dr. Chef Supritam Basu has led culinary
+                  brigades of 35+ chefs across India, UAE, Qatar, Oman, Singapore, South Africa, and South Korea.
                 </p>
                 <p>
-                  Our methodologies have been implemented with major hospitality groups such as Accor,
-                  Hilton, Thomas Franks, and Marriott, supporting kitchen brigades with food waste
-                  prevention training worldwide.
+                  An international medalist, published author (<em>Does the Mind Shape Reality?</em> &amp;{' '}
+                  <em>Forgotten Flavours of Bengal</em>), and NISM-certified capital market professional, Dr. Basu
+                  founded <strong>Zero Waste Academy</strong> on three pillars:{' '}
+                  <em>Innovation with Integrity, Mentorship with Meaning,</em> and{' '}
+                  <em>Preservation with Passion</em>.
                 </p>
+              </div>
+              <div className="pt-2">
+                <button
+                  onClick={() => setShowAboutModal(true)}
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold text-xs uppercase tracking-wider transition-all shadow-sm active:scale-95 cursor-pointer"
+                >
+                  <span>Read Full Biography — About Dr. Supritam Basu</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
 
             <div className="lg:col-span-6 flex justify-center">
-              <div className="relative rounded-2xl overflow-hidden border border-neutral-200 shadow-lg max-w-md w-full bg-white">
+              <div
+                onClick={() => setShowAboutModal(true)}
+                className="relative rounded-2xl overflow-hidden border border-neutral-200 shadow-lg max-w-md w-full bg-white cursor-pointer group"
+                title="Click to read Dr. Chef Supritam Basu's full story"
+              >
                 <img
-                  src="https://images.unsplash.com/photo-1577219491135-ce391730fb2c?auto=format&fit=crop&w=800&q=80"
-                  alt="Culinary Brigade in commercial kitchen"
-                  className="w-full h-80 object-cover"
-                  onError={(e) => {
-                    e.currentTarget.src = '/assets/aistudio/Untitled_design_0fea8cc4.png';
-                  }}
+                  src="/assets/aistudio/Untitled_design_0fea8cc4.png"
+                  alt="Dr. Chef Supritam Basu — Founder, Zero Waste Academy"
+                  className="w-full h-96 object-cover object-top group-hover:scale-[1.02] transition-transform duration-300"
                 />
-                <div className="absolute bottom-3 left-3 bg-black/80 backdrop-blur-xs text-white px-3 py-1 rounded text-xs font-mono">
-                  Zero Waste Culinary Academy
+                <div className="absolute bottom-3 left-3 bg-black/85 backdrop-blur-xs text-white px-3.5 py-1.5 rounded-lg text-xs font-mono">
+                  Dr. Chef Supritam Basu • Zero Waste Academy
                 </div>
               </div>
             </div>
@@ -1545,6 +1578,12 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                 FAQ
               </button>
               <button
+                onClick={() => setShowAboutModal(true)}
+                className="text-left hover:text-black font-semibold cursor-pointer"
+              >
+                About Dr. Supritam Basu
+              </button>
+              <button
                 onClick={() => {
                   setContactSubmitted(false);
                   setShowContactModal(true);
@@ -1563,25 +1602,36 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
               )}
             </div>
 
-            <div className="md:col-span-3 flex md:justify-end space-x-4 text-[11px] text-neutral-500">
-              <button
-                onClick={() => setLegalModalTitle('Terms & Conditions')}
-                className="hover:underline cursor-pointer"
-              >
-                Terms &amp; Conditions
-              </button>
-              <button
-                onClick={() => setLegalModalTitle('Cookie Policy')}
-                className="hover:underline cursor-pointer"
-              >
-                Cookie Policy
-              </button>
-              <button
-                onClick={() => setLegalModalTitle('Privacy Policy')}
-                className="hover:underline cursor-pointer"
-              >
-                Privacy policy
-              </button>
+            <div className="md:col-span-3 flex flex-col md:items-end gap-2">
+              <div className="flex flex-wrap md:justify-end gap-x-4 gap-y-1 text-[11px] text-neutral-600 font-medium">
+                <button
+                  onClick={() => setActiveLegalPolicy('terms')}
+                  className="hover:text-black hover:underline cursor-pointer"
+                >
+                  Terms &amp; Conditions
+                </button>
+                <button
+                  onClick={() => setActiveLegalPolicy('cookie')}
+                  className="hover:text-black hover:underline cursor-pointer"
+                >
+                  Cookie Policy
+                </button>
+                <button
+                  onClick={() => setActiveLegalPolicy('privacy')}
+                  className="hover:text-black hover:underline cursor-pointer"
+                >
+                  Privacy Policy
+                </button>
+              </div>
+              <p className="text-[11px] text-neutral-500 md:text-right">
+                <span className="font-semibold text-neutral-800">Dr. Supritam Basu</span> ·{' '}
+                <a
+                  href="mailto:supritam.basu@supritamone.com"
+                  className="hover:text-black underline"
+                >
+                  supritam.basu@supritamone.com
+                </a>
+              </p>
             </div>
           </div>
 
@@ -1602,6 +1652,8 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                 <img
                   src={iso9001Logo}
                   alt="ISO 9001:2015 Certified"
+                  loading="lazy"
+                  decoding="async"
                   className="h-10 sm:h-12 w-auto object-contain"
                 />
               </div>
@@ -1615,6 +1667,8 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                 <img
                   src={cpdProviderLogo}
                   alt="The CPD Group Approved Provider #791463"
+                  loading="lazy"
+                  decoding="async"
                   className="h-10 sm:h-12 w-auto object-contain"
                 />
               </a>
@@ -1625,16 +1679,23 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                 <img
                   src={msmeOfficialLogo}
                   alt="MSME - Micro, Small & Medium Enterprises"
+                  loading="lazy"
+                  decoding="async"
                   className="h-10 sm:h-12 w-auto object-contain"
                 />
               </div>
             </div>
           </div>
 
-          <div className="pt-2 flex flex-col sm:flex-row items-center justify-between text-[11px] text-neutral-400">
-            <span>© {new Date().getFullYear()} Zero waste by Supritamone. All rights reserved.</span>
-            <span className="mt-2 sm:mt-0 font-mono">
-              Platform built for commercial culinary teams &amp; food rescue
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-neutral-400">
+            <span>
+              © {new Date().getFullYear()} Zero Waste Academy by Dr. Supritam Basu (Supritamone). All rights reserved.
+            </span>
+            <span className="font-mono">
+              Contact:{' '}
+              <a href="mailto:supritam.basu@supritamone.com" className="text-neutral-600 hover:text-black underline">
+                supritam.basu@supritamone.com
+              </a>
             </span>
           </div>
         </div>
@@ -1730,44 +1791,32 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
         </div>
       )}
 
-      {/* Legal Policy Modal */}
-      {legalModalTitle && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-neutral-200 shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="px-5 py-4 bg-black text-white flex items-center justify-between">
-              <h3 className="font-bold text-sm">{legalModalTitle}</h3>
-              <button
-                onClick={() => setLegalModalTitle(null)}
-                className="p-1 text-neutral-400 hover:text-white cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-6 space-y-3 text-xs text-neutral-600 leading-relaxed">
-              <p>
-                <strong className="text-neutral-900">Zero waste by Supritamone</strong> provides
-                commercial culinary education, byproduct management SOPs, and accreditation under ISO
-                9001:2015 and CPD Approved Provider #791463 standards.
-              </p>
-              <p>
-                All training records and assessment progress remain confidential to your organization. For
-                official requests contact{' '}
-                <a href="mailto:supritam.basu@supritamone.com" className="font-semibold text-black underline">
-                  supritam.basu@supritamone.com
-                </a>
-                .
-              </p>
-              <div className="pt-2 flex justify-end">
-                <button
-                  onClick={() => setLegalModalTitle(null)}
-                  className="px-5 py-2 rounded-lg bg-black text-white font-bold cursor-pointer"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* Full Terms & Conditions, Cookie Policy, and Privacy Policy Modal */}
+      {activeLegalPolicy && (
+        <Suspense fallback={null}>
+          <LegalPolicyModal
+            activePolicy={activeLegalPolicy}
+            onSelectPolicy={(policy) => setActiveLegalPolicy(policy)}
+            onClose={() => {
+              setActiveLegalPolicy(null);
+              if (
+                typeof window !== 'undefined' &&
+                /\/(terms-conditions|cookie-policy|privacy-policy)/i.test(window.location.pathname)
+              ) {
+                window.history.replaceState({}, '', '/');
+              }
+            }}
+          />
+        </Suspense>
+      )}
+      {/* About Dr. Supritam Basu Popup Modal */}
+      {showAboutModal && (
+        <Suspense fallback={null}>
+          <AboutDrBasuModal
+            isOpen={showAboutModal}
+            onClose={() => setShowAboutModal(false)}
+          />
+        </Suspense>
       )}
     </div>
   );

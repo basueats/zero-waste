@@ -1,30 +1,101 @@
-import React from 'react';
-import { initialCourseData } from './data/zeroWasteCourseData';
-import { CourseOverview } from './types/course';
+import React, { Suspense, lazy } from 'react';
 import { SurplusHeader } from './components/SurplusHeader';
 import { SurplusSidebar } from './components/SurplusSidebar';
-import { SurplusCoursesView } from './components/SurplusCoursesView';
-import { SurplusCoursePlayer } from './components/SurplusCoursePlayer';
-import { SurplusLibraryView } from './components/SurplusLibraryView';
-import { SurplusCommunityView } from './components/SurplusCommunityView';
-import { SurplusQuickWinsView } from './components/SurplusQuickWinsView';
-import { SurplusNewslettersView } from './components/SurplusNewslettersView';
-import { SurplusHomeView } from './components/SurplusHomeView';
-import { SurplusCertificateModal } from './components/SurplusCertificateModal';
-import { SurplusCulinaryCoursesView } from './components/SurplusCulinaryCoursesView';
-import { SurplusWasteCalculator } from './components/SurplusWasteCalculator';
-import { AccessGateScreen, AuthenticatedSessionUser } from './components/AccessGateScreen';
-import { AdminPortalView } from './components/AdminPortalView';
-import { Compass, BookOpen, GraduationCap, Calculator, ChefHat, Mail, User, X, CheckCircle2, Lock, Award, Loader2 } from 'lucide-react';
+import type { AuthenticatedSessionUser } from './components/AccessGateScreen';
+import {
+  Compass,
+  BookOpen,
+  GraduationCap,
+  Calculator,
+  ChefHat,
+  Mail,
+  User,
+  X,
+  CheckCircle2,
+  Lock,
+  Award,
+  Loader2,
+} from 'lucide-react';
 import {
   ExamUnlockStatus,
   computeExamUnlockStatus,
-  loadStoredExamProgress
-} from './data/udemyCourseStructure';
+  loadStoredExamProgress,
+} from './data/examStatusUtils';
+
+// Route/Tab Code-Splitting so initial load stays tiny & instantaneous
+const AccessGateScreen = lazy(() =>
+  import('./components/AccessGateScreen').then((m) => ({ default: m.AccessGateScreen }))
+);
+const AdminPortalView = lazy(() =>
+  import('./components/AdminPortalView').then((m) => ({ default: m.AdminPortalView }))
+);
+const SurplusHomeView = lazy(() =>
+  import('./components/SurplusHomeView').then((m) => ({ default: m.SurplusHomeView }))
+);
+const SurplusCoursesView = lazy(() =>
+  import('./components/SurplusCoursesView').then((m) => ({ default: m.SurplusCoursesView }))
+);
+const SurplusCoursePlayer = lazy(() =>
+  import('./components/SurplusCoursePlayer').then((m) => ({ default: m.SurplusCoursePlayer }))
+);
+const SurplusLibraryView = lazy(() =>
+  import('./components/SurplusLibraryView').then((m) => ({ default: m.SurplusLibraryView }))
+);
+const SurplusCommunityView = lazy(() =>
+  import('./components/SurplusCommunityView').then((m) => ({ default: m.SurplusCommunityView }))
+);
+const SurplusQuickWinsView = lazy(() =>
+  import('./components/SurplusQuickWinsView').then((m) => ({ default: m.SurplusQuickWinsView }))
+);
+const SurplusNewslettersView = lazy(() =>
+  import('./components/SurplusNewslettersView').then((m) => ({ default: m.SurplusNewslettersView }))
+);
+const SurplusCulinaryCoursesView = lazy(() =>
+  import('./components/SurplusCulinaryCoursesView').then((m) => ({ default: m.SurplusCulinaryCoursesView }))
+);
+const SurplusWasteCalculator = lazy(() =>
+  import('./components/SurplusWasteCalculator').then((m) => ({ default: m.SurplusWasteCalculator }))
+);
+const SurplusCertificateModal = lazy(() =>
+  import('./components/SurplusCertificateModal').then((m) => ({ default: m.SurplusCertificateModal }))
+);
+const AboutDrBasuModal = lazy(() =>
+  import('./components/AboutDrBasuModal').then((m) => ({ default: m.AboutDrBasuModal }))
+);
 
 const LEARNER_STORAGE_KEY = 'supritamone_learner_account';
 const AUTH_TOKEN_STORAGE_KEY = 'supritamone_academy_session_token_v1';
 const AUTH_USER_STORAGE_KEY = 'supritamone_academy_session_user_v1';
+
+function readCachedAuthState(): { user: AuthenticatedSessionUser | null; hasOptimisticSession: boolean } {
+  if (typeof window === 'undefined') {
+    return { user: null, hasOptimisticSession: false };
+  }
+  try {
+    const searchParams = new URLSearchParams(window.location.search);
+    const hasPartnerRedirectParam = Boolean(
+      searchParams.get('from') ||
+        searchParams.get('source') ||
+        searchParams.get('ref') ||
+        searchParams.get('partner') ||
+        searchParams.get('sso')
+    );
+    if (hasPartnerRedirectParam) {
+      return { user: null, hasOptimisticSession: false };
+    }
+    const token = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+    const rawUser = localStorage.getItem(AUTH_USER_STORAGE_KEY);
+    if (token && rawUser) {
+      const parsed = JSON.parse(rawUser) as AuthenticatedSessionUser;
+      if (parsed && parsed.email) {
+        return { user: parsed, hasOptimisticSession: true };
+      }
+    }
+  } catch {
+    // Ignore storage read errors
+  }
+  return { user: null, hasOptimisticSession: false };
+}
 
 function deriveNameFromEmail(email: string): string {
   const cleanEmail = (email || '').trim().toLowerCase();
@@ -49,17 +120,33 @@ interface LearnerAccount {
   chosenName: string;
 }
 
+const ViewLoadingFallback: React.FC<{ label?: string }> = ({ label = 'Loading...' }) => (
+  <div className="min-h-[45vh] w-full flex flex-col items-center justify-center gap-2.5 p-6 text-neutral-500">
+    <Loader2 className="w-6 h-6 animate-spin text-neutral-900" />
+    <span className="text-xs font-medium tracking-wide">{label}</span>
+  </div>
+);
+
 export default function App() {
-  const [course] = React.useState<CourseOverview>(initialCourseData);
-  const [activeNavTab, setActiveNavTab] = React.useState<string>('courses');
+  const initialAuthSnapshot = React.useMemo(() => readCachedAuthState(), []);
+
+  const [activeNavTab, setActiveNavTab] = React.useState<string>(() => {
+    if (
+      typeof window !== 'undefined' &&
+      /\/(terms-conditions|cookie-policy|privacy-policy)/i.test(window.location.pathname)
+    ) {
+      return 'home';
+    }
+    return 'courses';
+  });
   const [activeSection, setActiveSection] = React.useState<string>('');
   const [selectedCourseId, setSelectedCourseId] = React.useState<string | null>(null);
   const [searchQuery, setSearchQuery] = React.useState<string>('');
   const [completedLessonsCount] = React.useState<number>(2);
 
-  // Access Gate & Admin Portal State
-  const [authUser, setAuthUser] = React.useState<AuthenticatedSessionUser | null>(null);
-  const [isCheckingAccess, setIsCheckingAccess] = React.useState<boolean>(true);
+  // Access Gate & Admin Portal State (optimistically hydrated for returning users -> 0ms first paint)
+  const [authUser, setAuthUser] = React.useState<AuthenticatedSessionUser | null>(initialAuthSnapshot.user);
+  const [isCheckingAccess, setIsCheckingAccess] = React.useState<boolean>(!initialAuthSnapshot.hasOptimisticSession);
   const [gateNotice, setGateNotice] = React.useState<string | null>(null);
   const [showAdminPortal, setShowAdminPortal] = React.useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -117,6 +204,7 @@ export default function App() {
   // Modals
   const [showCertifyModal, setShowCertifyModal] = React.useState<boolean>(false);
   const [showCertLockedModal, setShowCertLockedModal] = React.useState<boolean>(false);
+  const [showAboutModal, setShowAboutModal] = React.useState<boolean>(false);
 
   // Global Overall Exam Status (Certificate unlocks ONLY when all 12 section exams passed with >= 37% overall score)
   const [examStatus, setExamStatus] = React.useState<ExamUnlockStatus>(() => {
@@ -133,27 +221,32 @@ export default function App() {
     }
   }, [examStatus.isUnlocked]);
 
-  const applyAuthenticatedSession = React.useCallback((user: AuthenticatedSessionUser, token: string) => {
-    setAuthUser(user);
-    setGateNotice(null);
-    setActiveNavTab('courses');
-    setActiveSection('');
-    setSelectedCourseId(null);
-    const updatedLearner: LearnerAccount = {
-      email: user.email,
-      chosenName: user.name || deriveNameFromEmail(user.email),
-    };
-    setLearnerAccount(updatedLearner);
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
-        localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
-        localStorage.setItem(LEARNER_STORAGE_KEY, JSON.stringify(updatedLearner));
-      } catch {
-        // Ignore storage errors
+  const applyAuthenticatedSession = React.useCallback(
+    (user: AuthenticatedSessionUser, token: string, resetTab = true) => {
+      setAuthUser(user);
+      setGateNotice(null);
+      if (resetTab) {
+        setActiveNavTab('courses');
+        setActiveSection('');
+        setSelectedCourseId(null);
       }
-    }
-  }, []);
+      const updatedLearner: LearnerAccount = {
+        email: user.email,
+        chosenName: user.name || deriveNameFromEmail(user.email),
+      };
+      setLearnerAccount(updatedLearner);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+          localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
+          localStorage.setItem(LEARNER_STORAGE_KEY, JSON.stringify(updatedLearner));
+        } catch {
+          // Ignore storage errors
+        }
+      }
+    },
+    []
+  );
 
   const handleSignOut = React.useCallback(() => {
     setAuthUser(null);
@@ -231,7 +324,7 @@ export default function App() {
           if (res.ok) {
             const data = await res.json();
             if (!cancelled && data?.authenticated && data?.user && data?.token) {
-              applyAuthenticatedSession(data.user, data.token);
+              applyAuthenticatedSession(data.user, data.token, true);
               if (window.location.search && fromParam) {
                 window.history.replaceState({}, '', window.location.pathname);
               }
@@ -241,6 +334,7 @@ export default function App() {
           } else if (res.status === 403) {
             const errData = await res.json().catch(() => null);
             if (!cancelled) {
+              setAuthUser(null);
               setGateNotice(
                 errData?.error ||
                   'Your 3-Day Free Trial has ended or access was restricted. Select a paid plan or contact Admin.'
@@ -249,7 +343,7 @@ export default function App() {
           }
         }
 
-        // 2. Always check server session (verifies HttpOnly SSO cookie set on GET / OR Bearer token in localStorage)
+        // 2. Validate server session (cookie or Bearer token)
         const savedToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
         const res = await fetch('/api/auth/session', {
           credentials: 'include',
@@ -258,7 +352,8 @@ export default function App() {
         if (res.ok) {
           const data = await res.json();
           if (!cancelled && data?.authenticated && data?.user) {
-            applyAuthenticatedSession(data.user, data.token || savedToken || '');
+            // Preserve current navigation state if optimistically hydrated
+            applyAuthenticatedSession(data.user, data.token || savedToken || '', !initialAuthSnapshot.hasOptimisticSession);
             setIsCheckingAccess(false);
             return;
           }
@@ -268,14 +363,17 @@ export default function App() {
             localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
             localStorage.removeItem(AUTH_USER_STORAGE_KEY);
           }
-          if (!cancelled && (res.status === 403 || (savedToken && res.status === 401))) {
-            setGateNotice(
-              errData?.error || 'Your session or trial has expired. Sign in or select a plan to restore access.'
-            );
+          if (!cancelled) {
+            setAuthUser(null);
+            if (res.status === 403 || (savedToken && res.status === 401)) {
+              setGateNotice(
+                errData?.error || 'Your session or trial has expired. Sign in or select a plan to restore access.'
+              );
+            }
           }
         }
       } catch {
-        // Fallback: remain locked for direct visitors if server check fails
+        // Ignore transient network errors
       } finally {
         if (!cancelled) {
           setIsCheckingAccess(false);
@@ -287,7 +385,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [applyAuthenticatedSession]);
+  }, [applyAuthenticatedSession, initialAuthSnapshot.hasOptimisticSession]);
 
   // Auto-close slide-out drawer when viewport expands to desktop
   React.useEffect(() => {
@@ -347,23 +445,25 @@ export default function App() {
 
   if (showAdminPortal) {
     return (
-      <AdminPortalView
-        onBackToApp={() => {
-          setShowAdminPortal(false);
-          if (typeof window !== 'undefined' && (window.location.pathname === '/admin' || window.location.hash === '#admin')) {
-            window.history.replaceState({}, '', '/');
-          }
-        }}
-      />
+      <Suspense fallback={<ViewLoadingFallback label="Loading Administrator Portal..." />}>
+        <AdminPortalView
+          onBackToApp={() => {
+            setShowAdminPortal(false);
+            if (typeof window !== 'undefined' && (window.location.pathname === '/admin' || window.location.hash === '#admin')) {
+              window.history.replaceState({}, '', '/');
+            }
+          }}
+        />
+      </Suspense>
     );
   }
 
   if (isCheckingAccess) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center gap-3 p-4">
-        <Loader2 className="w-8 h-8 animate-spin text-[#a435f0]" />
-        <p className="text-xs font-semibold text-slate-300 tracking-wide">
-          Verifying Supritamone Academy access...
+      <div className="min-h-screen bg-white text-neutral-900 flex flex-col items-center justify-center gap-3 p-4">
+        <Loader2 className="w-7 h-7 animate-spin text-black" />
+        <p className="text-xs font-semibold text-neutral-500 tracking-wide">
+          Loading Supritamone Academy...
         </p>
       </div>
     );
@@ -371,30 +471,34 @@ export default function App() {
 
   if (!authUser) {
     return (
-      <AccessGateScreen
-        onUnlocked={applyAuthenticatedSession}
-        onOpenAdminPortal={() => setShowAdminPortal(true)}
-        initialNotice={gateNotice}
-      />
+      <Suspense fallback={<ViewLoadingFallback label="Loading Supritamone Academy..." />}>
+        <AccessGateScreen
+          onUnlocked={(user, token) => applyAuthenticatedSession(user, token, true)}
+          onOpenAdminPortal={() => setShowAdminPortal(true)}
+          initialNotice={gateNotice}
+        />
+      </Suspense>
     );
   }
 
   return (
     <div className={`min-h-screen overflow-x-clip ${activeNavTab === 'home' ? 'bg-white text-[#111111]' : 'bg-slate-50 text-slate-900'} font-sans antialiased flex flex-col selection:bg-black selection:text-white`}>
-      {/* If a course player is open, render the full-screen Udemy player interface */}
+      {/* If a course player is open, render the full-screen course player interface */}
       {selectedCourseId ? (
         <main className="flex-1 w-full">
-          <SurplusCoursePlayer
-            courseId={selectedCourseId}
-            learnerName={resolvedCertificateName}
-            onBackToCourses={() => setSelectedCourseId(null)}
-            onGoHome={() => {
-              setSelectedCourseId(null);
-              handleSelectNavTab('home');
-            }}
-            onOpenCertify={handleOpenCertificate}
-            onExamStatusChange={setExamStatus}
-          />
+          <Suspense fallback={<ViewLoadingFallback label="Loading 26h Zero Waste Course Player..." />}>
+            <SurplusCoursePlayer
+              courseId={selectedCourseId}
+              learnerName={resolvedCertificateName}
+              onBackToCourses={() => setSelectedCourseId(null)}
+              onGoHome={() => {
+                setSelectedCourseId(null);
+                handleSelectNavTab('home');
+              }}
+              onOpenCertify={handleOpenCertificate}
+              onExamStatusChange={setExamStatus}
+            />
+          </Suspense>
         </main>
       ) : (
         <>
@@ -407,7 +511,7 @@ export default function App() {
             onSelectNavTab={handleSelectNavTab}
             onScrollToSection={handleScrollToSection}
             isMobileDrawerOpen={isMobileDrawerOpen}
-            onToggleMobileDrawer={() => setIsMobileDrawerOpen(prev => !prev)}
+            onToggleMobileDrawer={() => setIsMobileDrawerOpen((prev) => !prev)}
             learnerName={resolvedCertificateName}
             learnerEmail={learnerAccount.email}
             planTitle={authUser.planTitle}
@@ -418,18 +522,17 @@ export default function App() {
               setShowAccountModal(true);
             }}
             onOpenAdminPortal={() => setShowAdminPortal(true)}
+            onOpenAbout={() => setShowAboutModal(true)}
             onSignOut={handleSignOut}
           />
 
           {/* Mobile & Tablet Drawer Overlay */}
           {isMobileDrawerOpen && (
             <div className="fixed inset-0 z-50 lg:hidden flex">
-              {/* Backdrop */}
-              <div 
+              <div
                 className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs transition-opacity"
                 onClick={() => setIsMobileDrawerOpen(false)}
               />
-              {/* Slide-over panel */}
               <div className="relative z-10 w-4/5 max-w-xs bg-white h-full shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-left duration-200">
                 <SurplusSidebar
                   currentSection={activeSection}
@@ -452,16 +555,18 @@ export default function App() {
           {/* AUTO-CALIBRATED RESPONSIVE PORTAL: Full-width clean front page on Home, Sidebar Workspace on internal Academy views */}
           {activeNavTab === 'home' ? (
             <main className="flex-1 w-full bg-white pb-16 lg:pb-0">
-              <SurplusHomeView
-                onOpenCourse={handleOpenCourse}
-                onOpenLibrary={() => handleSelectNavTab('library')}
-                onOpenCertify={handleOpenCertificate}
-                onOpenSection={handleSelectSection}
-                onSelectNavTab={handleSelectNavTab}
-                onOpenAdminPortal={() => setShowAdminPortal(true)}
-                isCertificateUnlocked={examStatus.isUnlocked}
-                examStatus={examStatus}
-              />
+              <Suspense fallback={<ViewLoadingFallback label="Loading Home..." />}>
+                <SurplusHomeView
+                  onOpenCourse={handleOpenCourse}
+                  onOpenLibrary={() => handleSelectNavTab('library')}
+                  onOpenCertify={handleOpenCertificate}
+                  onOpenSection={handleSelectSection}
+                  onSelectNavTab={handleSelectNavTab}
+                  onOpenAdminPortal={() => setShowAdminPortal(true)}
+                  isCertificateUnlocked={examStatus.isUnlocked}
+                  examStatus={examStatus}
+                />
+              </Suspense>
             </main>
           ) : (
             <div className="flex-1 flex max-w-7xl w-full mx-auto">
@@ -481,44 +586,46 @@ export default function App() {
 
               {/* Main Content Area */}
               <main className="flex-1 p-3.5 sm:p-6 lg:p-8 overflow-y-auto pb-24 lg:pb-8 w-full max-w-full">
-                {activeNavTab === 'culinary-courses' ? (
-                  <SurplusCulinaryCoursesView
-                    onBackToZeroWaste={() => handleSelectNavTab('courses')}
-                  />
-                ) : activeNavTab === 'calculator' || activeSection === 'waste-calculator' ? (
-                  <SurplusWasteCalculator
-                    onOpenLibrary={() => handleSelectNavTab('library')}
-                    onOpenCourse={handleOpenCourse}
-                  />
-                ) : activeNavTab === 'courses' ? (
-                  <SurplusCoursesView
-                    onOpenCourse={handleOpenCourse}
-                    searchQuery={searchQuery}
-                  />
-                ) : activeNavTab === 'library' ? (
-                  <SurplusLibraryView searchQuery={searchQuery} />
-                ) : activeNavTab === 'newsletter' || activeNavTab === 'the-zero-waste-kitchen-course' ? (
-                  <SurplusNewslettersView
-                    onOpenCourse={handleOpenCourse}
-                    searchQuery={searchQuery}
-                  />
-                ) : activeSection === 'ask-dr-basu' || activeNavTab === 'events' ? (
-                  <SurplusCommunityView initialSubTab="ask" />
-                ) : (
-                  <SurplusQuickWinsView
-                    sectionId={activeSection || 'start-here'}
-                    onOpenCourse={handleOpenCourse}
-                    onOpenCalculator={() => {
-                      setActiveNavTab('calculator');
-                      setActiveSection('waste-calculator');
-                    }}
-                  />
-                )}
+                <Suspense fallback={<ViewLoadingFallback label="Loading module..." />}>
+                  {activeNavTab === 'culinary-courses' ? (
+                    <SurplusCulinaryCoursesView
+                      onBackToZeroWaste={() => handleSelectNavTab('courses')}
+                    />
+                  ) : activeNavTab === 'calculator' || activeSection === 'waste-calculator' ? (
+                    <SurplusWasteCalculator
+                      onOpenLibrary={() => handleSelectNavTab('library')}
+                      onOpenCourse={handleOpenCourse}
+                    />
+                  ) : activeNavTab === 'courses' ? (
+                    <SurplusCoursesView
+                      onOpenCourse={handleOpenCourse}
+                      searchQuery={searchQuery}
+                    />
+                  ) : activeNavTab === 'library' ? (
+                    <SurplusLibraryView searchQuery={searchQuery} />
+                  ) : activeNavTab === 'newsletter' || activeNavTab === 'the-zero-waste-kitchen-course' ? (
+                    <SurplusNewslettersView
+                      onOpenCourse={handleOpenCourse}
+                      searchQuery={searchQuery}
+                    />
+                  ) : activeSection === 'ask-dr-basu' || activeNavTab === 'events' ? (
+                    <SurplusCommunityView initialSubTab="ask" />
+                  ) : (
+                    <SurplusQuickWinsView
+                      sectionId={activeSection || 'start-here'}
+                      onOpenCourse={handleOpenCourse}
+                      onOpenCalculator={() => {
+                        setActiveNavTab('calculator');
+                        setActiveSection('waste-calculator');
+                      }}
+                    />
+                  )}
+                </Suspense>
               </main>
             </div>
           )}
 
-          {/* MOBILE BOTTOM NAVIGATION BAR: Auto-calibrated for phone & notched screen viewports */}
+          {/* MOBILE BOTTOM NAVIGATION BAR */}
           <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 sm:px-2 pt-1.5 safe-pb flex items-center justify-around shadow-lg">
             <button
               onClick={() => handleSelectNavTab('home')}
@@ -578,15 +685,19 @@ export default function App() {
         </>
       )}
 
-      {/* MODAL 1: Official Supritamone Academy Zero Waste Certificate Generator (Only Name & Date change) */}
-      <SurplusCertificateModal
-        isOpen={showCertifyModal}
-        onClose={() => setShowCertifyModal(false)}
-        defaultLearnerName={resolvedCertificateName}
-        completionDateDefault={todayFormatted}
-      />
+      {/* MODAL 1: Official Supritamone Academy Zero Waste Certificate Generator (Lazy-loaded when opened) */}
+      {showCertifyModal && (
+        <Suspense fallback={null}>
+          <SurplusCertificateModal
+            isOpen={showCertifyModal}
+            onClose={() => setShowCertifyModal(false)}
+            defaultLearnerName={resolvedCertificateName}
+            completionDateDefault={todayFormatted}
+          />
+        </Suspense>
+      )}
 
-      {/* MODAL 3: Learner Login / Account Identity Modal (Sets Certificate Name from Email or Login Choice) */}
+      {/* MODAL 3: Learner Login / Account Identity Modal */}
       {showAccountModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden">
@@ -744,6 +855,15 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+      {/* About Dr. Supritam Basu Popup Modal */}
+      {showAboutModal && (
+        <Suspense fallback={null}>
+          <AboutDrBasuModal
+            isOpen={showAboutModal}
+            onClose={() => setShowAboutModal(false)}
+          />
+        </Suspense>
       )}
     </div>
   );

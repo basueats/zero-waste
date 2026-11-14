@@ -17,7 +17,7 @@ import {
   X
 } from 'lucide-react';
 import { SupritamoneLogo } from './SupritamoneLogo';
-import { ExamUnlockStatus } from '../data/udemyCourseStructure';
+import type { ExamUnlockStatus } from '../data/examStatusUtils';
 import { Lock } from 'lucide-react';
 
 interface SurplusSidebarProps {

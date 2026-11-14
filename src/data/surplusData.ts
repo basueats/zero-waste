@@ -593,12 +593,8 @@ export const surplusCourses: SurplusCourse[] = [
 ];
 
 // -------------------------------------------------------------
-// 500 BYPRODUCTS & 500 ZERO-WASTE RECIPES (Authored by Dr. Chef Supritam Basu)
-export { surplusByproducts } from './byproducts500Data';
-export { surplusRecipes } from './recipes500Data';
-
-// -------------------------------------------------------------
 // COMMUNITY / ASK DR. CHEF SUPRITAM BASU DATA
+// (Large 500+ catalogs live in byproducts500Data.ts & recipes500Data.ts for code-splitting)
 // -------------------------------------------------------------
 export const communityQuestions: CommunityQuestion[] = [
   {
@@ -613,7 +609,7 @@ export const communityQuestions: CommunityQuestion[] = [
     answeredByDrBasu: true,
     reply: {
       author: 'Dr. Chef Supritam Basu',
-      role: 'Dean of Sustainable Gastronomy · Surplus Academy',
+      role: 'Dean of Sustainable Gastronomy · Zero Waste Academy',
       avatar: 'SB',
       date: '1 day ago',
       text: 'Marcus, excellent question! Never apply heat. Pulse the tomato trimmings with exactly 1.5% sea salt for 5 seconds to rupture cell walls without pulverizing seeds, then hang overnight in a double cheesecloth lined colander inside the walk-in cooler at 3°C. You will yield 65% crystal-clear tomato consommé rich in natural glutamic acid. Sell it as clarified cold tomato water for crudos or signature craft cocktails. Dehydrate the remaining pulp at 60°C and blitz with flaky salt for Umami Tomato Finishing Dust!'
@@ -631,7 +627,7 @@ export const communityQuestions: CommunityQuestion[] = [
     answeredByDrBasu: true,
     reply: {
       author: 'Dr. Chef Supritam Basu',
-      role: 'Dean of Sustainable Gastronomy · Surplus Academy',
+      role: 'Dean of Sustainable Gastronomy · Zero Waste Academy',
       avatar: 'SB',
       date: '3 days ago',
       text: 'Keep the temperature strictly between 55°C and 60°C in an immersion water bath. If drafts cause butterfat weeping, incorporate 10% hot whole milk (80°C) and shear with an immersion stick blender for 10 seconds. The retrograded starches from the laminated dough will instantly re-stabilize the emulsion.'
@@ -649,7 +645,7 @@ export const communityQuestions: CommunityQuestion[] = [
     answeredByDrBasu: true,
     reply: {
       author: 'Dr. Chef Supritam Basu',
-      role: 'Dean of Sustainable Gastronomy · Surplus Academy',
+      role: 'Dean of Sustainable Gastronomy · Zero Waste Academy',
       avatar: 'SB',
       date: '5 days ago',
       text: 'Replace every full-size 1/1 GN stainless steel deep hotel pan on hot holding lines with shallow 1/2 and 1/3 GN inserts. To guests, the display looks completely full and abundant, but you reduce food exposure volume by 60%, drastically preventing dried-out eggs and withered meats.'

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, Suspense, lazy } from 'react';
 import {
   Lock,
   ShieldCheck,
@@ -21,6 +21,10 @@ import {
 } from 'lucide-react';
 import { SupritamoneLogo } from './SupritamoneLogo';
 import { SurplusHomeView, HomePlanId } from './SurplusHomeView';
+
+const AboutDrBasuModal = lazy(() =>
+  import('./AboutDrBasuModal').then((m) => ({ default: m.AboutDrBasuModal }))
+);
 
 export interface AuthenticatedSessionUser {
   email: string;
@@ -85,6 +89,7 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
 }) => {
   const [showSignInModal, setShowSignInModal] = useState(Boolean(initialNotice));
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
@@ -253,8 +258,8 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
       {/* Minimal Top Navigation matching zerowaste.supritamone.com across Mobile, Tablet, Laptop & Desktop */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-xs border-b border-neutral-200 safe-pt">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16 gap-2 sm:gap-3">
-            <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center justify-between h-16 gap-2 lg:gap-4">
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsMobileMenuOpen((prev) => !prev)}
@@ -269,17 +274,14 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
                   setIsMobileMenuOpen(false);
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className="flex items-center gap-2.5 sm:gap-3 text-left focus:outline-none cursor-pointer shrink-0"
-                title="Zero waste by Supritamone"
+                className="flex items-center text-left focus:outline-none cursor-pointer shrink-0"
+                title="Supritamone Zero Waste Academy"
               >
                 <SupritamoneLogo size="md" />
-                <span className="hidden sm:inline-block border-l border-neutral-300 pl-3 text-xs font-semibold text-neutral-800 tracking-tight whitespace-nowrap">
-                  Zero waste by Supritamone
-                </span>
               </button>
             </div>
 
-            <nav className="hidden lg:flex items-center gap-5 xl:gap-6 text-xs font-medium text-neutral-500">
+            <nav className="hidden lg:flex items-center justify-center gap-3.5 xl:gap-5 2xl:gap-6 text-[11px] xl:text-xs font-medium text-neutral-500 min-w-0">
               <button
                 onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
                 className="h-16 inline-flex items-center border-b-2 border-black text-black font-bold cursor-pointer whitespace-nowrap"
@@ -311,7 +313,7 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
                 FAQ
               </button>
               <button
-                onClick={() => scrollToElement('about')}
+                onClick={() => setShowAboutModal(true)}
                 className="h-16 inline-flex items-center border-b-2 border-transparent hover:text-black cursor-pointer whitespace-nowrap"
               >
                 About
@@ -322,7 +324,7 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
               {onOpenAdminPortal && (
                 <button
                   onClick={onOpenAdminPortal}
-                  className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 hover:border-black text-xs font-semibold text-neutral-700 hover:text-black transition-colors cursor-pointer"
+                  className="hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-neutral-200 hover:border-black text-xs font-semibold text-neutral-700 hover:text-black transition-colors cursor-pointer whitespace-nowrap"
                 >
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Admin Portal</span>
@@ -396,7 +398,10 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
               FAQ
             </button>
             <button
-              onClick={() => scrollToElement('about')}
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                setShowAboutModal(true);
+              }}
               className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-semibold text-neutral-700 hover:bg-neutral-50 cursor-pointer"
             >
               About
@@ -902,6 +907,15 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
             </form>
           </div>
         </div>
+      )}
+      {/* About Dr. Supritam Basu Popup Modal */}
+      {showAboutModal && (
+        <Suspense fallback={null}>
+          <AboutDrBasuModal
+            isOpen={showAboutModal}
+            onClose={() => setShowAboutModal(false)}
+          />
+        </Suspense>
       )}
     </div>
   );

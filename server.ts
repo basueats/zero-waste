@@ -241,7 +241,32 @@ function deriveDisplayName(email: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+let cachedAuthStore: AuthStoreData | null = null;
+
 function loadAuthStore(): AuthStoreData {
+  if (cachedAuthStore) {
+    const now = Date.now();
+    let trialChanged = false;
+    for (const [lowerKey, rawUser] of Object.entries(cachedAuthStore.users)) {
+      if (
+        rawUser.email !== PERMANENT_ADMIN_EMAIL &&
+        rawUser.role !== 'admin' &&
+        rawUser.planId === 'trial' &&
+        rawUser.expiresAt &&
+        now > rawUser.expiresAt &&
+        rawUser.status !== 'restricted'
+      ) {
+        const { user } = hydrateUserRecord(rawUser, lowerKey, now);
+        cachedAuthStore.users[lowerKey] = user;
+        trialChanged = true;
+      }
+    }
+    if (trialChanged) {
+      saveAuthStore(cachedAuthStore);
+    }
+    return cachedAuthStore;
+  }
+
   let data: AuthStoreData = {
     users: {},
     loginLogs: [...DEFAULT_LOGIN_LOGS],
@@ -309,6 +334,7 @@ function loadAuthStore(): AuthStoreData {
     }
   }
 
+  cachedAuthStore = data;
   if (modified) {
     saveAuthStore(data);
   }
@@ -316,6 +342,7 @@ function loadAuthStore(): AuthStoreData {
 }
 
 function saveAuthStore(data: AuthStoreData): void {
+  cachedAuthStore = data;
   try {
     fs.writeFileSync(AUTH_STORE_PATH, JSON.stringify(data, null, 2));
   } catch {
@@ -754,6 +781,12 @@ const cliPort = portArgIndex !== -1 && process.argv[portArgIndex + 1] ? parseInt
 const PORT = !isNaN(cliPort) ? cliPort : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
 
 app.use(express.json({ limit: '10mb' }));
+
+// Browser-cache static assets (optimized kitchen photos, badges, SVGs) across reloads
+app.use('/assets', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  next();
+});
 
 // Lazy Gemini API Client
 function getGeminiClient() {
@@ -2589,8 +2622,8 @@ async function startServer() {
   });
 
   if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, 'dist')));
-    app.get('*', (req, res) => {
+    app.use(express.static(path.join(__dirname, 'dist'), { maxAge: '1d' }));
+    app.get('*', (_req, res) => {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });
   } else {

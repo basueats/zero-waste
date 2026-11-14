@@ -24,6 +24,7 @@ interface SurplusHeaderProps {
   isCertificateUnlocked?: boolean;
   onOpenAccountModal?: () => void;
   onOpenAdminPortal?: () => void;
+  onOpenAbout?: () => void;
   onSignOut?: () => void;
 }
 
@@ -42,6 +43,7 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
   isCertificateUnlocked = false,
   onOpenAccountModal,
   onOpenAdminPortal,
+  onOpenAbout,
   onSignOut,
 }) => {
   const initials = React.useMemo(() => {
@@ -70,9 +72,9 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-xs border-b border-neutral-200 safe-pt">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-2 sm:gap-3">
-          {/* Left: Mobile Drawer Button + Brand Logo + Zero waste by Supritamone divider */}
-          <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center justify-between h-16 gap-2 lg:gap-4">
+          {/* Left: Mobile Drawer Button + Brand Logo */}
+          <div className="flex items-center gap-2.5 shrink-0">
             {onToggleMobileDrawer && (
               <button
                 onClick={onToggleMobileDrawer}
@@ -85,18 +87,15 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
 
             <button
               onClick={() => onSelectNavTab('home')}
-              className="flex items-center gap-3 text-left group focus:outline-none cursor-pointer"
+              className="flex items-center text-left group focus:outline-none cursor-pointer shrink-0"
               title="Supritamone Academy - Home"
             >
               <SupritamoneLogo size="md" />
-              <span className="hidden sm:inline-block border-l border-neutral-300 pl-3 text-xs font-semibold text-neutral-800 tracking-tight whitespace-nowrap">
-                Zero waste by Supritamone
-              </span>
             </button>
           </div>
 
           {/* Center Minimal Navigation (Matching zerowaste.supritamone.com top bar) */}
-          <nav className="hidden lg:flex items-center gap-5 xl:gap-7 text-xs font-medium text-neutral-500">
+          <nav className="hidden lg:flex items-center justify-center gap-3.5 xl:gap-5 2xl:gap-7 text-[11px] xl:text-xs font-medium text-neutral-500 min-w-0">
             <button
               onClick={() => onSelectNavTab('home')}
               className={`h-16 inline-flex items-center border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
@@ -145,7 +144,7 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
             </button>
 
             <button
-              onClick={() => handleAnchorNav('about')}
+              onClick={() => (onOpenAbout ? onOpenAbout() : handleAnchorNav('about'))}
               className="h-16 inline-flex items-center border-b-2 border-transparent hover:text-black transition-colors cursor-pointer whitespace-nowrap"
             >
               About

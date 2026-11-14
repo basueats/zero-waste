@@ -83,7 +83,7 @@ export const SurplusCommunityView: React.FC<SurplusCommunityViewProps> = () => {
       answeredByDrBasu: true,
       reply: {
         author: 'Dr. Chef Supritam Basu',
-        role: 'Dean of Sustainable Gastronomy · Surplus Academy',
+        role: 'Dean of Sustainable Gastronomy · Zero Waste Academy',
         avatar: 'SB',
         date: 'Just now',
         text: `Thanks for posting! For ${newQuestionCategory.toLowerCase()}, the most effective step is immediately separating clean trimmings into tare-weighted containers at the prep station. Don't toss them into general compost; repurpose them into stocks, dehydrated savory seasoning powders, or house-made scrap vinegars.`
@@ -108,7 +108,7 @@ export const SurplusCommunityView: React.FC<SurplusCommunityViewProps> = () => {
         </div>
 
         <span className="text-xs text-slate-400 hidden sm:inline">
-          Surplus Food Studio Community
+          Zero Waste Academy Community
         </span>
       </div>
 

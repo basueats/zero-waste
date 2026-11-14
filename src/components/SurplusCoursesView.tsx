@@ -1,25 +1,19 @@
 import React, { useState } from 'react';
-import { 
-  surplusCourses, 
-  SurplusCourse,
+import {
+  surplusCourses,
   heroSustainableKitchenImg
 } from '../data/surplusData';
-import { COURSE_TOTAL_VIDEO_LABEL } from '../data/udemyCourseStructure';
-import { 
-  Play, 
-  Clock, 
-  BookOpen, 
-  Award, 
-  CheckCircle2, 
+import { COURSE_TOTAL_VIDEO_LABEL } from '../data/examStatusUtils';
+import {
+  Play,
+  Clock,
+  BookOpen,
   ArrowRight,
   Sparkles,
   ChevronDown,
   ChevronUp,
-  FileText,
   GraduationCap,
-  Layers,
   FlaskConical,
-  ShieldCheck,
   ExternalLink
 } from 'lucide-react';
 
@@ -33,19 +27,7 @@ export const SurplusCoursesView: React.FC<SurplusCoursesViewProps> = ({
   onOpenCourse,
   searchQuery,
 }) => {
-  const [courseFilter, setCourseFilter] = useState<'all' | 'my'>('all');
   const [expandedCourseId, setExpandedCourseId] = useState<string | null>('food-waste-prevention-chefs');
-
-  const filteredCourses = surplusCourses.filter((course) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      course.title.toLowerCase().includes(q) ||
-      course.subtitle.toLowerCase().includes(q) ||
-      course.badge.toLowerCase().includes(q) ||
-      course.lessons?.some((l) => l.title.toLowerCase().includes(q) || l.description?.toLowerCase().includes(q))
-    );
-  });
 
   const featuredCourse = surplusCourses.find((c) => c.isMasterCourse) || surplusCourses[0];
 
@@ -55,7 +37,7 @@ export const SurplusCoursesView: React.FC<SurplusCoursesViewProps> = ({
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto pb-16">
-      {/* Top Header & Filter Bar */}
+      {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -67,35 +49,11 @@ export const SurplusCoursesView: React.FC<SurplusCoursesViewProps> = ({
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            Zero Waste Kitchen Courses & Modules
+            Zero Waste Kitchen Courses &amp; Modules
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Complete food waste prevention curriculum synthesized from 252 issues of "The Zero Waste Kitchen" by Dr. Chef Supritam Basu, PhD, CEC.
+            Complete food waste prevention curriculum synthesized from 252 issues of &ldquo;The Zero Waste Kitchen&rdquo; by Dr. Chef Supritam Basu, PhD, CEC.
           </p>
-        </div>
-
-        {/* Filter Segmented Control */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0 self-start sm:self-auto">
-          <button
-            onClick={() => setCourseFilter('all')}
-            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
-              courseFilter === 'all'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            All Courses ({surplusCourses.length})
-          </button>
-          <button
-            onClick={() => setCourseFilter('my')}
-            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
-              courseFilter === 'my'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Active Courses (2)
-          </button>
         </div>
       </div>
 
@@ -261,172 +219,6 @@ export const SurplusCoursesView: React.FC<SurplusCoursesViewProps> = ({
         </div>
       )}
 
-      {/* Complete Course Catalog Grid */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-slate-900">
-              Professional Culinary Course Tracks
-            </h3>
-            <p className="text-xs text-slate-500">
-              Specialized deep-dive courses with complete modules, practical SOPs, and culinary formulas.
-            </p>
-          </div>
-          <span className="text-xs text-slate-500 font-medium">
-            Showing {filteredCourses.length} courses
-          </span>
-        </div>
-
-        <div className="space-y-6">
-          {filteredCourses.map((course) => {
-            const isExpanded = expandedCourseId === course.id;
-
-            return (
-              <div
-                key={course.id}
-                className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col"
-              >
-                {/* Main Course Row */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-0">
-                  {/* Thumbnail / Cover */}
-                  <div className="lg:col-span-4 relative min-h-[180px] lg:min-h-full bg-slate-900">
-                    <img
-                      src={course.coverImage}
-                      alt={course.title}
-                      className="w-full h-full object-cover opacity-90 transition-opacity duration-300"
-                      decoding="async"
-                      onError={(e) => {
-                        const target = e.currentTarget;
-                        if (target.src !== heroSustainableKitchenImg) {
-                          target.src = heroSustainableKitchenImg;
-                        } else {
-                          target.style.display = 'none';
-                        }
-                      }}
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-transparent" />
-                    
-                    <div className="absolute top-3 left-3">
-                      <span className="bg-slate-900/90 text-white text-[10px] font-bold px-2 py-0.5 rounded backdrop-blur-xs tracking-wider uppercase">
-                        {course.badge}
-                      </span>
-                    </div>
-
-                    <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-white text-xs">
-                      <span className="flex items-center gap-1 font-mono text-[11px] bg-black/60 px-2 py-0.5 rounded backdrop-blur-xs">
-                        <Clock className="w-3 h-3" />
-                        {course.duration}
-                      </span>
-                      <span className="text-[11px] font-bold bg-blue-600/90 px-2 py-0.5 rounded">
-                        {course.newsletterRange}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Course Info */}
-                  <div className="lg:col-span-8 p-6 flex flex-col justify-between space-y-4">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-[10px] font-extrabold text-blue-600 bg-blue-50 px-2 py-0.5 rounded uppercase">
-                          {course.lessonCount} Modules Included
-                        </span>
-                        <span className="text-[10px] font-semibold text-slate-400">
-                          Lead: {course.instructor}
-                        </span>
-                      </div>
-
-                      <h4 className="font-extrabold text-slate-900 text-lg leading-snug hover:text-blue-600 transition-colors">
-                        {course.title}
-                      </h4>
-
-                      <p className="text-xs sm:text-sm text-slate-600 mt-2 leading-relaxed">
-                        {course.subtitle}
-                      </p>
-                    </div>
-
-                    {/* Progress Bar & Actions */}
-                    <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => toggleExpand(course.id)}
-                          className="flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-blue-600 transition-colors"
-                        >
-                          <BookOpen className="w-3.5 h-3.5 text-blue-600" />
-                          <span>{isExpanded ? 'Hide Modules' : `Explore ${course.lessonCount} Modules`}</span>
-                          {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => onOpenCourse(course.id)}
-                          className="px-4 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
-                        >
-                          View Curriculum
-                        </button>
-                        <button
-                          onClick={() => onOpenCourse(course.id)}
-                          className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-2xs hover:shadow transition-all"
-                        >
-                          <Play className="w-3 h-3 fill-current" />
-                          <span>Start Course</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Expanded Modules List with Proper Descriptions */}
-                {isExpanded && (
-                  <div className="border-t border-slate-200 bg-slate-50/80 p-5 space-y-3">
-                    <div className="flex items-center justify-between pb-1">
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                        Course Modules & Technical Formulations
-                      </span>
-                      <span className="text-xs text-blue-600 font-semibold">
-                        Synthesized from {course.newsletterRange}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {course.lessons?.map((mod, lIdx) => (
-                        <div
-                          key={mod.id}
-                          onClick={() => onOpenCourse(course.id)}
-                          className="p-3.5 bg-white rounded-xl border border-slate-200 hover:border-blue-400 hover:shadow-2xs transition-all cursor-pointer space-y-2"
-                        >
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-                              Module {lIdx + 1}
-                            </span>
-                            <span className="text-[11px] font-mono text-slate-400">{mod.duration}</span>
-                          </div>
-
-                          <h5 className="font-bold text-slate-900 text-xs leading-snug">
-                            {mod.title}
-                          </h5>
-
-                          {mod.description && (
-                            <p className="text-[11px] text-slate-600 line-clamp-2 leading-relaxed">
-                              {mod.description}
-                            </p>
-                          )}
-
-                          {mod.culinaryFormula && (
-                            <div className="bg-blue-50/60 p-2 rounded-lg border border-blue-100 text-[10px] font-mono text-blue-900 truncate">
-                              <strong>Formula: </strong>{mod.culinaryFormula}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 };

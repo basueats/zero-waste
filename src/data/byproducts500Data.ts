@@ -1,8 +1,8 @@
-// 500 Comprehensive Byproduct Guides for SURPLUS Academy
+// 500 Comprehensive Byproduct Guides for Zero Waste Academy
 // Authored by Dr. Chef Supritam Basu, PhD, CEC
 // 100% Genuine Commercial Ingredients - Zero Placeholders - 100% Local Verified Photos
 
-import { ByproductItem } from './surplusData';
+import type { ByproductItem } from './surplusData';
 
 export const surplusByproducts: ByproductItem[] = [
   {
