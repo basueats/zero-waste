@@ -883,9 +883,9 @@ function releaseTtsSlot(): void {
   if (next) next();
 }
 
-const CANONICAL_FENRIR_VOICE = 'Fenrir';
+const CANONICAL_CALM_VOICE = 'Charon';
 const DEFAULT_CALM_STYLE =
-  'Calm, warm, gentle, unhurried human male educator speaking clearly at a slow, relaxed studio pace, natural balanced pitch without heavy or booming tone, and smooth pauses between sentences';
+  'Calm, gentle, serene, unhurried male educator speaking smoothly at a slow, relaxed studio pace with light natural conversational warmth and soft pauses between sentences';
 
 async function generateTtsWithRetry(
   ai: GoogleGenAI,
@@ -921,7 +921,7 @@ async function generateTtsWithRetry(
             responseModalities: ['AUDIO'],
             speechConfig: {
               voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: voice || CANONICAL_FENRIR_VOICE },
+                prebuiltVoiceConfig: { voiceName: voice || CANONICAL_CALM_VOICE },
               },
             },
           },
@@ -2347,10 +2347,10 @@ app.post('/api/tts/lecture', async (req, res) => {
       return res.status(400).json({ error: 'sentences cannot be empty' });
     }
 
-    // Always lock voice & studio tone across every tab, browser, and mobile device
-    const resolvedVoice = CANONICAL_FENRIR_VOICE;
+    // Always lock calm voice & studio tone across every tab, browser, and mobile device
+    const resolvedVoice = CANONICAL_CALM_VOICE;
     const style = DEFAULT_CALM_STYLE;
-    const rawKey = `lecture_${resolvedVoice}_${cleanSentences.join(' | ')}`;
+    const rawKey = `lecture_v4_${resolvedVoice}_${cleanSentences.join(' | ')}`;
 
     if (lectureTtsCache.has(rawKey)) {
       res.setHeader('Cache-Control', 'private, max-age=86400');
@@ -2451,9 +2451,9 @@ app.post('/api/tts', async (req, res) => {
     }
 
     const cleanText = text.trim();
-    const resolvedVoice = CANONICAL_FENRIR_VOICE;
+    const resolvedVoice = CANONICAL_CALM_VOICE;
     const style = DEFAULT_CALM_STYLE;
-    const cacheKey = `${resolvedVoice}_${cleanText}`;
+    const cacheKey = `tts_v4_${resolvedVoice}_${cleanText}`;
 
     if (ttsAudioCache.has(cacheKey)) {
       res.setHeader('Cache-Control', 'private, max-age=86400');

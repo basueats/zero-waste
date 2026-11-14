@@ -1,7 +1,7 @@
 // Audio & Voice Narration Engine for Supritamone Academy
-// Unified Fenrir Human Male Baritone Voice across all browsers, tablets, phones, and tabs
+// Unified Calm Educator Voice (Charon neural TTS + Prioritized Calm Natural/Online Voices across all browsers)
 
-export type TTSVoiceName = 'Fenrir' | 'Charon' | 'Puck' | 'Kore' | 'Zephyr';
+export type TTSVoiceName = 'Charon' | 'Fenrir' | 'Puck' | 'Kore' | 'Zephyr';
 
 export interface TTSVoiceOption {
   id: TTSVoiceName;
@@ -11,8 +11,8 @@ export interface TTSVoiceOption {
 }
 
 export const AVAILABLE_VOICES: TTSVoiceOption[] = [
-  { id: 'Fenrir', label: 'Dr. Chef Basu (Calm Baritone Chef)', description: 'Calm, deep, warm, articulate human male voice with unhurried culinary cadence', gender: 'male' },
-  { id: 'Charon', label: 'Dr. Chef Basu (Conversational Chef)', description: 'Warm, natural conversational master chef voice', gender: 'male' },
+  { id: 'Charon', label: 'Dr. Chef Basu (Calm Natural Educator)', description: 'Calm, gentle, serene conversational human educator voice with unhurried cadence', gender: 'male' },
+  { id: 'Fenrir', label: 'Dr. Chef Basu (Deep Baritone Chef)', description: 'Warm baritone chef narration', gender: 'male' },
   { id: 'Puck', label: 'Puck (Engaging Culinary Mentor)', description: 'Expressive kitchen educator delivery', gender: 'male' },
   { id: 'Kore', label: 'Kore (Warm Hospitality Educator)', description: 'Warm, clear culinary educator', gender: 'female' },
   { id: 'Zephyr', label: 'Zephyr (Serene Kitchen Voice)', description: 'Calm, gentle, relaxed pacing', gender: 'female' },
@@ -146,9 +146,9 @@ interface ResolvedChunkPlan extends LectureChunkPlan {
 
 // Canonical studio voice prompt aligned 1:1 with server.ts DEFAULT_CALM_STYLE
 const CALM_MALE_STYLE =
-  'Calm, warm, gentle, unhurried human male educator speaking clearly at a slow, relaxed studio pace, natural balanced pitch without heavy or booming tone, and smooth pauses between sentences';
+  'Calm, gentle, serene, unhurried male educator speaking smoothly at a slow, relaxed studio pace with light natural conversational warmth and soft pauses between sentences';
 
-const AUDIO_IDB_NAME = 'supritamone_fenrir_audio_v3';
+const AUDIO_IDB_NAME = 'supritamone_calm_audio_v4';
 const AUDIO_IDB_STORE = 'audio_entries';
 
 class PersistentAudioCache {
@@ -227,8 +227,10 @@ class AudioNarrator {
   private lectureCache: Map<string, LectureAudioData> = new Map();
   private lectureInFlight: Map<string, Promise<LectureAudioData | null>> = new Map();
   private lectureQuotaHit: boolean = false;
+  private serverTtsUnavailable: boolean = false;
   private durationListeners: Set<() => void> = new Set();
-  private readonly selectedVoice: TTSVoiceName = 'Fenrir';
+  private readonly selectedVoice: TTSVoiceName = 'Charon';
+  private cachedBestVoice: SpeechSynthesisVoice | null = null;
   private currentSessionId: number = 0;
   private progressInterval: ReturnType<typeof setInterval> | null = null;
   private fallbackInterval: ReturnType<typeof setInterval> | null = null;
@@ -269,7 +271,9 @@ class AudioNarrator {
   constructor() {
     if (typeof window !== 'undefined') {
       if (window.speechSynthesis && window.speechSynthesis.onvoiceschanged !== undefined) {
-        window.speechSynthesis.onvoiceschanged = () => {};
+        window.speechSynthesis.onvoiceschanged = () => {
+          this.cachedBestVoice = null;
+        };
       }
 
       // Auto-unlock audio context cleanly on first gesture & keep awake across mobile/tab resumes
@@ -612,7 +616,21 @@ class AudioNarrator {
     this.notifyDurationsUpdated();
   }
 
-  // Synthesize & cache lecture chunk as ONE unified Fenrir human male WAV file (RAM -> IndexedDB -> Server)
+  private resolveTtsEndpoint(path: string): string {
+    try {
+      const envBase = (import.meta as unknown as { env?: Record<string, string | undefined> })?.env?.VITE_API_BASE_URL;
+      const winBase = typeof window !== 'undefined'
+        ? (window as unknown as { __SUPRITAMONE_API_BASE__?: string }).__SUPRITAMONE_API_BASE__
+        : undefined;
+      const base = (envBase || winBase || '').trim().replace(/\/+$/, '');
+      if (base) return `${base}${path}`;
+    } catch {
+      // Ignore env access issues in constrained environments
+    }
+    return path;
+  }
+
+  // Synthesize & cache lecture chunk as ONE unified calm human WAV file (RAM -> IndexedDB -> Server)
   public fetchLectureAudio(sentences: string[]): Promise<LectureAudioData | null> {
     const cleanSentences = sentences.map((s) => s.trim()).filter(Boolean);
     if (cleanSentences.length === 0) return Promise.resolve(null);
@@ -633,18 +651,23 @@ class AudioNarrator {
         return idbHit;
       }
 
-      // 2. Fetch from canonical Fenrir TTS endpoint with patient mobile/cross-browser retry backoff
+      if (this.serverTtsUnavailable) {
+        return null;
+      }
+
+      // 2. Fetch from canonical calm Charon TTS endpoint with patient mobile/cross-browser retry backoff
+      const endpoint = this.resolveTtsEndpoint('/api/tts/lecture');
       for (let attempt = 1; attempt <= 3; attempt++) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 55000);
         try {
-          const res = await fetch('/api/tts/lecture', {
+          const res = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             signal: controller.signal,
             body: JSON.stringify({
               sentences: cleanSentences,
-              voice: 'Fenrir',
+              voice: 'Charon',
               style: CALM_MALE_STYLE,
             }),
           });
@@ -665,6 +688,7 @@ class AudioNarrator {
             return null;
           }
           if (res.status === 404 || res.status === 405) {
+            this.serverTtsUnavailable = true;
             return null;
           }
           if (!res.ok) {
@@ -723,17 +747,22 @@ class AudioNarrator {
         return idbHit;
       }
 
+      if (this.serverTtsUnavailable) {
+        return null;
+      }
+
+      const endpoint = this.resolveTtsEndpoint('/api/tts');
       for (let attempt = 1; attempt <= 3; attempt++) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 45000);
         try {
-          const res = await fetch('/api/tts', {
+          const res = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             signal: controller.signal,
             body: JSON.stringify({
               text: cleanText,
-              voice: 'Fenrir',
+              voice: 'Charon',
               style: CALM_MALE_STYLE,
             }),
           });
@@ -746,6 +775,7 @@ class AudioNarrator {
             return null;
           }
           if (res.status === 404 || res.status === 405) {
+            this.serverTtsUnavailable = true;
             return null;
           }
           if (!res.ok) {
@@ -785,64 +815,181 @@ class AudioNarrator {
     await this.fetchTtsAudio(texts[0].trim());
   }
 
+  // Wait cleanly for asynchronous getVoices() (critical on Brave, Chromium, Firefox & mobile first play)
+  private ensureVoicesLoaded(timeoutMs: number = 500): Promise<SpeechSynthesisVoice[]> {
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      return Promise.resolve([]);
+    }
+    const existing = window.speechSynthesis.getVoices();
+    if (existing && existing.length > 0) {
+      return Promise.resolve(existing);
+    }
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearInterval(pollTimer);
+        clearTimeout(timeoutTimer);
+        try {
+          window.speechSynthesis.removeEventListener?.('voiceschanged', onChanged);
+        } catch {
+          // Ignore
+        }
+        resolve(window.speechSynthesis.getVoices() || []);
+      };
+      const onChanged = () => {
+        const list = window.speechSynthesis.getVoices();
+        if (list && list.length > 0) {
+          this.cachedBestVoice = null;
+          finish();
+        }
+      };
+      try {
+        window.speechSynthesis.addEventListener?.('voiceschanged', onChanged);
+      } catch {
+        // Fallback to polling when addEventListener is unsupported
+      }
+      const pollTimer = setInterval(() => {
+        const list = window.speechSynthesis.getVoices();
+        if (list && list.length > 0) {
+          this.cachedBestVoice = null;
+          finish();
+        }
+      }, 45);
+      const timeoutTimer = setTimeout(finish, timeoutMs);
+    });
+  }
+
+  private scoreBrowserVoice(v: SpeechSynthesisVoice): number {
+    const lang = (v.lang || '').toLowerCase();
+    const name = (v.name || '').toLowerCase();
+    let score = 0;
+
+    if (!lang.startsWith('en')) {
+      return -2000;
+    }
+    if (lang.startsWith('en-us') || lang.startsWith('en-gb')) score += 45;
+    else if (lang.startsWith('en-ca') || lang.startsWith('en-au') || lang.startsWith('en-in')) score += 25;
+
+    const isOnline = name.includes('online') || !v.localService;
+    const isNaturalOrNeural =
+      name.includes('natural') ||
+      name.includes('neural') ||
+      name.includes('wavenet') ||
+      name.includes('studio') ||
+      name.includes('multilingual');
+    const isGoogle = name.includes('google');
+    const isAppleQuality = name.includes('enhanced') || name.includes('premium') || name.includes('siri');
+
+    // Tier 1: Modern Natural / Online / Neural / Google / Enhanced voices ALWAYS outrank legacy OS voices
+    if (name.includes('online') && isNaturalOrNeural) score += 1400;
+    else if (isNaturalOrNeural) score += 1050;
+    if (isGoogle) score += 880;
+    if (isOnline && !isGoogle) score += 720;
+    if (isAppleQuality) score += 660;
+
+    // Tier 2: Calm, warm educator voice personas (prioritizing natural clarity across all browsers)
+    const calmMalePersonas = [
+      'andrew', 'brian', 'christopher', 'steffan', 'ryan', 'guy',
+      'george', 'arthur', 'oliver', 'daniel', 'uk english male', 'aaron', 'thomas',
+    ];
+    const calmFemalePersonas = [
+      'ava', 'emma', 'jenny', 'aria', 'libby', 'sonia', 'samantha',
+      'serena', 'karen', 'kate', 'uk english female', 'us english', 'nicky', 'allison',
+    ];
+
+    if (calmMalePersonas.some((tok) => name.includes(tok))) {
+      score += 240;
+    } else if (calmFemalePersonas.some((tok) => name.includes(tok))) {
+      score += 190;
+    }
+
+    // Penalize legacy heavy/monotone offline robotic synthesizers so Natural/Online always win if present
+    if (name.includes('espeak') || name.includes('festival') || name.includes('flite') || name.includes('mbrola')) {
+      score -= 900;
+    }
+    if (!isNaturalOrNeural && !isOnline) {
+      if (name.includes('microsoft david') || name === 'david' || name.includes('david desktop')) score -= 500;
+      if (name.includes('microsoft mark') || name === 'mark' || name.includes('mark desktop')) score -= 420;
+      if (name.includes('microsoft zira') || name === 'zira' || name.includes('zira desktop')) score -= 340;
+    }
+
+    return score;
+  }
+
   private getBestBrowserVoice(): SpeechSynthesisVoice | null {
     if (typeof window === 'undefined' || !window.speechSynthesis) return null;
     const voices = window.speechSynthesis.getVoices();
     if (!voices || voices.length === 0) return null;
 
-    const femaleDenyList = [
-      'female', 'samantha', 'victoria', 'karen', 'zira', 'jenny', 'aria', 'susan',
-      'hazel', 'fiona', 'moira', 'tessa', 'veena', 'serena', 'kate', 'libby', 'sonia',
-      'claire', 'allison', 'ava', 'nicky', 'joana', 'monica', 'paulina', 'amelie',
-      'kore', 'zephyr', 'aoede', 'leda', 'us english', 'emma', 'michelle', 'ana', 'natasha',
-    ];
-    const isFemale = (v: SpeechSynthesisVoice) => {
-      const lower = v.name.toLowerCase();
-      if (lower.includes('male') && !lower.includes('female')) return false;
-      return femaleDenyList.some((token) => lower.includes(token));
-    };
-
-    // Prefer modern calm natural/neural voices first so fallback is smooth, never robotic or heavy
-    const preferredCalmNames = [
-      'Microsoft Andrew Online',
-      'Microsoft Brian Online',
-      'Microsoft Christopher Online',
-      'Microsoft Steffan Online',
-      'Microsoft Ryan Online',
-      'Microsoft Guy Online',
-      'Google UK English Male',
-      'Daniel',
-      'Arthur',
-      'Oliver',
-      'George',
-      'Microsoft Ryan',
-      'Microsoft Guy',
-      'Microsoft Christopher',
-      'Alex',
-      'Microsoft Mark',
-      'Microsoft David',
-      'David',
-      'Mark',
-      'James',
-      'Aaron',
-    ];
-
-    for (const name of preferredCalmNames) {
-      const match = voices.find(
-        (v) => v.lang.startsWith('en') && !isFemale(v) && v.name.toLowerCase().includes(name.toLowerCase())
-      );
-      if (match) return match;
+    if (this.cachedBestVoice && voices.some((v) => v.name === this.cachedBestVoice?.name)) {
+      return this.cachedBestVoice;
     }
 
-    const naturalEnMale = voices.find(
-      (v) =>
-        v.lang.startsWith('en') &&
-        !isFemale(v) &&
-        (v.name.toLowerCase().includes('natural') || v.name.toLowerCase().includes('neural') || v.name.toLowerCase().includes('male'))
-    );
-    if (naturalEnMale) return naturalEnMale;
+    let best: SpeechSynthesisVoice | null = null;
+    let bestScore = -Infinity;
+    for (const v of voices) {
+      const s = this.scoreBrowserVoice(v);
+      if (s > bestScore) {
+        bestScore = s;
+        best = v;
+      }
+    }
+    this.cachedBestVoice = best || voices.find((v) => v.lang.startsWith('en')) || voices[0] || null;
+    return this.cachedBestVoice;
+  }
 
-    return voices.find((v) => v.lang.startsWith('en') && !isFemale(v)) || voices.find((v) => v.lang.startsWith('en')) || voices[0] || null;
+  // Calibrate rate & pitch per voice engine so Brave/legacy local voices never sound heavy, booming, or muddy
+  private getBrowserAcousticProfile(
+    voice: SpeechSynthesisVoice | null,
+    activeRate: number
+  ): { rate: number; pitch: number } {
+    const safeActive = Math.max(0.75, Math.min(2.0, activeRate || 1.0));
+    const name = (voice?.name || '').toLowerCase();
+
+    const isModernNeuralOrOnline =
+      name.includes('natural') ||
+      name.includes('online') ||
+      name.includes('neural') ||
+      name.includes('google') ||
+      name.includes('wavenet') ||
+      name.includes('studio') ||
+      name.includes('enhanced') ||
+      name.includes('premium') ||
+      name.includes('siri') ||
+      (voice ? !voice.localService : false);
+
+    if (isModernNeuralOrOnline) {
+      return {
+        rate: Math.max(0.72, Math.min(1.45, safeActive * 0.84)),
+        pitch: 1.0,
+      };
+    }
+
+    const isLegacyLightVoice =
+      name.includes('zira') ||
+      name.includes('hazel') ||
+      name.includes('susan') ||
+      name.includes('heera') ||
+      name.includes('samantha') ||
+      name.includes('karen') ||
+      name.includes('fiona') ||
+      name.includes('female');
+
+    if (isLegacyLightVoice) {
+      return {
+        rate: Math.max(0.76, Math.min(1.45, safeActive * 0.85)),
+        pitch: 0.98,
+      };
+    }
+
+    // Legacy bass OS voices on Brave (e.g. Windows SAPI5 David / Mark / eSpeak / unset default):
+    // Lift pitch slightly to clear heavy chest mud while keeping speech calm, smooth, and unhurried.
+    return {
+      rate: Math.max(0.76, Math.min(1.45, safeActive * 0.87)),
+      pitch: 1.13,
+    };
   }
 
   public setVolume(volume: number): void {
@@ -1467,14 +1614,18 @@ class AudioNarrator {
     }
   }
 
-  private playFallbackLectureSequence(
+  private async playFallbackLectureSequence(
     sentences: string[],
     startOffsetSec: number,
     rate: number,
     volume: number,
     sessionId: number,
     opts: LectureSpeakOptions
-  ): void {
+  ): Promise<void> {
+    // Ensure async browser voice list (e.g. Brave / Chromium / Firefox) is ready before speaking
+    await this.ensureVoicesLoaded(450);
+    if (this.currentSessionId !== sessionId) return;
+
     const estDurs = sentences.map((s) => this.estimateDuration(s, 1.0));
     const timings: SentenceTiming[] = [];
     let acc = 0;
@@ -1493,15 +1644,27 @@ class AudioNarrator {
       }
     }
 
-    // Split long multi-sentence paragraphs into sub-clauses so browser TTS never stalls >15s and highlights track smoothly
+    // Split long multi-sentence paragraphs (and long >22-word clauses) so Brave/Chromium TTS never stalls & captions stay razor-synced
     const splitSubClauses = (line: string): Array<{ text: string; charStart: number; wordOffset: number }> => {
-      const rawParts = line.match(/[^.!?]+(?:[.!?]+|$)/g) || [line];
+      const sentenceParts = line.match(/[^.!?]+(?:[.!?]+|$)/g) || [line];
+      const fineParts: string[] = [];
+      for (const sp of sentenceParts) {
+        const trimmed = sp.trim();
+        if (!trimmed) continue;
+        if (tokenizeTextIntoWords(trimmed).length > 22) {
+          const sub = trimmed.match(/[^,;—–]+(?:[,;—–]+|$)/g) || [trimmed];
+          for (const piece of sub) {
+            const p = piece.trim();
+            if (p) fineParts.push(p);
+          }
+        } else {
+          fineParts.push(trimmed);
+        }
+      }
       const parts: Array<{ text: string; charStart: number; wordOffset: number }> = [];
       let cursorChar = 0;
       let wordAcc = 0;
-      for (const raw of rawParts) {
-        const trimmed = raw.trim();
-        if (!trimmed) continue;
+      for (const trimmed of fineParts) {
         const foundAt = line.indexOf(trimmed, cursorChar);
         const charStart = foundAt >= 0 ? foundAt : cursorChar;
         const tokCount = tokenizeTextIntoWords(trimmed).length;
@@ -1597,9 +1760,9 @@ class AudioNarrator {
             const utterance = new SpeechSynthesisUtterance(clause.text);
             const voice = this.getBestBrowserVoice();
             if (voice) utterance.voice = voice;
-            // Calm, slow, natural studio tone (pitch 0.98 prevents heavy booming artifacts)
-            utterance.rate = Math.max(0.68, Math.min(1.5, activeRate * 0.78));
-            utterance.pitch = 0.98;
+            const acoustic = this.getBrowserAcousticProfile(voice, activeRate);
+            utterance.rate = acoustic.rate;
+            utterance.pitch = acoustic.pitch;
             utterance.volume = Math.max(0, Math.min(1, this.currentVolume ?? volume));
 
             utterance.onstart = () => {
@@ -1939,13 +2102,16 @@ class AudioNarrator {
     }
   }
 
-  private fallbackSpeak(
+  private async fallbackSpeak(
     text: string,
     rate: number = 1.0,
     volume: number = 0.9,
     sessionId: number,
     opts: SpeakOptions
-  ): void {
+  ): Promise<void> {
+    await this.ensureVoicesLoaded(450);
+    if (this.currentSessionId !== sessionId) return;
+
     const tokens = tokenizeTextIntoWords(text);
     const estDuration = this.estimateDuration(text, rate);
     const startTime = Date.now();
@@ -1996,9 +2162,10 @@ class AudioNarrator {
       const utterance = new SpeechSynthesisUtterance(text);
       const voice = this.getBestBrowserVoice();
       if (voice) utterance.voice = voice;
+      const acoustic = this.getBrowserAcousticProfile(voice, rate);
 
-      utterance.rate = Math.max(0.68, Math.min(1.5, rate * 0.78));
-      utterance.pitch = 0.98;
+      utterance.rate = acoustic.rate;
+      utterance.pitch = acoustic.pitch;
       utterance.volume = Math.max(0, Math.min(1, volume));
 
       utterance.onstart = () => {
