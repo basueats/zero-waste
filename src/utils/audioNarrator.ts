@@ -235,7 +235,7 @@ class AudioNarrator {
   private progressInterval: ReturnType<typeof setInterval> | null = null;
   private fallbackInterval: ReturnType<typeof setInterval> | null = null;
   private fallbackWatchdog: ReturnType<typeof setTimeout> | null = null;
-  private calibratedBrowserWps: number = 2.05;
+  private calibratedBrowserWps: number = 2.45;
 
   private activeGainNode: GainNode | null = null;
   private activeSourceNode: AudioBufferSourceNode | null = null;
@@ -979,16 +979,16 @@ class AudioNarrator {
 
     if (isLegacyLightVoice) {
       return {
-        rate: Math.max(0.76, Math.min(1.45, safeActive * 0.85)),
-        pitch: 0.98,
+        rate: Math.max(0.74, Math.min(1.45, safeActive * 0.82)),
+        pitch: 0.93,
       };
     }
 
     // Legacy bass OS voices on Brave (e.g. Windows SAPI5 David / Mark / eSpeak / unset default):
-    // Lift pitch slightly to clear heavy chest mud while keeping speech calm, smooth, and unhurried.
+    // Lift pitch to clear heavy chest boom while keeping speech calm, smooth, and unhurried.
     return {
-      rate: Math.max(0.76, Math.min(1.45, safeActive * 0.87)),
-      pitch: 1.13,
+      rate: Math.max(0.75, Math.min(1.45, safeActive * 0.85)),
+      pitch: 1.16,
     };
   }
 
@@ -1644,18 +1644,31 @@ class AudioNarrator {
       }
     }
 
-    // Split long multi-sentence paragraphs (and long >22-word clauses) so Brave/Chromium TTS never stalls & captions stay razor-synced
+    // Split long multi-sentence paragraphs (and >24-word sentences at commas) without isolating tiny <6-word fragments
     const splitSubClauses = (line: string): Array<{ text: string; charStart: number; wordOffset: number }> => {
       const sentenceParts = line.match(/[^.!?]+(?:[.!?]+|$)/g) || [line];
       const fineParts: string[] = [];
       for (const sp of sentenceParts) {
         const trimmed = sp.trim();
         if (!trimmed) continue;
-        if (tokenizeTextIntoWords(trimmed).length > 22) {
-          const sub = trimmed.match(/[^,;—–]+(?:[,;—–]+|$)/g) || [trimmed];
-          for (const piece of sub) {
+        if (tokenizeTextIntoWords(trimmed).length > 24) {
+          const rawSub = trimmed.match(/[^,;—–]+(?:[,;—–]+|$)/g) || [trimmed];
+          const mergedSub: string[] = [];
+          for (const piece of rawSub) {
             const p = piece.trim();
-            if (p) fineParts.push(p);
+            if (!p) continue;
+            if (mergedSub.length > 0 && tokenizeTextIntoWords(mergedSub[mergedSub.length - 1]).length < 6) {
+              mergedSub[mergedSub.length - 1] = `${mergedSub[mergedSub.length - 1]} ${p}`;
+            } else {
+              mergedSub.push(p);
+            }
+          }
+          if (mergedSub.length > 1 && tokenizeTextIntoWords(mergedSub[mergedSub.length - 1]).length < 5) {
+            const tail = mergedSub.pop()!;
+            mergedSub[mergedSub.length - 1] = `${mergedSub[mergedSub.length - 1]} ${tail}`;
+          }
+          for (const m of mergedSub) {
+            fineParts.push(m);
           }
         } else {
           fineParts.push(trimmed);
@@ -1696,31 +1709,43 @@ class AudioNarrator {
             if (this.currentSessionId === sessionId) {
               speakFrom(idx + 1);
             }
-          }, 220);
+          }, 140);
           return;
         }
 
         const clause = subClauses[subIdx];
         const subTokens = tokenizeTextIntoWords(clause.text);
         const subRanges = computeWordProgressRanges(subTokens);
-        const liveWps = Math.max(1.4, Math.min(3.6, this.calibratedBrowserWps));
-        const estSubDur = Math.max(0.8, (subTokens.length / liveWps) / activeRate);
+        const selectedVoice = this.getBestBrowserVoice();
+        const acousticForClause = this.getBrowserAcousticProfile(selectedVoice, activeRate);
+        const effectiveRateFactor = Math.max(0.65, acousticForClause.rate);
+        const liveWps = Math.max(1.5, Math.min(3.8, this.calibratedBrowserWps));
+        const estSubDur = Math.max(0.75, (subTokens.length / liveWps) / effectiveRateFactor);
 
         let speechStarted = false;
         let speechStartMs = Date.now();
-        let receivedBoundary = false;
+        let anchorTimeMs = speechStartMs;
+        let anchorFrac = 0;
+        let lastBoundaryEventMs = 0;
 
         this.clearAllTimers();
         const startHighlightLoop = () => {
           if (this.currentSessionId !== sessionId) return;
           this.fallbackInterval = setInterval(() => {
-            if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused || receivedBoundary || !speechStarted) {
+            if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused || !speechStarted) {
+              return;
+            }
+            const now = Date.now();
+            // If exact onboundary fired < 260ms ago, let it hold cleanly without jitter; otherwise interpolate smoothly from last anchor
+            if (lastBoundaryEventMs > 0 && now - lastBoundaryEventMs < 260) {
               return;
             }
             const curRate = Math.max(0.75, Math.min(2.0, this.currentRate || activeRate));
-            const curEstDur = Math.max(0.8, (subTokens.length / Math.max(1.4, Math.min(3.6, this.calibratedBrowserWps))) / curRate);
-            const elapsed = (Date.now() - speechStartMs) / 1000;
-            const frac = Math.min(0.98, elapsed / curEstDur);
+            const curAcoustic = this.getBrowserAcousticProfile(selectedVoice, curRate);
+            const curEffectiveRate = Math.max(0.65, curAcoustic.rate);
+            const curEstDur = Math.max(0.75, (subTokens.length / Math.max(1.5, Math.min(3.8, this.calibratedBrowserWps))) / curEffectiveRate);
+            const elapsedSinceAnchor = Math.max(0, (now - anchorTimeMs) / 1000);
+            const frac = Math.min(0.985, anchorFrac + elapsedSinceAnchor / curEstDur);
             const localWIdx =
               subRanges.length > 0
                 ? findWeightedWordIndex(subRanges, frac)
@@ -1736,7 +1761,7 @@ class AudioNarrator {
               sentenceElapsed: syncedElapsed,
               wordIndex: globalWIdx,
             });
-          }, 50);
+          }, 40);
         };
 
         let clauseDone = false;
@@ -1744,11 +1769,11 @@ class AudioNarrator {
           if (clauseDone || this.currentSessionId !== sessionId) return;
           clauseDone = true;
           this.clearAllTimers();
-          if (speechStarted && subTokens.length >= 4) {
-            const actualSec = Math.max(0.5, (Date.now() - speechStartMs) / 1000);
-            const measuredWps = (subTokens.length / actualSec) / activeRate;
-            if (measuredWps >= 1.3 && measuredWps <= 4.0) {
-              this.calibratedBrowserWps = this.calibratedBrowserWps * 0.4 + measuredWps * 0.6;
+          if (speechStarted && subTokens.length >= 6) {
+            const actualSec = Math.max(0.6, (Date.now() - speechStartMs) / 1000);
+            const measuredWps = (subTokens.length / actualSec) / effectiveRateFactor;
+            if (measuredWps >= 1.4 && measuredWps <= 4.2) {
+              this.calibratedBrowserWps = this.calibratedBrowserWps * 0.45 + measuredWps * 0.55;
             }
           }
           speakSubClause(subIdx + 1);
@@ -1758,17 +1783,18 @@ class AudioNarrator {
           try {
             window.speechSynthesis.cancel();
             const utterance = new SpeechSynthesisUtterance(clause.text);
-            const voice = this.getBestBrowserVoice();
-            if (voice) utterance.voice = voice;
-            const acoustic = this.getBrowserAcousticProfile(voice, activeRate);
-            utterance.rate = acoustic.rate;
-            utterance.pitch = acoustic.pitch;
+            if (selectedVoice) utterance.voice = selectedVoice;
+            utterance.rate = acousticForClause.rate;
+            utterance.pitch = acousticForClause.pitch;
             utterance.volume = Math.max(0, Math.min(1, this.currentVolume ?? volume));
 
             utterance.onstart = () => {
               if (this.currentSessionId !== sessionId || clauseDone) return;
               speechStarted = true;
               speechStartMs = Date.now();
+              anchorTimeMs = speechStartMs;
+              anchorFrac = 0;
+              lastBoundaryEventMs = 0;
               const globalWIdx = Math.min(Math.max(0, tokens.length - 1), clause.wordOffset);
               const syncedElapsed = (globalWIdx / Math.max(1, tokens.length)) * estDurs[idx];
               opts.onProgress?.({
@@ -1783,13 +1809,13 @@ class AudioNarrator {
 
             utterance.onboundary = (e) => {
               if (this.currentSessionId !== sessionId || clauseDone) return;
+              const now = Date.now();
               if (!speechStarted) {
                 speechStarted = true;
-                speechStartMs = Date.now();
+                speechStartMs = now;
               }
-              receivedBoundary = true;
-              const charIdx = e.charIndex;
-              let localWIdx = 0;
+              const charIdx = Math.max(0, e.charIndex || 0);
+              let localWIdx = Math.max(0, subTokens.length - 1);
               for (let i = 0; i < subTokens.length; i++) {
                 if (charIdx >= subTokens[i].startChar && charIdx <= subTokens[i].endChar) {
                   localWIdx = i;
@@ -1799,6 +1825,19 @@ class AudioNarrator {
                   break;
                 }
               }
+              anchorFrac = subRanges[localWIdx]?.startFrac ?? (localWIdx / Math.max(1, subTokens.length));
+              anchorTimeMs = now;
+              lastBoundaryEventMs = now;
+
+              // Dynamically tune live WPS mid-clause when word boundaries advance smoothly
+              const elapsedSec = (now - speechStartMs) / 1000;
+              if (localWIdx >= 3 && elapsedSec > 0.7 && anchorFrac > 0.12) {
+                const liveMeasuredWps = ((localWIdx + 0.5) / elapsedSec) / effectiveRateFactor;
+                if (liveMeasuredWps >= 1.5 && liveMeasuredWps <= 4.2) {
+                  this.calibratedBrowserWps = this.calibratedBrowserWps * 0.7 + liveMeasuredWps * 0.3;
+                }
+              }
+
               const globalWIdx = Math.min(Math.max(0, tokens.length - 1), clause.wordOffset + localWIdx);
               const progressFrac = Math.min(1, (globalWIdx + 0.5) / Math.max(1, tokens.length));
               const syncedElapsed = progressFrac * estDurs[idx];
@@ -1819,6 +1858,7 @@ class AudioNarrator {
               if (this.currentSessionId === sessionId && !clauseDone && !speechStarted) {
                 speechStarted = true;
                 speechStartMs = Date.now();
+                anchorTimeMs = speechStartMs;
                 startHighlightLoop();
               }
             }, 350);
@@ -1833,6 +1873,7 @@ class AudioNarrator {
         }
         speechStarted = true;
         speechStartMs = Date.now();
+        anchorTimeMs = speechStartMs;
         startHighlightLoop();
         this.fallbackWatchdog = setTimeout(advanceClause, estSubDur * 1000);
       };
@@ -2175,8 +2216,8 @@ class AudioNarrator {
 
       utterance.onboundary = (e) => {
         if (this.currentSessionId !== sessionId) return;
-        const charIdx = e.charIndex;
-        let foundWordIdx = 0;
+        const charIdx = Math.max(0, e.charIndex || 0);
+        let foundWordIdx = Math.max(0, tokens.length - 1);
         for (let i = 0; i < tokens.length; i++) {
           if (charIdx >= tokens[i].startChar && charIdx <= tokens[i].endChar) {
             foundWordIdx = i;
