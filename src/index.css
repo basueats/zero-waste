@@ -1,8 +1,48 @@
 @import "tailwindcss";
 
 @layer base {
+  html,
+  body {
+    overflow-x: clip;
+    max-width: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   * {
     box-sizing: border-box;
+  }
+}
+
+.font-heading {
+  font-family: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif;
+}
+
+.safe-pb {
+  padding-bottom: max(0.375rem, env(safe-area-inset-bottom));
+}
+
+.safe-pt {
+  padding-top: env(safe-area-inset-top);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.25s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fadeIn {
+    animation: none;
   }
 }
 
@@ -18,3 +58,4 @@
     color: black !important;
   }
 }
+

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 
 interface SupritamoneLogoProps {
   variant?: 'full' | 'inverted' | 'seal';
@@ -13,83 +13,72 @@ export const SupritamoneLogo: React.FC<SupritamoneLogoProps> = ({
   className = '',
   showSubtitle = true,
 }) => {
-  const [imgError, setImgError] = useState(false);
   const isInverted = variant === 'inverted';
-
-  const imgHeights = {
-    sm: 'h-7',
-    md: 'h-9',
-    lg: 'h-11',
-  }[size];
 
   const typographySizes = {
     sm: {
-      title: 'text-base sm:text-lg',
-      subtitle: 'text-[9px] tracking-[0.22em]',
-      dot: 'w-1.5 h-1.5',
+      title: 'text-lg sm:text-xl',
+      subtitle: 'text-[10px] tracking-[0.2em]',
+      zeroWaste: 'text-[9px] tracking-[0.14em]',
+      dot: 'w-2 h-2',
     },
     md: {
-      title: 'text-lg sm:text-xl',
-      subtitle: 'text-[10px] tracking-[0.25em]',
-      dot: 'w-1.5 h-1.5',
+      title: 'text-[22px] sm:text-2xl',
+      subtitle: 'text-[11px] tracking-[0.22em]',
+      zeroWaste: 'text-[10px] tracking-[0.16em]',
+      dot: 'w-2 h-2',
     },
     lg: {
       title: 'text-2xl sm:text-3xl',
-      subtitle: 'text-xs tracking-[0.28em]',
-      dot: 'w-2 h-2',
+      subtitle: 'text-xs tracking-[0.24em]',
+      zeroWaste: 'text-[11px] tracking-[0.18em]',
+      dot: 'w-2.5 h-2.5',
     },
   }[size];
 
-  if (!imgError) {
-    return (
-      <div
-        className={`inline-flex items-center select-none ${
-          isInverted ? 'bg-white rounded-lg px-2 py-1 shadow-xs' : ''
-        } ${className}`}
-      >
-        <img
-          src="/assets/images/zero_waste_logo.png"
-          alt="Supritamone Academy Zero Waste"
-          onError={() => setImgError(true)}
-          className={`w-auto object-contain ${imgHeights}`}
-        />
-      </div>
-    );
-  }
-
   return (
-    <div className={`inline-flex flex-col justify-center leading-none select-none text-left group ${className}`}>
-      <div className="flex items-center gap-1">
+    <div
+      className={`inline-flex flex-col justify-center leading-none select-none text-left group antialiased ${
+        isInverted ? 'bg-black/90 rounded-lg px-2.5 py-1.5' : ''
+      } ${className}`}
+    >
+      <div className="flex items-center gap-1.5">
         <span
-          className={`font-extrabold tracking-tight font-['Outfit',sans-serif] ${typographySizes.title} ${
+          className={`font-black tracking-tight font-heading leading-none ${typographySizes.title} ${
             isInverted
               ? 'text-white'
-              : 'text-slate-950 group-hover:text-blue-600 transition-colors'
+              : 'text-[#0b1220] group-hover:text-black transition-colors'
           }`}
         >
           Supritamone
         </span>
-        <span className={`inline-block rounded-full bg-emerald-500 shrink-0 mb-0.5 ${typographySizes.dot}`} />
+        <span
+          className={`inline-block rounded-full bg-emerald-500 shrink-0 -mt-1 ${typographySizes.dot}`}
+        />
       </div>
 
       {showSubtitle && (
-        <div className="flex items-center gap-1.5 mt-0.5">
+        <div className="flex items-center gap-1.5 mt-1">
           <span
-            className={`font-bold uppercase font-sans ${typographySizes.subtitle} ${
-              isInverted ? 'text-emerald-400' : 'text-emerald-600'
+            className={`font-extrabold uppercase font-sans leading-none ${typographySizes.subtitle} ${
+              isInverted ? 'text-emerald-400' : 'text-[#059669]'
             }`}
           >
             ACADEMY
           </span>
-          <span className={`text-[8px] font-semibold opacity-40 ${isInverted ? 'text-slate-300' : 'text-slate-400'}`}>
+          <span
+            className={`text-[10px] font-bold leading-none ${
+              isInverted ? 'text-slate-400' : 'text-neutral-400'
+            }`}
+          >
             ·
           </span>
           <span
-            className={`text-[8px] font-semibold uppercase tracking-wider opacity-60 hidden sm:inline ${
-              isInverted ? 'text-slate-300' : 'text-slate-500'
+            className={`font-bold uppercase font-sans leading-none ${typographySizes.zeroWaste} ${
+              isInverted ? 'text-slate-200' : 'text-neutral-700'
             }`}
           >
-            Zero Waste
+            ZERO WASTE
           </span>
         </div>
       )}

@@ -11,10 +11,10 @@ import { SurplusQuickWinsView } from './components/SurplusQuickWinsView';
 import { SurplusNewslettersView } from './components/SurplusNewslettersView';
 import { SurplusHomeView } from './components/SurplusHomeView';
 import { SurplusCertificateModal } from './components/SurplusCertificateModal';
-import { ExportModal } from './components/ExportModal';
 import { SurplusCulinaryCoursesView } from './components/SurplusCulinaryCoursesView';
 import { SurplusWasteCalculator } from './components/SurplusWasteCalculator';
 import { AccessGateScreen, AuthenticatedSessionUser } from './components/AccessGateScreen';
+import { AdminPortalView } from './components/AdminPortalView';
 import { Compass, BookOpen, GraduationCap, Calculator, ChefHat, Mail, User, X, CheckCircle2, Lock, Award, Loader2 } from 'lucide-react';
 import {
   ExamUnlockStatus,
@@ -51,16 +51,22 @@ interface LearnerAccount {
 
 export default function App() {
   const [course] = React.useState<CourseOverview>(initialCourseData);
-  const [activeNavTab, setActiveNavTab] = React.useState<string>('home');
+  const [activeNavTab, setActiveNavTab] = React.useState<string>('courses');
   const [activeSection, setActiveSection] = React.useState<string>('');
   const [selectedCourseId, setSelectedCourseId] = React.useState<string | null>(null);
   const [searchQuery, setSearchQuery] = React.useState<string>('');
   const [completedLessonsCount] = React.useState<number>(2);
 
-  // Access Gate State (Locked by default unless verified redirect from zerowaste.supritamone.com, valid login, supritamone@gmail.com admin, or active plan)
+  // Access Gate & Admin Portal State
   const [authUser, setAuthUser] = React.useState<AuthenticatedSessionUser | null>(null);
   const [isCheckingAccess, setIsCheckingAccess] = React.useState<boolean>(true);
   const [gateNotice, setGateNotice] = React.useState<string | null>(null);
+  const [showAdminPortal, setShowAdminPortal] = React.useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return window.location.pathname === '/admin' || window.location.hash === '#admin';
+    }
+    return false;
+  });
 
   // Signed-in learner profile (defaults to user's email/name, persisted in localStorage)
   const [learnerAccount, setLearnerAccount] = React.useState<LearnerAccount>(() => {
@@ -111,7 +117,6 @@ export default function App() {
   // Modals
   const [showCertifyModal, setShowCertifyModal] = React.useState<boolean>(false);
   const [showCertLockedModal, setShowCertLockedModal] = React.useState<boolean>(false);
-  const [showExportModal, setShowExportModal] = React.useState<boolean>(false);
 
   // Global Overall Exam Status (Certificate unlocks ONLY when all 12 section exams passed with >= 37% overall score)
   const [examStatus, setExamStatus] = React.useState<ExamUnlockStatus>(() => {
@@ -131,6 +136,9 @@ export default function App() {
   const applyAuthenticatedSession = React.useCallback((user: AuthenticatedSessionUser, token: string) => {
     setAuthUser(user);
     setGateNotice(null);
+    setActiveNavTab('courses');
+    setActiveSection('');
+    setSelectedCourseId(null);
     const updatedLearner: LearnerAccount = {
       email: user.email,
       chosenName: user.name || deriveNameFromEmail(user.email),
@@ -230,6 +238,14 @@ export default function App() {
               setIsCheckingAccess(false);
               return;
             }
+          } else if (res.status === 403) {
+            const errData = await res.json().catch(() => null);
+            if (!cancelled) {
+              setGateNotice(
+                errData?.error ||
+                  'Your 3-Day Free Trial has ended or access was restricted. Select a paid plan or contact Admin.'
+              );
+            }
           }
         }
 
@@ -246,11 +262,16 @@ export default function App() {
             setIsCheckingAccess(false);
             return;
           }
-        } else if (savedToken) {
-          localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-          localStorage.removeItem(AUTH_USER_STORAGE_KEY);
-          if (!cancelled && res.status === 401) {
-            setGateNotice('Your session or trial has expired. Sign in or select a plan to restore access.');
+        } else {
+          const errData = await res.json().catch(() => null);
+          if (savedToken) {
+            localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+            localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+          }
+          if (!cancelled && (res.status === 403 || (savedToken && res.status === 401))) {
+            setGateNotice(
+              errData?.error || 'Your session or trial has expired. Sign in or select a plan to restore access.'
+            );
           }
         }
       } catch {
@@ -288,7 +309,20 @@ export default function App() {
       setSelectedCourseId('food-waste-prevention-chefs');
     } else {
       setSelectedCourseId(null);
+      if (tab === 'home' && typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     }
+  };
+
+  const handleScrollToSection = (sectionId: string) => {
+    setActiveNavTab('home');
+    setActiveSection('');
+    setSelectedCourseId(null);
+    setIsMobileDrawerOpen(false);
+    setTimeout(() => {
+      document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
+    }, 60);
   };
 
   const handleSelectSection = (sectionId: string) => {
@@ -311,6 +345,19 @@ export default function App() {
     setIsMobileDrawerOpen(false);
   };
 
+  if (showAdminPortal) {
+    return (
+      <AdminPortalView
+        onBackToApp={() => {
+          setShowAdminPortal(false);
+          if (typeof window !== 'undefined' && (window.location.pathname === '/admin' || window.location.hash === '#admin')) {
+            window.history.replaceState({}, '', '/');
+          }
+        }}
+      />
+    );
+  }
+
   if (isCheckingAccess) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center gap-3 p-4">
@@ -326,13 +373,14 @@ export default function App() {
     return (
       <AccessGateScreen
         onUnlocked={applyAuthenticatedSession}
+        onOpenAdminPortal={() => setShowAdminPortal(true)}
         initialNotice={gateNotice}
       />
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased flex flex-col selection:bg-blue-600 selection:text-white">
+    <div className={`min-h-screen overflow-x-clip ${activeNavTab === 'home' ? 'bg-white text-[#111111]' : 'bg-slate-50 text-slate-900'} font-sans antialiased flex flex-col selection:bg-black selection:text-white`}>
       {/* If a course player is open, render the full-screen Udemy player interface */}
       {selectedCourseId ? (
         <main className="flex-1 w-full">
@@ -352,11 +400,12 @@ export default function App() {
         <>
           {/* Top Navigation Bar */}
           <SurplusHeader
+            activeNavTab={activeNavTab}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             onOpenCertify={handleOpenCertificate}
-            onOpenExporter={() => setShowExportModal(true)}
             onSelectNavTab={handleSelectNavTab}
+            onScrollToSection={handleScrollToSection}
             isMobileDrawerOpen={isMobileDrawerOpen}
             onToggleMobileDrawer={() => setIsMobileDrawerOpen(prev => !prev)}
             learnerName={resolvedCertificateName}
@@ -368,6 +417,7 @@ export default function App() {
               setDraftName(learnerAccount.chosenName);
               setShowAccountModal(true);
             }}
+            onOpenAdminPortal={() => setShowAdminPortal(true)}
             onSignOut={handleSignOut}
           />
 
@@ -393,19 +443,29 @@ export default function App() {
                     handleOpenCertificate();
                     setIsMobileDrawerOpen(false);
                   }}
-                  onOpenExporter={() => {
-                    setShowExportModal(true);
-                    setIsMobileDrawerOpen(false);
-                  }}
                   onCloseDrawer={() => setIsMobileDrawerOpen(false)}
                 />
               </div>
             </div>
           )}
 
-          {/* AUTO-CALIBRATED RESPONSIVE PORTAL (Auto-adapts to Mobile, Tablet & Desktop viewports) */}
-          <div className="flex-1 flex max-w-7xl w-full mx-auto">
-              {/* Desktop Left Sidebar (hidden on mobile, drawer used instead) */}
+          {/* AUTO-CALIBRATED RESPONSIVE PORTAL: Full-width clean front page on Home, Sidebar Workspace on internal Academy views */}
+          {activeNavTab === 'home' ? (
+            <main className="flex-1 w-full bg-white pb-16 lg:pb-0">
+              <SurplusHomeView
+                onOpenCourse={handleOpenCourse}
+                onOpenLibrary={() => handleSelectNavTab('library')}
+                onOpenCertify={handleOpenCertificate}
+                onOpenSection={handleSelectSection}
+                onSelectNavTab={handleSelectNavTab}
+                onOpenAdminPortal={() => setShowAdminPortal(true)}
+                isCertificateUnlocked={examStatus.isUnlocked}
+                examStatus={examStatus}
+              />
+            </main>
+          ) : (
+            <div className="flex-1 flex max-w-7xl w-full mx-auto">
+              {/* Desktop Left Sidebar */}
               <div className="hidden lg:block shrink-0">
                 <SurplusSidebar
                   currentSection={activeSection}
@@ -416,22 +476,12 @@ export default function App() {
                   isCertificateUnlocked={examStatus.isUnlocked}
                   examStatus={examStatus}
                   onOpenCertify={handleOpenCertificate}
-                  onOpenExporter={() => setShowExportModal(true)}
                 />
               </div>
 
-              {/* Main Content Area - Auto-calibrates spacing on mobile vs desktop */}
+              {/* Main Content Area */}
               <main className="flex-1 p-3.5 sm:p-6 lg:p-8 overflow-y-auto pb-24 lg:pb-8 w-full max-w-full">
-                {activeNavTab === 'home' ? (
-                  <SurplusHomeView
-                    onOpenCourse={handleOpenCourse}
-                    onOpenLibrary={() => handleSelectNavTab('library')}
-                    onOpenCertify={handleOpenCertificate}
-                    onOpenSection={handleSelectSection}
-                    isCertificateUnlocked={examStatus.isUnlocked}
-                    examStatus={examStatus}
-                  />
-                ) : activeNavTab === 'culinary-courses' ? (
+                {activeNavTab === 'culinary-courses' ? (
                   <SurplusCulinaryCoursesView
                     onBackToZeroWaste={() => handleSelectNavTab('courses')}
                   />
@@ -466,12 +516,13 @@ export default function App() {
                 )}
               </main>
             </div>
+          )}
 
-          {/* MOBILE BOTTOM NAVIGATION BAR: Auto-calibrated for phone viewports */}
-          <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg">
+          {/* MOBILE BOTTOM NAVIGATION BAR: Auto-calibrated for phone & notched screen viewports */}
+          <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 sm:px-2 pt-1.5 safe-pb flex items-center justify-around shadow-lg">
             <button
               onClick={() => handleSelectNavTab('home')}
-              className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-lg text-[10px] font-bold transition-colors ${
+              className={`flex flex-col items-center justify-center py-1 px-1.5 sm:px-2.5 rounded-lg text-[10px] font-bold transition-colors ${
                 activeNavTab === 'home' ? 'text-blue-600' : 'text-slate-500 hover:text-slate-900'
               }`}
             >
@@ -481,7 +532,7 @@ export default function App() {
 
             <button
               onClick={() => handleSelectNavTab('courses')}
-              className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-lg text-[10px] font-bold transition-colors ${
+              className={`flex flex-col items-center justify-center py-1 px-1.5 sm:px-2.5 rounded-lg text-[10px] font-bold transition-colors ${
                 activeNavTab === 'courses' ? 'text-blue-600' : 'text-slate-500 hover:text-slate-900'
               }`}
             >
@@ -491,7 +542,7 @@ export default function App() {
 
             <button
               onClick={() => handleSelectNavTab('culinary-courses')}
-              className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-lg text-[10px] font-bold transition-colors ${
+              className={`flex flex-col items-center justify-center py-1 px-1.5 sm:px-2.5 rounded-lg text-[10px] font-bold transition-colors ${
                 activeNavTab === 'culinary-courses' ? 'text-emerald-600' : 'text-slate-500 hover:text-slate-900'
               }`}
             >
@@ -501,7 +552,7 @@ export default function App() {
 
             <button
               onClick={() => handleSelectNavTab('calculator')}
-              className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-lg text-[10px] font-bold transition-colors relative ${
+              className={`flex flex-col items-center justify-center py-1 px-1.5 sm:px-2.5 rounded-lg text-[10px] font-bold transition-colors relative ${
                 activeNavTab === 'calculator' || activeSection === 'waste-calculator'
                   ? 'text-emerald-700 bg-emerald-50 rounded-lg'
                   : 'text-slate-500 hover:text-slate-900'
@@ -516,7 +567,7 @@ export default function App() {
 
             <button
               onClick={() => handleSelectNavTab('library')}
-              className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-lg text-[10px] font-bold transition-colors ${
+              className={`flex flex-col items-center justify-center py-1 px-1.5 sm:px-2.5 rounded-lg text-[10px] font-bold transition-colors ${
                 activeNavTab === 'library' ? 'text-blue-600' : 'text-slate-500 hover:text-slate-900'
               }`}
             >
@@ -533,13 +584,6 @@ export default function App() {
         onClose={() => setShowCertifyModal(false)}
         defaultLearnerName={resolvedCertificateName}
         completionDateDefault={todayFormatted}
-      />
-
-      {/* MODAL 2: Alison, SCORM & LMS Publishing Kit Downloader */}
-      <ExportModal
-        course={course}
-        isOpen={showExportModal}
-        onClose={() => setShowExportModal(false)}
       />
 
       {/* MODAL 3: Learner Login / Account Identity Modal (Sets Certificate Name from Email or Login Choice) */}

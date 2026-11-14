@@ -69,6 +69,7 @@ import {
 } from '../data/udemyCourseStructure';
 import { audioNarrator, tokenizeTextIntoWords } from '../utils/audioNarrator';
 import { SupritamoneLogo } from './SupritamoneLogo';
+import iso9001Logo from '../assets/images/iso_9001_certified.png';
 
 interface SurplusCoursePlayerProps {
   courseId: string;
@@ -948,38 +949,34 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   return (
     <div className="min-h-screen bg-[#1c1d1f] text-white flex flex-col font-sans selection:bg-[#a435f0] selection:text-white">
       {/* 1. TOP NAVBAR: EXACT UDEMY BAR (Matches Image 1) */}
-      <header className="h-14 bg-[#1c1d1f] border-b border-[#2d2f31] px-4 flex items-center justify-between z-30 shrink-0">
-        <div className="flex items-center gap-3">
+      <header className="h-14 bg-[#1c1d1f] border-b border-[#2d2f31] px-2.5 sm:px-4 flex items-center justify-between gap-2 z-30 shrink-0 safe-pt">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           {/* Zero Waste by Supritamone Official Logo (Navigates to Home Page) */}
           <button
             onClick={() => (onGoHome ? onGoHome() : onBackToCourses())}
             className="flex items-center gap-2 group hover:opacity-95 transition-opacity cursor-pointer shrink-0"
             title="Go to Zero Waste Academy Home"
           >
-            <div className="bg-white rounded-lg px-2 py-0.5 sm:px-2.5 sm:py-1 shadow-xs flex items-center">
-              <img
-                src="/assets/images/zero_waste_logo.png"
-                alt="Zero Waste Academy"
-                className="h-6 sm:h-7 w-auto object-contain"
-              />
+            <div className="bg-white rounded-lg px-2 sm:px-2.5 py-1 shadow-xs flex items-center">
+              <SupritamoneLogo size="sm" />
             </div>
           </button>
 
-          <span className="text-[#6a6f73] hidden sm:inline">|</span>
+          <span className="text-[#6a6f73] hidden sm:inline shrink-0">|</span>
 
           {/* Course Title */}
-          <h1 className="text-xs sm:text-sm font-medium text-white truncate max-w-xs sm:max-w-md md:max-w-xl">
-            The Zero Waste Kitchen Course: Master Executive Diploma & Food Waste Science
+          <h1 className="text-xs sm:text-sm font-medium text-white truncate min-w-0">
+            The Zero Waste Kitchen Course: Master Executive Diploma &amp; Food Waste Science
           </h1>
         </div>
 
         {/* Right Nav Utilities */}
-        <div className="flex items-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-1.5 sm:gap-4 shrink-0">
           {/* Your Progress Dropdown Button */}
           <div className="relative group">
             <button
               onClick={() => setShowProgressMenu(prev => !prev)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md hover:bg-[#2d2f31] text-xs font-semibold text-white transition-colors cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-md hover:bg-[#2d2f31] text-xs font-semibold text-white transition-colors cursor-pointer"
             >
               <Award className="w-4 h-4 text-[#e59819]" />
               <span className="hidden md:inline">Your progress</span>
@@ -988,7 +985,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
             </button>
 
             {/* Progress Dropdown Card */}
-            <div className={`absolute right-0 top-full mt-1 w-64 p-4 bg-[#1c1d1f] border border-[#3e4143] rounded-lg shadow-2xl transition-all z-50 ${
+            <div className={`absolute right-0 top-full mt-1 w-64 max-w-[calc(100vw-1.5rem)] p-4 bg-[#1c1d1f] border border-[#3e4143] rounded-lg shadow-2xl transition-all z-50 ${
               showProgressMenu ? 'opacity-100 visible' : 'opacity-0 invisible group-hover:opacity-100 group-hover:visible'
             }`}>
               <div className="flex items-center justify-between text-xs mb-1.5">
@@ -1164,10 +1161,9 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                         {/* Official Quality Badge */}
                         <div className="p-4 rounded-xl bg-[#2d2f31] border border-[#3e4143] flex items-center justify-center gap-4 my-4">
                           <img 
-                            src="/assets/images/iso_9001_certified.png" 
+                            src={iso9001Logo} 
                             alt="ISO 9001:2015 Certified"
-                            className="h-9 object-contain bg-white rounded p-1"
-                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/images_7ff73340.png'; }}
+                            className="h-10 object-contain bg-white rounded p-1"
                           />
                         </div>
 
@@ -1268,9 +1264,9 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
               </div>
             ) : (
               /* --- VIDEO LECTURE PLAYER WITH REAL SLIDE PRESENTATION VISUALS --- */
-              <div className="relative min-h-[340px] sm:min-h-0 sm:aspect-video w-full flex items-center justify-center overflow-hidden group">
+              <div className="relative min-h-[420px] sm:min-h-0 sm:aspect-video w-full flex items-center justify-center overflow-hidden group">
                 {/* 1. REAL SLIDE CANVAS */}
-                <div className="absolute inset-0 bg-[#f7f9fa] text-slate-900 p-4 sm:p-8 lg:p-10 flex flex-col justify-between overflow-y-auto sm:overflow-hidden pb-16 sm:pb-14">
+                <div className="absolute inset-0 bg-[#f7f9fa] text-slate-900 p-4 sm:p-8 lg:p-10 flex flex-col justify-between overflow-y-auto sm:overflow-hidden pb-20 sm:pb-14">
                   {/* Slide Header: Course program & Title (padded right to never touch top-right PiP card) */}
                   <div className="flex items-start justify-between border-b-2 border-slate-200 pb-2 sm:pb-3 pr-28 sm:pr-48">
                     <div>
@@ -1333,11 +1329,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   {/* Slide Footer */}
                   <div className="flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-200 pt-2 font-mono">
                     <div className="flex items-center gap-2">
-                      <img
-                        src="/assets/images/zero_waste_logo.png"
-                        alt="Zero Waste Academy"
-                        className="h-4 sm:h-5 w-auto object-contain"
-                      />
+                      <SupritamoneLogo size="sm" showSubtitle={false} />
                       <span>· Dr. Chef Supritam Basu, PhD, CEC</span>
                     </div>
                     <span>Slide {currentSlideIdx + 1} of {currentLecture.slides.length}</span>
@@ -1383,8 +1375,8 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
 
                 {/* 4. LIVE-SYNCED SUBTITLES / CLOSED CAPTIONS BANNER (Word-by-word karaoke highlight) */}
                 {showCaptions && currentCaption && (
-                  <div className="absolute bottom-14 left-4 right-4 z-20 flex justify-center pointer-events-none">
-                    <div className="bg-black/85 text-white text-xs sm:text-sm font-medium px-4 py-2 rounded-lg max-w-2xl text-center shadow-2xl backdrop-blur-xs border border-white/10 leading-relaxed">
+                  <div className="absolute bottom-12 sm:bottom-14 left-2 right-2 sm:left-4 sm:right-4 z-20 flex justify-center pointer-events-none">
+                    <div className="bg-black/85 text-white text-[11px] sm:text-sm font-medium px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg max-w-2xl text-center shadow-2xl backdrop-blur-xs border border-white/10 leading-relaxed">
                       {tokenizeTextIntoWords(currentCaption.text).map((tok, wIdx) => {
                         const isActiveWord = isPlaying && wIdx === activeWordIndex;
                         const isSpoken = isPlaying && activeWordIndex >= 0 && wIdx < activeWordIndex;
@@ -1434,9 +1426,9 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   </div>
 
                   {/* Buttons Row */}
-                  <div className="flex items-center justify-between text-white text-xs px-1">
+                  <div className="flex items-center justify-between text-white text-xs px-0.5 sm:px-1">
                     {/* Left: Play/Pause, Rewind 5s, Speed, Forward 5s, Time */}
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 sm:gap-3">
                       <button
                         onClick={handleTogglePlay}
                         className="hover:text-[#a435f0] transition-colors cursor-pointer"
@@ -1498,7 +1490,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                     </div>
 
                     {/* Right: Volume, CC, Settings, Fullscreen */}
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 sm:gap-3">
                       {/* Audio mute */}
                       <button
                         onClick={() => {
@@ -1549,7 +1541,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                         </button>
 
                         {showSettingsMenu && (
-                          <div className="absolute bottom-full right-0 mb-2 w-64 bg-[#1c1d1f] border border-[#3e4143] rounded-xl shadow-2xl p-3 z-50 text-xs text-white space-y-3">
+                          <div className="absolute bottom-full right-0 mb-2 w-60 sm:w-64 max-w-[calc(100vw-2rem)] bg-[#1c1d1f] border border-[#3e4143] rounded-xl shadow-2xl p-3 z-50 text-xs text-white space-y-3">
                             <div className="flex items-center justify-between border-b border-[#2d2f31] pb-2">
                               <span className="font-bold text-white">Player Settings</span>
                               <button
@@ -1658,7 +1650,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
           </div>
 
           {/* BELOW VIDEO TABS BAR (Matching Image 1, 6, 7) */}
-          <div className="border-b border-slate-200 bg-white px-6 flex items-center gap-6 overflow-x-auto shrink-0 select-none">
+          <div className="border-b border-slate-200 bg-white px-3 sm:px-6 flex items-center gap-4 sm:gap-6 overflow-x-auto shrink-0 select-none">
             {/* Search Icon */}
             <button
               onClick={() => setActiveTab('search')}
@@ -1706,7 +1698,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
           </div>
 
           {/* TAB CONTENT PANELS */}
-          <div className="p-6 sm:p-8 space-y-8 flex-1 bg-white text-slate-900">
+          <div className="p-4 sm:p-6 lg:p-8 space-y-8 flex-1 bg-white text-slate-900">
             {/* TAB 1: OVERVIEW (Matching Image 7 & 8) */}
             {activeTab === 'overview' && (
               <div className="space-y-8 max-w-4xl">
@@ -2507,7 +2499,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
 
         {/* RIGHT COLUMN: COLLAPSIBLE "COURSE CONTENT" SIDEBAR (Exact Udemy layout from Images 2, 3, 4) */}
         {isSidebarOpen && (
-          <aside className="w-full lg:w-96 bg-[#1c1d1f] border-l border-[#2d2f31] flex flex-col z-20 shrink-0 h-full overflow-y-auto">
+          <aside className="w-full lg:w-96 bg-[#1c1d1f] border-t lg:border-t-0 lg:border-l border-[#2d2f31] flex flex-col z-20 shrink-0 max-h-[70vh] lg:max-h-none lg:h-full overflow-y-auto">
             {/* Sidebar Top Header with Tabs & Close X (Image 2) */}
             <div className="p-3.5 border-b border-[#2d2f31] flex items-center justify-between text-white shrink-0">
               <div className="flex items-center gap-4 text-xs font-bold">

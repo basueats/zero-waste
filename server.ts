@@ -24,143 +24,291 @@ const SESSION_SECRET =
   crypto.createHash('sha256').update(`supritamone-academy-${process.env.GEMINI_API_KEY || 'local-dev'}`).digest('hex');
 
 const PERMANENT_ADMIN_EMAIL = 'supritamone@gmail.com';
+const FACULTY_ADMIN_EMAIL = 'supritam.basu@supritamone.com';
+const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || 'Babaisona2029@';
+const DEFAULT_ADMIN_RECOVERY_KEY = process.env.ADMIN_RECOVERY_KEY || 'ZW-MASTER-791463';
+const SESSION_COOKIE_NAME = 'supritamone_academy_session';
+const ADMIN_COOKIE_NAME = 'supritamone_admin_session';
+
+type UserPaymentStatus = 'paid' | 'unpaid' | 'trial' | 'pending_approval' | 'admin';
+type UserAccountStatus = 'active' | 'expired' | 'restricted' | 'pending_approval';
 
 interface StoredAuthUser {
   email: string;
   name: string;
   passwordHash?: string;
   role: 'admin' | 'member';
-  planId: 'admin' | 'trial' | 'individual' | 'team' | 'training';
+  planId: 'admin' | 'trial' | 'individual' | 'team' | 'training' | 'partner_member';
   planTitle: string;
-  status: 'active' | 'expired';
+  paymentStatus: UserPaymentStatus;
+  amountPaid: number;
+  currency: string;
+  workPlace?: string;
+  designation?: string;
+  chefSeats?: number;
+  status: UserAccountStatus;
+  restrictedByAdmin?: boolean;
+  restrictedReason?: string;
   expiresAt: number | null;
   transactionRef?: string;
   source?: string;
+  lastLoginAt?: number | null;
+  loginCount?: number;
+  lastIp?: string;
+  deviceInfo?: string;
   createdAt: number;
   updatedAt: number;
 }
 
-interface AuthStoreData {
-  users: Record<string, StoredAuthUser>;
+interface LoginAuditEntry {
+  id: string;
+  email: string;
+  name: string;
+  action:
+    | 'login'
+    | 'partner_sso'
+    | 'plan_activation'
+    | 'trial_started'
+    | 'blocked_expired'
+    | 'blocked_restricted'
+    | 'blocked_bad_password'
+    | 'admin_action';
+  status: 'success' | 'blocked' | 'info';
+  detail: string;
+  planId?: string;
+  paymentStatus?: string;
+  ip?: string;
+  device?: string;
+  timestamp: number;
 }
 
-const SEED_PARTNER_USERS: Array<Omit<StoredAuthUser, 'createdAt' | 'updatedAt'>> = [
+interface AdminSettings {
+  displayName: string;
+  notificationEmail: string;
+  passwordHash?: string;
+  recoveryKey?: string;
+  resetTokenHash?: string;
+  resetTokenExpiresAt?: number;
+}
+
+interface AuthStoreData {
+  users: Record<string, StoredAuthUser>;
+  loginLogs: LoginAuditEntry[];
+  adminSettings: AdminSettings;
+}
+
+const nowInit = Date.now();
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const SEED_PARTNER_USERS: Array<StoredAuthUser> = [
   {
     email: 'supritamone@gmail.com',
     name: 'Supritamone Master Admin',
     role: 'admin',
     planId: 'admin',
     planTitle: 'Permanent Executive Admin Access',
+    paymentStatus: 'admin',
+    amountPaid: 0,
+    currency: 'USD',
+    workPlace: 'Supritamone Academy HQ',
+    designation: 'Master Administrator',
     status: 'active',
+    restrictedByAdmin: false,
     expiresAt: null,
     source: 'admin_root',
-  },
-  {
-    email: 'supritam.basu@supritamone.com',
-    name: 'Dr. Chef Supritam Basu',
-    role: 'admin',
-    planId: 'admin',
-    planTitle: 'Faculty & Master Executive Admin',
-    status: 'active',
-    expiresAt: null,
-    source: 'admin_faculty',
-  },
-  {
-    email: 'basueats@gmail.com',
-    name: 'Supritam Basu',
-    role: 'member',
-    planId: 'training',
-    planTitle: 'Executive Advisory & Training',
-    status: 'active',
-    expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
-    source: 'zerowaste.supritamone.com',
-  },
-  {
-    email: 'culinary.director@grandresort.com',
-    name: 'Executive Culinary Director',
-    role: 'member',
-    planId: 'training',
-    planTitle: 'Executive Advisory & Training',
-    status: 'active',
-    expiresAt: Date.now() + 337 * 24 * 60 * 60 * 1000,
-    transactionRef: 'ZN-PAY-9812401',
-    source: 'zerowaste.supritamone.com',
-  },
-  {
-    email: 'head.chef@metropolitanhotel.com',
-    name: 'Brigade Operations Lead',
-    role: 'member',
-    planId: 'team',
-    planTitle: 'Team Brigade Plan (5+ Chefs)',
-    status: 'active',
-    expiresAt: Date.now() + 356 * 24 * 60 * 60 * 1000,
-    transactionRef: 'ZN-PAY-4491022',
-    source: 'zerowaste.supritamone.com',
-  },
-  {
-    email: 'pastry.station@artisanbistro.fr',
-    name: 'Pastry & Bakery Supervisor',
-    role: 'member',
-    planId: 'individual',
-    planTitle: 'Individual Chef Annual Plan',
-    status: 'active',
-    expiresAt: Date.now() + 360 * 24 * 60 * 60 * 1000,
-    transactionRef: 'ZN-PAY-7719203',
-    source: 'zerowaste.supritamone.com',
-  },
-  {
-    email: 'banquet.prep@cityconvention.org',
-    name: 'Banquet Sous Chef',
-    role: 'member',
-    planId: 'trial',
-    planTitle: '3-Day Free Trial',
-    status: 'active',
-    expiresAt: Date.now() + 2 * 24 * 60 * 60 * 1000,
-    source: 'zerowaste.supritamone.com',
-  },
-  {
-    email: 'operations@summitcatering.com',
-    name: 'Catering Operations Manager',
-    role: 'member',
-    planId: 'trial',
-    planTitle: '3-Day Free Trial (Ended)',
-    status: 'expired',
-    expiresAt: Date.now() - 4 * 24 * 60 * 60 * 1000,
-    source: 'zerowaste.supritamone.com',
+    lastLoginAt: nowInit,
+    loginCount: 1,
+    lastIp: '127.0.0.1',
+    deviceInfo: 'Web Browser',
+    createdAt: nowInit,
+    updatedAt: nowInit,
   },
 ];
 
+const DEFAULT_LOGIN_LOGS: LoginAuditEntry[] = [
+  {
+    id: 'log-seed-1',
+    email: 'supritamone@gmail.com',
+    name: 'Supritamone Master Admin',
+    action: 'login',
+    status: 'success',
+    detail: 'Permanent Executive Admin initialized',
+    planId: 'admin',
+    paymentStatus: 'admin',
+    ip: '127.0.0.1',
+    device: 'Web Browser',
+    timestamp: nowInit,
+  },
+];
+
+function inferPaymentAndAmount(u: Partial<StoredAuthUser>): { paymentStatus: UserPaymentStatus; amountPaid: number } {
+  if (u.email === PERMANENT_ADMIN_EMAIL || u.role === 'admin' || u.planId === 'admin') {
+    return { paymentStatus: 'admin', amountPaid: 0 };
+  }
+  if (u.paymentStatus) {
+    return { paymentStatus: u.paymentStatus, amountPaid: Number(u.amountPaid || 0) };
+  }
+  if (u.status === 'expired' || u.status === 'restricted') {
+    return { paymentStatus: 'unpaid', amountPaid: 0 };
+  }
+  if (u.planId === 'trial') {
+    return { paymentStatus: 'trial', amountPaid: 0 };
+  }
+  if (u.planId === 'individual') {
+    return { paymentStatus: u.transactionRef ? 'paid' : 'unpaid', amountPaid: u.transactionRef ? 99 : 0 };
+  }
+  if (u.planId === 'team') {
+    const amt = Math.max(5, Number(u.chefSeats || 5)) * 79;
+    return { paymentStatus: u.transactionRef ? 'paid' : 'unpaid', amountPaid: u.transactionRef ? amt : 0 };
+  }
+  if (u.planId === 'training') {
+    return { paymentStatus: u.transactionRef ? 'paid' : 'unpaid', amountPaid: u.transactionRef ? 1499 : 0 };
+  }
+  return { paymentStatus: u.transactionRef ? 'paid' : 'trial', amountPaid: Number(u.amountPaid || 0) };
+}
+
+function hydrateUserRecord(raw: Partial<StoredAuthUser>, emailKey: string, now: number): { user: StoredAuthUser; changed: boolean } {
+  let changed = false;
+  const { paymentStatus: inferredPay, amountPaid: inferredAmt } = inferPaymentAndAmount({ ...raw, email: emailKey });
+  const user: StoredAuthUser = {
+    email: emailKey,
+    name: raw.name || deriveDisplayName(emailKey),
+    passwordHash: raw.passwordHash,
+    role: emailKey === PERMANENT_ADMIN_EMAIL ? 'admin' : raw.role || 'member',
+    planId: emailKey === PERMANENT_ADMIN_EMAIL ? 'admin' : (raw.planId as StoredAuthUser['planId']) || 'trial',
+    planTitle:
+      emailKey === PERMANENT_ADMIN_EMAIL
+        ? 'Permanent Executive Admin Access'
+        : raw.planTitle || 'Verified Member',
+    paymentStatus: inferredPay,
+    amountPaid: raw.amountPaid !== undefined ? Number(raw.amountPaid) : inferredAmt,
+    currency: raw.currency || 'USD',
+    workPlace: raw.workPlace || '',
+    designation: raw.designation || '',
+    chefSeats: raw.chefSeats,
+    status: emailKey === PERMANENT_ADMIN_EMAIL ? 'active' : raw.status || 'active',
+    restrictedByAdmin: emailKey === PERMANENT_ADMIN_EMAIL ? false : Boolean(raw.restrictedByAdmin),
+    restrictedReason: emailKey === PERMANENT_ADMIN_EMAIL ? undefined : raw.restrictedReason,
+    expiresAt: emailKey === PERMANENT_ADMIN_EMAIL ? null : raw.expiresAt ?? null,
+    transactionRef: raw.transactionRef,
+    source: raw.source || 'zerowaste.supritamone.com',
+    lastLoginAt: raw.lastLoginAt ?? raw.updatedAt ?? raw.createdAt ?? null,
+    loginCount: raw.loginCount ?? 1,
+    lastIp: raw.lastIp || '127.0.0.1',
+    deviceInfo: raw.deviceInfo || 'Web Browser',
+    createdAt: raw.createdAt || now,
+    updatedAt: raw.updatedAt || now,
+  };
+
+  if (!raw.paymentStatus || raw.currency === undefined || raw.loginCount === undefined) {
+    changed = true;
+  }
+
+  // Enforce automatic post-trial lockout when 3-day free trial expires
+  if (
+    user.email !== PERMANENT_ADMIN_EMAIL &&
+    user.role !== 'admin' &&
+    user.planId === 'trial' &&
+    user.expiresAt &&
+    now > user.expiresAt &&
+    user.status !== 'restricted'
+  ) {
+    user.status = 'restricted';
+    user.paymentStatus = 'unpaid';
+    user.restrictedReason = user.restrictedReason || '3-Day Free Trial Ended — Auto-Restricted';
+    user.updatedAt = now;
+    changed = true;
+  }
+
+  // Guarantee supritamone@gmail.com always remains unrestricted active admin
+  if (emailKey === PERMANENT_ADMIN_EMAIL) {
+    user.role = 'admin';
+    user.planId = 'admin';
+    user.planTitle = 'Permanent Executive Admin Access';
+    user.paymentStatus = 'admin';
+    user.status = 'active';
+    user.restrictedByAdmin = false;
+    user.restrictedReason = undefined;
+    user.expiresAt = null;
+  }
+
+  return { user, changed };
+}
+
+function deriveDisplayName(email: string): string {
+  return (email.split('@')[0] || 'Zero Waste Chef')
+    .replace(/[._-]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function loadAuthStore(): AuthStoreData {
-  let data: AuthStoreData = { users: {} };
+  let data: AuthStoreData = {
+    users: {},
+    loginLogs: [...DEFAULT_LOGIN_LOGS],
+    adminSettings: {
+      displayName: 'Dr. Chef Supritam Basu',
+      notificationEmail: FACULTY_ADMIN_EMAIL,
+    },
+  };
   try {
     if (fs.existsSync(AUTH_STORE_PATH)) {
       const parsed = JSON.parse(fs.readFileSync(AUTH_STORE_PATH, 'utf-8'));
-      if (parsed && parsed.users && typeof parsed.users === 'object') {
-        data = parsed;
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.users && typeof parsed.users === 'object') {
+          data.users = parsed.users;
+        }
+        if (Array.isArray(parsed.loginLogs)) {
+          data.loginLogs = parsed.loginLogs;
+        }
+        if (parsed.adminSettings && typeof parsed.adminSettings === 'object') {
+          data.adminSettings = {
+            displayName: parsed.adminSettings.displayName || 'Dr. Chef Supritam Basu',
+            notificationEmail: parsed.adminSettings.notificationEmail || FACULTY_ADMIN_EMAIL,
+            passwordHash: parsed.adminSettings.passwordHash,
+            recoveryKey: parsed.adminSettings.recoveryKey,
+            resetTokenHash: parsed.adminSettings.resetTokenHash,
+            resetTokenExpiresAt: parsed.adminSettings.resetTokenExpiresAt,
+          };
+        }
       }
     }
   } catch {
     // Initialize fresh store
   }
+
   const now = Date.now();
   let modified = false;
+
+  if (!data.adminSettings.passwordHash) {
+    data.adminSettings.passwordHash = hashPassword(DEFAULT_ADMIN_PASSWORD);
+    modified = true;
+  }
+  if (!data.adminSettings.recoveryKey) {
+    data.adminSettings.recoveryKey = DEFAULT_ADMIN_RECOVERY_KEY;
+    modified = true;
+  }
+
   for (const seed of SEED_PARTNER_USERS) {
     const key = seed.email.toLowerCase();
     if (!data.users[key]) {
-      data.users[key] = { ...seed, email: key, createdAt: now, updatedAt: now };
+      data.users[key] = { ...seed, email: key };
       modified = true;
-    } else if (key === PERMANENT_ADMIN_EMAIL) {
-      // Guarantee supritamone@gmail.com always remains unrestricted active admin
-      data.users[key] = {
-        ...data.users[key],
-        role: 'admin',
-        planId: 'admin',
-        planTitle: 'Permanent Executive Admin Access',
-        status: 'active',
-        expiresAt: null,
-      };
     }
   }
+
+  for (const [key, rawUser] of Object.entries(data.users)) {
+    const lowerKey = key.toLowerCase();
+    const { user, changed } = hydrateUserRecord(rawUser, lowerKey, now);
+    data.users[lowerKey] = user;
+    if (lowerKey !== key) {
+      delete data.users[key];
+      modified = true;
+    }
+    if (changed) {
+      modified = true;
+    }
+  }
+
   if (modified) {
     saveAuthStore(data);
   }
@@ -173,6 +321,89 @@ function saveAuthStore(data: AuthStoreData): void {
   } catch {
     // Ignore disk errors in read-only environments
   }
+}
+
+function getClientIp(req: express.Request): string {
+  const fwd = req.headers['x-forwarded-for'];
+  if (typeof fwd === 'string' && fwd.trim()) {
+    return fwd.split(',')[0].trim();
+  }
+  return req.ip || req.socket?.remoteAddress || '127.0.0.1';
+}
+
+function getDeviceSummary(req: express.Request): string {
+  const ua = String(req.headers['user-agent'] || '');
+  if (!ua) return 'Unknown Client';
+  if (/curl/i.test(ua)) return 'CLI / cURL';
+  const browser = /Edg\//i.test(ua)
+    ? 'Edge'
+    : /Chrome\//i.test(ua)
+      ? 'Chrome'
+      : /Firefox\//i.test(ua)
+        ? 'Firefox'
+        : /Safari\//i.test(ua)
+          ? 'Safari'
+          : 'Browser';
+  const os = /iPhone|iPad/i.test(ua)
+    ? 'iOS'
+    : /Android/i.test(ua)
+      ? 'Android'
+      : /Mac OS X/i.test(ua)
+        ? 'macOS'
+        : /Windows/i.test(ua)
+          ? 'Windows'
+          : /Linux/i.test(ua)
+            ? 'Linux'
+            : 'Device';
+  return `${browser} · ${os}`;
+}
+
+function recordLoginAudit(
+  store: AuthStoreData,
+  entry: Omit<LoginAuditEntry, 'id' | 'timestamp'>
+): void {
+  const item: LoginAuditEntry = {
+    ...entry,
+    id: `log-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`,
+    timestamp: Date.now(),
+  };
+  store.loginLogs = [item, ...(store.loginLogs || [])].slice(0, 400);
+}
+
+function isUserBlocked(
+  record: StoredAuthUser | undefined,
+  now: number
+): { blocked: boolean; code: 'restricted' | 'expired' | null; message: string } {
+  if (!record) {
+    return { blocked: true, code: 'restricted', message: 'Account not found or removed.' };
+  }
+  if (record.email.toLowerCase() === PERMANENT_ADMIN_EMAIL || record.role === 'admin') {
+    return { blocked: false, code: null, message: '' };
+  }
+  if (record.status === 'restricted' || record.restrictedByAdmin) {
+    return {
+      blocked: true,
+      code: 'restricted',
+      message:
+        record.restrictedReason ||
+        'Your access has been restricted after trial expiration or by the Administrator. Please upgrade to a paid plan to restore access.',
+    };
+  }
+  if (record.status === 'pending_approval') {
+    return {
+      blocked: true,
+      code: 'restricted',
+      message: 'Your payment verification is pending Administrator approval.',
+    };
+  }
+  if (record.status === 'expired' || (record.expiresAt && now > record.expiresAt)) {
+    return {
+      blocked: true,
+      code: 'expired',
+      message: 'Your 3-Day Free Trial or subscription period has ended. Choose a paid plan below to unlock full access.',
+    };
+  }
+  return { blocked: false, code: null, message: '' };
 }
 
 function hashPassword(password: string): string {
@@ -244,7 +475,45 @@ function verifySessionToken(token: string): {
   }
 }
 
-const SESSION_COOKIE_NAME = 'supritamone_academy_session';
+function signAdminToken(payload: {
+  username: string;
+  displayName: string;
+  notificationEmail: string;
+}): string {
+  const fullPayload = {
+    ...payload,
+    scope: 'supritamone_admin',
+    expiresAt: Date.now() + 7 * DAY_MS,
+  };
+  const encoded = Buffer.from(JSON.stringify(fullPayload)).toString('base64url');
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(encoded).digest('base64url');
+  return `${encoded}.${sig}`;
+}
+
+function verifyAdminToken(token: string): {
+  username: string;
+  displayName: string;
+  notificationEmail: string;
+} | null {
+  if (!token || !token.includes('.')) return null;
+  const [encoded, sig] = token.split('.');
+  const expectedSig = crypto.createHmac('sha256', SESSION_SECRET).update(encoded).digest('base64url');
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
+      return null;
+    }
+    const decoded = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf-8'));
+    if (!decoded || decoded.scope !== 'supritamone_admin') return null;
+    if (decoded.expiresAt && Date.now() > Number(decoded.expiresAt)) return null;
+    return {
+      username: decoded.username,
+      displayName: decoded.displayName,
+      notificationEmail: decoded.notificationEmail,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function parseCookies(cookieHeader: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};
@@ -294,6 +563,22 @@ function clearSessionCookie(req: express.Request, res: express.Response): void {
   res.setHeader('Set-Cookie', cookiesToClear);
 }
 
+function setAdminCookie(req: express.Request, res: express.Response, token: string): void {
+  const attrs = buildCookieAttributes(req, 7 * 24 * 60 * 60);
+  res.setHeader('Set-Cookie', `${ADMIN_COOKIE_NAME}=${encodeURIComponent(token)}; ${attrs.join('; ')}`);
+}
+
+function clearAdminCookie(req: express.Request, res: express.Response): void {
+  const host = String(req.hostname || req.headers.host || '').toLowerCase().split(':')[0];
+  const isHttps = req.secure || String(req.headers['x-forwarded-proto'] || '').toLowerCase() === 'https';
+  const base = ['Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0', ...(isHttps ? ['Secure'] : [])];
+  const cookiesToClear = [`${ADMIN_COOKIE_NAME}=; ${base.join('; ')}`];
+  if (host === 'supritamone.com' || host.endsWith('.supritamone.com')) {
+    cookiesToClear.push(`${ADMIN_COOKIE_NAME}=; ${[...base, 'Domain=.supritamone.com'].join('; ')}`);
+  }
+  res.setHeader('Set-Cookie', cookiesToClear);
+}
+
 function isPartnerOriginUrl(rawUrl: string | undefined | null): boolean {
   if (!rawUrl || typeof rawUrl !== 'string') return false;
   try {
@@ -325,30 +610,129 @@ function issuePartnerRedirectSession(opts: {
   email?: string;
   name?: string;
   planId?: string;
-}) {
+  ip?: string;
+  device?: string;
+}): {
+  user?: {
+    email: string;
+    name: string;
+    role: 'admin' | 'member';
+    planId: string;
+    planTitle: string;
+    expiresAt: number | null;
+    source: string;
+  };
+  token?: string;
+  blockedReason?: string;
+  blockedCode?: 'restricted' | 'expired';
+} {
   const store = loadAuthStore();
+  const now = Date.now();
   const rawEmail = String(opts.email || '').trim().toLowerCase();
   const cleanEmail = rawEmail && rawEmail.includes('@') ? rawEmail : 'member@zerowaste.supritamone.com';
   const existing = store.users[cleanEmail];
   const isAdmin = cleanEmail === PERMANENT_ADMIN_EMAIL || existing?.role === 'admin';
+
+  // Enforce Admin restriction / ended trial even if user returns via partner link
+  if (existing && !isAdmin) {
+    const check = isUserBlocked(existing, now);
+    if (check.blocked) {
+      recordLoginAudit(store, {
+        email: cleanEmail,
+        name: existing.name,
+        action: check.code === 'expired' ? 'blocked_expired' : 'blocked_restricted',
+        status: 'blocked',
+        detail: `SSO arrival blocked: ${check.message}`,
+        planId: existing.planId,
+        paymentStatus: existing.paymentStatus,
+        ip: opts.ip,
+        device: opts.device,
+      });
+      saveAuthStore(store);
+      return {
+        blockedReason: check.message,
+        blockedCode: check.code || 'restricted',
+      };
+    }
+  }
+
   const resolvedName =
     String(opts.name || '').trim() ||
     existing?.name ||
     (cleanEmail === 'member@zerowaste.supritamone.com'
       ? 'Zero Waste Member'
-      : (cleanEmail.split('@')[0] || 'Zero Waste Member')
-          .replace(/[._-]+/g, ' ')
-          .replace(/\b\w/g, (c) => c.toUpperCase()));
+      : deriveDisplayName(cleanEmail));
 
-  const requestedPlan = String(opts.planId || '').trim().toLowerCase();
-  const resolvedPlanId = isAdmin ? 'admin' : existing?.planId || requestedPlan || 'partner_member';
+  const requestedPlanRaw = String(opts.planId || '').trim().toLowerCase();
+  const allowedPlans = ['admin', 'trial', 'individual', 'team', 'training', 'partner_member'] as const;
+  const resolvedPlanId = isAdmin
+    ? 'admin'
+    : existing?.planId ||
+      (allowedPlans.includes(requestedPlanRaw as StoredAuthUser['planId'])
+        ? (requestedPlanRaw as StoredAuthUser['planId'])
+        : 'partner_member');
+
   const resolvedPlanTitle = isAdmin
     ? 'Permanent Executive Admin Access'
-    : existing?.planTitle || 'Verified Member · zerowaste.supritamone.com';
+    : existing?.planTitle ||
+      (resolvedPlanId === 'trial'
+        ? '3-Day Free Trial (Partner SSO)'
+        : 'Verified Member · zerowaste.supritamone.com');
 
-  // Verified redirect from zerowaste.supritamone.com always grants active unlocked access (never carryover stale expired date)
-  const minActiveExpiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
-  const resolvedExpiry = isAdmin ? null : Math.max(Number(existing?.expiresAt || 0), minActiveExpiry);
+  const defaultExpiry = resolvedPlanId === 'trial' ? now + 3 * DAY_MS : now + 30 * DAY_MS;
+  const resolvedExpiry = isAdmin ? null : existing?.expiresAt ? Math.max(existing.expiresAt, now + DAY_MS) : defaultExpiry;
+
+  const paymentStatus: UserPaymentStatus = isAdmin
+    ? 'admin'
+    : existing?.paymentStatus || (resolvedPlanId === 'trial' ? 'trial' : 'paid');
+  const amountPaid = isAdmin
+    ? 0
+    : existing?.amountPaid !== undefined
+      ? existing.amountPaid
+      : resolvedPlanId === 'individual'
+        ? 99
+        : resolvedPlanId === 'team'
+          ? 395
+          : resolvedPlanId === 'training'
+            ? 1499
+            : 0;
+
+  store.users[cleanEmail] = {
+    ...(existing || {}),
+    email: cleanEmail,
+    name: resolvedName,
+    role: isAdmin ? 'admin' : 'member',
+    planId: resolvedPlanId,
+    planTitle: resolvedPlanTitle,
+    paymentStatus,
+    amountPaid,
+    currency: existing?.currency || 'USD',
+    workPlace: existing?.workPlace || 'zerowaste.supritamone.com',
+    designation: existing?.designation || 'Culinary Brigade Member',
+    status: 'active',
+    restrictedByAdmin: false,
+    expiresAt: resolvedExpiry,
+    source: existing?.source || 'redirect_zerowaste.supritamone.com',
+    lastLoginAt: now,
+    loginCount: (existing?.loginCount || 0) + 1,
+    lastIp: opts.ip || existing?.lastIp || '127.0.0.1',
+    deviceInfo: opts.device || existing?.deviceInfo || 'Web Browser',
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+
+  recordLoginAudit(store, {
+    email: cleanEmail,
+    name: resolvedName,
+    action: 'partner_sso',
+    status: 'success',
+    detail: `Auto-unlocked via zerowaste.supritamone.com (${resolvedPlanTitle})`,
+    planId: resolvedPlanId,
+    paymentStatus,
+    ip: opts.ip,
+    device: opts.device,
+  });
+  saveAuthStore(store);
 
   const sessionPayload = {
     email: cleanEmail,
@@ -660,10 +1044,28 @@ app.get('/api/auth/session', (req, res) => {
   const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
   const cookies = parseCookies(req.headers.cookie);
   const cookieToken = cookies[SESSION_COOKIE_NAME] || '';
-
   const candidateToken = bearerToken || cookieToken;
   const verified = verifySessionToken(candidateToken);
+  const ip = getClientIp(req);
+  const device = getDeviceSummary(req);
+
   if (verified) {
+    const store = loadAuthStore();
+    const now = Date.now();
+    const cleanEmail = verified.email.toLowerCase();
+    if (cleanEmail !== PERMANENT_ADMIN_EMAIL) {
+      const record = store.users[cleanEmail];
+      const blockCheck = isUserBlocked(record, now);
+      if (blockCheck.blocked) {
+        clearSessionCookie(req, res);
+        return res.status(403).json({
+          authenticated: false,
+          restricted: blockCheck.code === 'restricted',
+          expired: blockCheck.code === 'expired',
+          error: blockCheck.message,
+        });
+      }
+    }
     setSessionCookie(req, res, candidateToken);
     return res.json({
       authenticated: true,
@@ -674,13 +1076,23 @@ app.get('/api/auth/session', (req, res) => {
 
   const headerReferrer = String(req.headers.referer || req.headers.referrer || '');
   if (isPartnerOriginUrl(headerReferrer)) {
-    const partnerSession = issuePartnerRedirectSession({});
-    setSessionCookie(req, res, partnerSession.token);
-    return res.json({
-      authenticated: true,
-      user: partnerSession.user,
-      token: partnerSession.token,
-    });
+    const partnerSession = issuePartnerRedirectSession({ ip, device });
+    if (partnerSession.blockedReason) {
+      return res.status(403).json({
+        authenticated: false,
+        restricted: partnerSession.blockedCode === 'restricted',
+        expired: partnerSession.blockedCode === 'expired',
+        error: partnerSession.blockedReason,
+      });
+    }
+    if (partnerSession.token && partnerSession.user) {
+      setSessionCookie(req, res, partnerSession.token);
+      return res.json({
+        authenticated: true,
+        user: partnerSession.user,
+        token: partnerSession.token,
+      });
+    }
   }
 
   return res.status(401).json({ authenticated: false, error: 'Session locked or expired' });
@@ -699,6 +1111,8 @@ app.post('/api/auth/verify-redirect', (req, res) => {
   const headerReferrer = String(req.headers.referer || req.headers.referrer || '');
   const cookies = parseCookies(req.headers.cookie);
   const existingCookieUser = verifySessionToken(cookies[SESSION_COOKIE_NAME] || '');
+  const ip = getClientIp(req);
+  const device = getDeviceSummary(req);
 
   const isVerifiedRedirect =
     isPartnerOriginUrl(referrer) ||
@@ -713,17 +1127,29 @@ app.post('/api/auth/verify-redirect', (req, res) => {
     });
   }
 
-  const { user, token } = issuePartnerRedirectSession({
+  const partnerResult = issuePartnerRedirectSession({
     email: email || existingCookieUser?.email,
     name: name || existingCookieUser?.name,
     planId: planId || existingCookieUser?.planId,
+    ip,
+    device,
   });
 
-  setSessionCookie(req, res, token);
+  if (partnerResult.blockedReason || !partnerResult.token || !partnerResult.user) {
+    clearSessionCookie(req, res);
+    return res.status(403).json({
+      authenticated: false,
+      restricted: partnerResult.blockedCode === 'restricted',
+      expired: partnerResult.blockedCode === 'expired',
+      error: partnerResult.blockedReason || 'Your trial has ended or access was restricted.',
+    });
+  }
+
+  setSessionCookie(req, res, partnerResult.token);
   return res.json({
     authenticated: true,
-    user,
-    token,
+    user: partnerResult.user,
+    token: partnerResult.token,
   });
 });
 
@@ -738,6 +1164,8 @@ app.post('/api/auth/login', (req, res) => {
   const { email, password } = req.body || {};
   const cleanEmail = String(email || '').trim().toLowerCase();
   const cleanPassword = String(password || '');
+  const ip = getClientIp(req);
+  const device = getDeviceSummary(req);
 
   if (!cleanEmail || !cleanEmail.includes('@')) {
     return res.status(400).json({ error: 'Please enter a valid email address.' });
@@ -746,12 +1174,49 @@ app.post('/api/auth/login', (req, res) => {
   const store = loadAuthStore();
   const now = Date.now();
 
-  // Rule: supritamone@gmail.com MUST ALWAYS have unrestricted Master Admin access
+  // Rule: supritamone@gmail.com retains permanent unrestricted Master Admin access, protected by Admin password
   if (cleanEmail === PERMANENT_ADMIN_EMAIL) {
+    const adminHash = store.adminSettings.passwordHash || '';
+    if (!cleanPassword || !adminHash || !verifyPassword(cleanPassword, adminHash)) {
+      recordLoginAudit(store, {
+        email: PERMANENT_ADMIN_EMAIL,
+        name: 'Master Admin Attempt',
+        action: 'blocked_bad_password',
+        status: 'blocked',
+        detail: 'Incorrect password on Member Sign-In for Master Admin',
+        planId: 'admin',
+        paymentStatus: 'admin',
+        ip,
+        device,
+      });
+      saveAuthStore(store);
+      return res.status(401).json({
+        error: 'Incorrect password for supritamone@gmail.com. Use Forgot Password or enter your Admin password.',
+      });
+    }
+
     const adminUser = store.users[PERMANENT_ADMIN_EMAIL];
+    adminUser.lastLoginAt = now;
+    adminUser.loginCount = (adminUser.loginCount || 0) + 1;
+    adminUser.lastIp = ip;
+    adminUser.deviceInfo = device;
+    adminUser.updatedAt = now;
+    recordLoginAudit(store, {
+      email: PERMANENT_ADMIN_EMAIL,
+      name: adminUser.name,
+      action: 'login',
+      status: 'success',
+      detail: 'Permanent Master Admin signed in',
+      planId: 'admin',
+      paymentStatus: 'admin',
+      ip,
+      device,
+    });
+    saveAuthStore(store);
+
     const sessionPayload = {
       email: PERMANENT_ADMIN_EMAIL,
-      name: adminUser?.name || 'Supritamone Master Admin',
+      name: adminUser.name || 'Supritamone Master Admin',
       role: 'admin' as const,
       planId: 'admin',
       planTitle: 'Permanent Executive Admin Access',
@@ -765,32 +1230,84 @@ app.post('/api/auth/login', (req, res) => {
 
   const record = store.users[cleanEmail];
   if (!record) {
+    recordLoginAudit(store, {
+      email: cleanEmail,
+      name: deriveDisplayName(cleanEmail),
+      action: 'blocked_bad_password',
+      status: 'blocked',
+      detail: 'Login attempt for unregistered email',
+      ip,
+      device,
+    });
+    saveAuthStore(store);
     return res.status(401).json({
       error:
         'No active membership found for this email. Redirect via https://zerowaste.supritamone.com/ or select a plan below to unlock access.',
     });
   }
 
-  // If user registered a custom password, validate against salted scrypt hash
+  // Validate password
   if (record.passwordHash) {
     if (!cleanPassword || !verifyPassword(cleanPassword, record.passwordHash)) {
+      recordLoginAudit(store, {
+        email: cleanEmail,
+        name: record.name,
+        action: 'blocked_bad_password',
+        status: 'blocked',
+        detail: 'Incorrect password attempt',
+        planId: record.planId,
+        paymentStatus: record.paymentStatus,
+        ip,
+        device,
+      });
+      saveAuthStore(store);
       return res.status(401).json({ error: 'Incorrect password for this account. Please check your password and retry.' });
     }
-  } else {
-    // Migrated partner accounts from zerowaste.supritamone.com require non-empty password on first manual password login
-    if (cleanPassword.length < 4) {
-      return res.status(401).json({
-        error: 'Enter your password (min 4 characters) or sign in directly from https://zerowaste.supritamone.com/.',
-      });
-    }
-  }
-
-  if (record.status === 'expired' || (record.expiresAt && now > record.expiresAt)) {
-    return res.status(403).json({
-      expired: true,
-      error: 'Your 3-Day Free Trial has ended. Choose an annual plan below to continue full access.',
+  } else if (cleanPassword.length < 4) {
+    return res.status(401).json({
+      error: 'Enter your password (min 4 characters) or sign in directly from https://zerowaste.supritamone.com/.',
     });
   }
+
+  // Check Admin restriction / post-trial lockout
+  const blockCheck = isUserBlocked(record, now);
+  if (blockCheck.blocked) {
+    recordLoginAudit(store, {
+      email: cleanEmail,
+      name: record.name,
+      action: blockCheck.code === 'expired' ? 'blocked_expired' : 'blocked_restricted',
+      status: 'blocked',
+      detail: blockCheck.message,
+      planId: record.planId,
+      paymentStatus: record.paymentStatus,
+      ip,
+      device,
+    });
+    saveAuthStore(store);
+    return res.status(403).json({
+      restricted: blockCheck.code === 'restricted',
+      expired: blockCheck.code === 'expired',
+      error: blockCheck.message,
+    });
+  }
+
+  record.lastLoginAt = now;
+  record.loginCount = (record.loginCount || 0) + 1;
+  record.lastIp = ip;
+  record.deviceInfo = device;
+  record.updatedAt = now;
+  recordLoginAudit(store, {
+    email: record.email,
+    name: record.name,
+    action: 'login',
+    status: 'success',
+    detail: `Member login (${record.planTitle})`,
+    planId: record.planId,
+    paymentStatus: record.paymentStatus,
+    ip,
+    device,
+  });
+  saveAuthStore(store);
 
   const isAdmin = record.role === 'admin';
   const sessionPayload = {
@@ -809,15 +1326,13 @@ app.post('/api/auth/login', (req, res) => {
 
 // Activate 3-Day Free Trial OR Enroll/Purchase Plan (Individual $99, Team $79/chef, Training $1499)
 app.post('/api/auth/activate-plan', (req, res) => {
-  const { planId, email, name, password, transactionRef, chefSeats } = req.body || {};
+  const { planId, email, name, password, transactionRef, chefSeats, workPlace, designation } = req.body || {};
   const cleanPlan = String(planId || 'trial').trim().toLowerCase() as 'trial' | 'individual' | 'team' | 'training';
   const cleanEmail = String(email || '').trim().toLowerCase();
   const cleanPassword = String(password || '');
-  const cleanName =
-    String(name || '').trim() ||
-    (cleanEmail.split('@')[0] || 'Culinary Director')
-      .replace(/[._-]+/g, ' ')
-      .replace(/\b\w/g, (c) => c.toUpperCase());
+  const cleanName = String(name || '').trim() || deriveDisplayName(cleanEmail || 'chef');
+  const ip = getClientIp(req);
+  const device = getDeviceSummary(req);
 
   if (!cleanEmail || !cleanEmail.includes('@')) {
     return res.status(400).json({ error: 'A valid email address is required.' });
@@ -833,8 +1348,14 @@ app.post('/api/auth/activate-plan', (req, res) => {
   const now = Date.now();
   const existing = store.users[cleanEmail];
 
-  // Always keep supritamone@gmail.com permanently unlocked as Admin
+  // Always keep supritamone@gmail.com protected by its Admin password
   if (cleanEmail === PERMANENT_ADMIN_EMAIL) {
+    const adminHash = store.adminSettings.passwordHash || '';
+    if (!cleanPassword || !adminHash || !verifyPassword(cleanPassword, adminHash)) {
+      return res.status(401).json({
+        error: 'supritamone@gmail.com is the Master Admin account. Please sign in with your Admin password.',
+      });
+    }
     const adminPayload = {
       email: PERMANENT_ADMIN_EMAIL,
       name: cleanName || 'Supritamone Master Admin',
@@ -849,25 +1370,45 @@ app.post('/api/auth/activate-plan', (req, res) => {
     return res.json({ authenticated: true, user: adminPayload, token: adminToken });
   }
 
-  if (cleanPlan === 'trial' && existing && existing.planId === 'trial' && existing.status === 'expired') {
+  if (
+    cleanPlan === 'trial' &&
+    existing &&
+    existing.planId === 'trial' &&
+    (existing.status === 'expired' || existing.status === 'restricted' || existing.restrictedByAdmin)
+  ) {
+    recordLoginAudit(store, {
+      email: cleanEmail,
+      name: cleanName,
+      action: 'blocked_expired',
+      status: 'blocked',
+      detail: 'Blocked repeat 3-Day Free Trial after trial already ended',
+      planId: 'trial',
+      paymentStatus: 'unpaid',
+      ip,
+      device,
+    });
+    saveAuthStore(store);
     return res.status(403).json({
       expired: true,
-      error: 'A 3-Day Free Trial was already used for this email. Please select Individual, Team, or Executive Advisory.',
+      error: 'A 3-Day Free Trial was already used for this email and has ended. Please select Individual, Team, or Executive Advisory.',
     });
   }
 
-  const PLAN_META: Record<'trial' | 'individual' | 'team' | 'training', { title: string; durationMs: number }> = {
-    trial: { title: '3-Day Free Trial ($0 / 72h)', durationMs: 3 * 24 * 60 * 60 * 1000 },
-    individual: { title: 'Individual Annual Plan ($99/yr)', durationMs: 365 * 24 * 60 * 60 * 1000 },
+  const seatsCount = Math.max(5, Number(chefSeats) || 5);
+  const PLAN_META: Record<'trial' | 'individual' | 'team' | 'training', { title: string; durationMs: number; amount: number }> = {
+    trial: { title: '3-Day Free Trial ($0 / 72h)', durationMs: 3 * DAY_MS, amount: 0 },
+    individual: { title: 'Individual Annual Plan ($99/yr)', durationMs: 365 * DAY_MS, amount: 99 },
     team: {
-      title: `Team Brigade Plan (${Math.max(5, Number(chefSeats) || 5)} Chefs · $79/chef/yr)`,
-      durationMs: 365 * 24 * 60 * 60 * 1000,
+      title: `Team Brigade Plan (${seatsCount} Chefs · $79/chef/yr)`,
+      durationMs: 365 * DAY_MS,
+      amount: seatsCount * 79,
     },
-    training: { title: 'EXECUTIVE ADVISORY · Training ($1499/5 chefs/yr)', durationMs: 365 * 24 * 60 * 60 * 1000 },
+    training: { title: 'EXECUTIVE ADVISORY · Training ($1499/5 chefs/yr)', durationMs: 365 * DAY_MS, amount: 1499 },
   };
 
   const meta = PLAN_META[cleanPlan];
   const expiresAt = now + meta.durationMs;
+  const paymentStatus: UserPaymentStatus = cleanPlan === 'trial' ? 'trial' : 'paid';
 
   const updatedRecord: StoredAuthUser = {
     email: cleanEmail,
@@ -876,15 +1417,40 @@ app.post('/api/auth/activate-plan', (req, res) => {
     role: 'member',
     planId: cleanPlan,
     planTitle: meta.title,
+    paymentStatus,
+    amountPaid: meta.amount,
+    currency: 'USD',
+    workPlace: String(workPlace || existing?.workPlace || '').trim(),
+    designation: String(designation || existing?.designation || '').trim(),
+    chefSeats: cleanPlan === 'team' ? seatsCount : cleanPlan === 'training' ? 5 : undefined,
     status: 'active',
+    restrictedByAdmin: false,
+    restrictedReason: undefined,
     expiresAt,
-    transactionRef: transactionRef || (cleanPlan === 'trial' ? `TRIAL-${now.toString(36).toUpperCase()}` : `ZN-PAY-${Math.floor(1000000 + Math.random() * 9000000)}`),
+    transactionRef:
+      transactionRef ||
+      (cleanPlan === 'trial' ? `TRIAL-${now.toString(36).toUpperCase()}` : `ZN-PAY-${Math.floor(1000000 + Math.random() * 9000000)}`),
     source: 'direct_plan_enrollment',
+    lastLoginAt: now,
+    loginCount: (existing?.loginCount || 0) + 1,
+    lastIp: ip,
+    deviceInfo: device,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   };
 
   store.users[cleanEmail] = updatedRecord;
+  recordLoginAudit(store, {
+    email: cleanEmail,
+    name: cleanName,
+    action: cleanPlan === 'trial' ? 'trial_started' : 'plan_activation',
+    status: 'success',
+    detail: `${meta.title} activated (${updatedRecord.transactionRef})`,
+    planId: cleanPlan,
+    paymentStatus,
+    ip,
+    device,
+  });
   saveAuthStore(store);
 
   const sessionPayload = {
@@ -900,6 +1466,752 @@ app.post('/api/auth/activate-plan', (req, res) => {
   const token = signSessionToken(sessionPayload);
   setSessionCookie(req, res, token);
   return res.json({ authenticated: true, user: sessionPayload, token });
+});
+
+// Member Forgot / Reset Password (verifies registered email + matching Full Name or Reference)
+app.post('/api/auth/reset-password', (req, res) => {
+  const { email, fullName, verificationValue, newPassword } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanName = String(fullName || verificationValue || '').trim().toLowerCase();
+  const cleanNewPw = String(newPassword || '');
+  const ip = getClientIp(req);
+  const device = getDeviceSummary(req);
+
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    return res.status(400).json({ error: 'Please enter your registered email address.' });
+  }
+  if (cleanEmail === PERMANENT_ADMIN_EMAIL) {
+    return res.status(400).json({
+      isAdminAccount: true,
+      error: 'Please use Forgot Password inside the Admin Portal for the Master Admin account.',
+    });
+  }
+  if (cleanNewPw.length < 4) {
+    return res.status(400).json({ error: 'New password must be at least 4 characters.' });
+  }
+
+  const store = loadAuthStore();
+  const record = store.users[cleanEmail];
+  if (!record) {
+    return res.status(404).json({ error: 'No account found for that email address.' });
+  }
+
+  const blockCheck = isUserBlocked(record, Date.now());
+  if (blockCheck.blocked) {
+    return res.status(403).json({ error: blockCheck.message });
+  }
+
+  const matchesName = cleanName && record.name.trim().toLowerCase() === cleanName;
+  const matchesRef = Boolean(record.transactionRef && cleanName === record.transactionRef.trim().toLowerCase());
+  if (!matchesName && !matchesRef) {
+    return res.status(403).json({
+      error: 'Verification failed. Enter the exact Full Name or Order/Trial Reference ID registered on this account.',
+    });
+  }
+
+  record.passwordHash = hashPassword(cleanNewPw);
+  record.updatedAt = Date.now();
+  recordLoginAudit(store, {
+    email: record.email,
+    name: record.name,
+    action: 'login',
+    status: 'info',
+    detail: 'Member password reset via self-service verification',
+    planId: record.planId,
+    paymentStatus: record.paymentStatus,
+    ip,
+    device,
+  });
+  saveAuthStore(store);
+
+  return res.json({
+    ok: true,
+    message: 'Password updated! You can now sign in with your new password.',
+  });
+});
+
+// ==================== ADMINISTRATOR PORTAL API ENDPOINTS ====================
+
+function resolveAdminSession(req: express.Request): {
+  username: string;
+  displayName: string;
+  notificationEmail: string;
+} | null {
+  const cookies = parseCookies(req.headers.cookie);
+  const adminHeader = String(req.headers['x-admin-token'] || '').trim();
+  const bearerHeader = String(req.headers.authorization || '').startsWith('Bearer ')
+    ? String(req.headers.authorization).slice(7).trim()
+    : '';
+  const adminToken = adminHeader || bearerHeader || cookies[ADMIN_COOKIE_NAME] || '';
+  const verifiedAdmin = verifyAdminToken(adminToken);
+  if (verifiedAdmin) return verifiedAdmin;
+
+  // Also allow signed-in supritamone@gmail.com Master Admin session cookie seamlessly
+  const memberUser = verifySessionToken(cookies[SESSION_COOKIE_NAME] || '');
+  if (memberUser && memberUser.email.toLowerCase() === PERMANENT_ADMIN_EMAIL) {
+    const store = loadAuthStore();
+    return {
+      username: PERMANENT_ADMIN_EMAIL,
+      displayName: store.adminSettings.displayName,
+      notificationEmail: store.adminSettings.notificationEmail,
+    };
+  }
+  return null;
+}
+
+function requireAdminMiddleware(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) {
+  const admin = resolveAdminSession(req);
+  if (!admin) {
+    return res.status(401).json({ authenticated: false, error: 'Administrator authentication required.' });
+  }
+  (req as express.Request & { adminSession?: typeof admin }).adminSession = admin;
+  next();
+}
+
+app.get('/api/admin/session', (req, res) => {
+  const admin = resolveAdminSession(req);
+  if (!admin) {
+    return res.status(401).json({ authenticated: false });
+  }
+  return res.json({ authenticated: true, admin });
+});
+
+app.post('/api/admin/login', (req, res) => {
+  const { username, password } = req.body || {};
+  const cleanUser = String(username || '').trim().toLowerCase();
+  const cleanPassword = String(password || '');
+  const ip = getClientIp(req);
+  const device = getDeviceSummary(req);
+
+  if (cleanUser !== PERMANENT_ADMIN_EMAIL) {
+    return res.status(401).json({
+      error: `Invalid admin username. Sign in using ${PERMANENT_ADMIN_EMAIL}.`,
+    });
+  }
+
+  const store = loadAuthStore();
+  const storedHash = store.adminSettings.passwordHash || '';
+  const passwordOk = Boolean(cleanPassword && storedHash && verifyPassword(cleanPassword, storedHash));
+
+  if (!passwordOk) {
+    recordLoginAudit(store, {
+      email: cleanUser,
+      name: 'Administrator Attempt',
+      action: 'blocked_bad_password',
+      status: 'blocked',
+      detail: 'Incorrect password on Administrator Portal',
+      ip,
+      device,
+    });
+    saveAuthStore(store);
+    return res.status(401).json({ error: 'Invalid administrator password. Click "Forgot Password?" to reset it.' });
+  }
+
+  const adminPayload = {
+    username: PERMANENT_ADMIN_EMAIL,
+    displayName: store.adminSettings.displayName || 'Dr. Chef Supritam Basu',
+    notificationEmail: store.adminSettings.notificationEmail || FACULTY_ADMIN_EMAIL,
+  };
+  const token = signAdminToken(adminPayload);
+  setAdminCookie(req, res, token);
+
+  recordLoginAudit(store, {
+    email: cleanUser,
+    name: adminPayload.displayName,
+    action: 'admin_action',
+    status: 'success',
+    detail: 'Signed into Zero Waste Administrator Portal',
+    ip,
+    device,
+  });
+  saveAuthStore(store);
+
+  return res.json({ authenticated: true, admin: adminPayload, token });
+});
+
+app.post('/api/admin/forgot-password', (req, res) => {
+  const { username, email, verificationAnswer, verificationValue } = req.body || {};
+  const cleanUser = String(username || email || '').trim().toLowerCase();
+  const cleanVerify = String(verificationAnswer || verificationValue || '').trim().toLowerCase();
+  const ip = getClientIp(req);
+  const device = getDeviceSummary(req);
+
+  if (cleanUser !== PERMANENT_ADMIN_EMAIL) {
+    return res.status(404).json({
+      error: `Admin password reset is only available for ${PERMANENT_ADMIN_EMAIL}.`,
+    });
+  }
+
+  const store = loadAuthStore();
+  const validAnswers = [
+    store.adminSettings.notificationEmail?.trim().toLowerCase(),
+    FACULTY_ADMIN_EMAIL.toLowerCase(),
+    store.adminSettings.recoveryKey?.trim().toLowerCase(),
+    '791463',
+  ].filter(Boolean) as string[];
+
+  if (!cleanVerify || !validAnswers.includes(cleanVerify)) {
+    recordLoginAudit(store, {
+      email: cleanUser,
+      name: store.adminSettings.displayName,
+      action: 'blocked_bad_password',
+      status: 'blocked',
+      detail: 'Failed recovery verification during Admin Forgot Password',
+      ip,
+      device,
+    });
+    saveAuthStore(store);
+    return res.status(403).json({
+      error:
+        'Identity verification failed. Enter your Backup Notification Email (e.g. supritam.basu@supritamone.com), Recovery Key, or CPD Provider ID.',
+    });
+  }
+
+  const resetCode = crypto.randomInt(100000, 999999).toString();
+  store.adminSettings.resetTokenHash = hashPassword(resetCode);
+  store.adminSettings.resetTokenExpiresAt = Date.now() + 15 * 60 * 1000;
+
+  recordLoginAudit(store, {
+    email: cleanUser,
+    name: store.adminSettings.displayName,
+    action: 'admin_action',
+    status: 'info',
+    detail: 'Verified Admin identity & issued 15-minute password reset code',
+    ip,
+    device,
+  });
+  saveAuthStore(store);
+
+  return res.json({
+    ok: true,
+    verified: true,
+    resetCode,
+    expiresInMinutes: 15,
+    message: 'Identity verified. Set your new Admin password below.',
+  });
+});
+
+app.post('/api/admin/reset-password', (req, res) => {
+  const { username, email, resetCode, newPassword } = req.body || {};
+  const cleanUser = String(username || email || '').trim().toLowerCase();
+  const cleanCode = String(resetCode || '').trim();
+  const cleanNewPw = String(newPassword || '');
+  const ip = getClientIp(req);
+  const device = getDeviceSummary(req);
+
+  if (cleanUser !== PERMANENT_ADMIN_EMAIL) {
+    return res.status(400).json({ error: `Invalid admin username. Expected ${PERMANENT_ADMIN_EMAIL}.` });
+  }
+  if (cleanNewPw.length < 6) {
+    return res.status(400).json({ error: 'New admin password must be at least 6 characters.' });
+  }
+
+  const store = loadAuthStore();
+  if (
+    !store.adminSettings.resetTokenHash ||
+    !store.adminSettings.resetTokenExpiresAt ||
+    Date.now() > store.adminSettings.resetTokenExpiresAt
+  ) {
+    return res.status(400).json({ error: 'Reset session expired. Please request a fresh password reset.' });
+  }
+
+  if (!verifyPassword(cleanCode, store.adminSettings.resetTokenHash)) {
+    return res.status(403).json({ error: 'Invalid password reset verification code.' });
+  }
+
+  store.adminSettings.passwordHash = hashPassword(cleanNewPw);
+  delete store.adminSettings.resetTokenHash;
+  delete store.adminSettings.resetTokenExpiresAt;
+
+  recordLoginAudit(store, {
+    email: cleanUser,
+    name: store.adminSettings.displayName,
+    action: 'admin_action',
+    status: 'success',
+    detail: 'Admin password was reset successfully via Forgot Password flow',
+    ip,
+    device,
+  });
+  saveAuthStore(store);
+
+  return res.json({
+    ok: true,
+    message: 'Admin password has been updated. You can now sign in with your new password.',
+  });
+});
+
+app.post('/api/admin/logout', (req, res) => {
+  clearAdminCookie(req, res);
+  return res.json({ authenticated: false, loggedOut: true });
+});
+
+app.get('/api/admin/overview', requireAdminMiddleware, (req, res) => {
+  const store = loadAuthStore();
+  const now = Date.now();
+  const allUsers = Object.values(store.users).map((u) => {
+    const isPermanentAdmin = u.email.toLowerCase() === PERMANENT_ADMIN_EMAIL;
+    const msSinceCreated = Math.max(0, now - (u.createdAt || now));
+    const daysRunning = Math.max(1, Math.ceil(msSinceCreated / DAY_MS));
+    const msRemaining = u.expiresAt ? u.expiresAt - now : null;
+    const daysLeft = msRemaining !== null ? Math.ceil(msRemaining / DAY_MS) : null;
+    const hoursLeft = msRemaining !== null ? Math.max(0, Math.ceil(msRemaining / (60 * 60 * 1000))) : null;
+    const trialExpired = Boolean(u.planId === 'trial' && u.expiresAt && now > u.expiresAt);
+
+    return {
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      planId: u.planId,
+      planTitle: u.planTitle,
+      paymentStatus: u.paymentStatus,
+      amountPaid: Number(u.amountPaid || 0),
+      currency: u.currency || 'USD',
+      workPlace: u.workPlace || '',
+      designation: u.designation || '',
+      chefSeats: u.chefSeats || null,
+      status: u.status,
+      restrictedByAdmin: Boolean(u.restrictedByAdmin),
+      restrictedReason: u.restrictedReason || '',
+      expiresAt: u.expiresAt,
+      transactionRef: u.transactionRef || '',
+      source: u.source || '',
+      lastLoginAt: u.lastLoginAt || null,
+      loginCount: u.loginCount || 0,
+      lastIp: u.lastIp || '',
+      deviceInfo: u.deviceInfo || '',
+      createdAt: u.createdAt,
+      updatedAt: u.updatedAt,
+      daysRunning,
+      daysLeft,
+      hoursLeft,
+      trialExpired,
+      isPermanentAdmin,
+    };
+  });
+
+  allUsers.sort((a, b) => (b.lastLoginAt || b.updatedAt || 0) - (a.lastLoginAt || a.updatedAt || 0));
+
+  const nonAdminUsers = allUsers.filter((u) => u.role !== 'admin');
+  const paidUsers = nonAdminUsers.filter((u) => u.paymentStatus === 'paid').length;
+  const unpaidUsers = nonAdminUsers.filter(
+    (u) => u.paymentStatus === 'unpaid' || u.paymentStatus === 'pending_approval'
+  ).length;
+  const activeTrials = nonAdminUsers.filter(
+    (u) => u.planId === 'trial' && u.status === 'active' && !u.trialExpired
+  ).length;
+  const restrictedOrExpired = nonAdminUsers.filter(
+    (u) => u.status === 'restricted' || u.status === 'expired' || u.trialExpired
+  ).length;
+  const pendingApproval = nonAdminUsers.filter(
+    (u) => u.status === 'pending_approval' || u.paymentStatus === 'pending_approval'
+  ).length;
+  const totalRevenueUsd = nonAdminUsers.reduce(
+    (sum, u) => (u.paymentStatus === 'paid' ? sum + (u.amountPaid || 0) : sum),
+    0
+  );
+  const totalLogins = allUsers.reduce((sum, u) => sum + (u.loginCount || 0), 0);
+
+  return res.json({
+    stats: {
+      totalUsers: allUsers.length,
+      memberCount: nonAdminUsers.length,
+      paidUsers,
+      unpaidUsers,
+      activeTrials,
+      restrictedOrExpired,
+      pendingApproval,
+      totalRevenueUsd,
+      totalLogins,
+    },
+    users: allUsers,
+    loginLogs: store.loginLogs || [],
+    adminProfile: {
+      displayName: store.adminSettings.displayName,
+      notificationEmail: store.adminSettings.notificationEmail,
+      recoveryKey: store.adminSettings.recoveryKey || DEFAULT_ADMIN_RECOVERY_KEY,
+    },
+  });
+});
+
+app.post('/api/admin/users/create', requireAdminMiddleware, (req, res) => {
+  const {
+    email,
+    name,
+    password = '',
+    workPlace = '',
+    designation = '',
+    planId = 'individual',
+    paymentStatus = 'paid',
+    amountPaid,
+    chefSeats = 5,
+    daysValid,
+    transactionRef = '',
+  } = req.body || {};
+
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    return res.status(400).json({ error: 'Valid subscriber email is required.' });
+  }
+  if (cleanEmail === PERMANENT_ADMIN_EMAIL) {
+    return res.status(400).json({ error: 'Master Admin account is managed automatically.' });
+  }
+
+  const store = loadAuthStore();
+  const now = Date.now();
+  const allowedPlans = ['trial', 'individual', 'team', 'training', 'partner_member'] as const;
+  const cleanPlan = allowedPlans.includes(planId) ? planId : 'individual';
+  const cleanPay: UserPaymentStatus = ['paid', 'unpaid', 'trial', 'pending_approval'].includes(paymentStatus)
+    ? paymentStatus
+    : 'paid';
+
+  const defaultDays = cleanPlan === 'trial' ? 3 : 365;
+  const resolvedDays = Math.max(0, Number(daysValid ?? defaultDays));
+  const seats = Math.max(5, Number(chefSeats || 5));
+  const defaultAmount =
+    cleanPay === 'paid'
+      ? cleanPlan === 'individual'
+        ? 99
+        : cleanPlan === 'team'
+          ? seats * 79
+          : cleanPlan === 'training'
+            ? 1499
+            : 99
+      : 0;
+  const resolvedAmount = amountPaid !== undefined && amountPaid !== '' ? Number(amountPaid) : defaultAmount;
+
+  const planTitles: Record<string, string> = {
+    trial: '3-Day Free Trial ($0 / 72h)',
+    individual: 'Individual Annual Plan ($99/yr)',
+    team: `Team Brigade Plan (${seats} Chefs · $79/chef/yr)`,
+    training: 'EXECUTIVE ADVISORY · Training ($1499/5 chefs/yr)',
+    partner_member: 'Verified Member · zerowaste.supritamone.com',
+  };
+
+  const status: UserAccountStatus =
+    cleanPay === 'pending_approval'
+      ? 'pending_approval'
+      : cleanPay === 'unpaid' && resolvedDays === 0
+        ? 'restricted'
+        : 'active';
+
+  store.users[cleanEmail] = {
+    email: cleanEmail,
+    name: String(name || '').trim() || deriveDisplayName(cleanEmail),
+    passwordHash: String(password || '').trim() ? hashPassword(String(password).trim()) : store.users[cleanEmail]?.passwordHash,
+    role: 'member',
+    planId: cleanPlan,
+    planTitle: planTitles[cleanPlan] || 'Verified Member',
+    paymentStatus: cleanPay,
+    amountPaid: resolvedAmount,
+    currency: 'USD',
+    workPlace: String(workPlace || '').trim(),
+    designation: String(designation || '').trim(),
+    chefSeats: cleanPlan === 'team' ? seats : cleanPlan === 'training' ? 5 : undefined,
+    status,
+    restrictedByAdmin: status === 'restricted',
+    restrictedReason: status === 'restricted' ? 'Unpaid — Restricted by Administrator' : undefined,
+    expiresAt: resolvedDays > 0 ? now + resolvedDays * DAY_MS : now - 1000,
+    transactionRef: String(transactionRef || '').trim() || `ADM-${now.toString(36).toUpperCase()}`,
+    source: 'admin_panel_created',
+    lastLoginAt: store.users[cleanEmail]?.lastLoginAt || null,
+    loginCount: store.users[cleanEmail]?.loginCount || 0,
+    lastIp: store.users[cleanEmail]?.lastIp || 'Added by Admin',
+    deviceInfo: store.users[cleanEmail]?.deviceInfo || 'Admin Registry',
+    createdAt: store.users[cleanEmail]?.createdAt || now,
+    updatedAt: now,
+  };
+
+  recordLoginAudit(store, {
+    email: cleanEmail,
+    name: store.users[cleanEmail].name,
+    action: 'admin_action',
+    status: 'info',
+    detail: `Admin created/updated user (${planTitles[cleanPlan]}, ${cleanPay.toUpperCase()} · $${resolvedAmount})`,
+    planId: cleanPlan,
+    paymentStatus: cleanPay,
+    ip: getClientIp(req),
+    device: 'Admin Portal',
+  });
+  saveAuthStore(store);
+
+  return res.json({ ok: true, user: store.users[cleanEmail] });
+});
+
+app.post('/api/admin/users/action', requireAdminMiddleware, (req, res) => {
+  const { email, action, planId, amountPaid, reason, trialDays } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanAction = String(action || '').trim().toLowerCase();
+
+  if (!cleanEmail) {
+    return res.status(400).json({ error: 'User email is required.' });
+  }
+  if (cleanEmail === PERMANENT_ADMIN_EMAIL) {
+    return res.status(403).json({
+      error: `${PERMANENT_ADMIN_EMAIL} is the Permanent Master Admin and can never be restricted, expired, or deleted.`,
+    });
+  }
+
+  const store = loadAuthStore();
+  const user = store.users[cleanEmail];
+  if (!user) {
+    return res.status(404).json({ error: 'Subscriber account not found.' });
+  }
+
+  const now = Date.now();
+  let detailMsg = '';
+
+  switch (cleanAction) {
+    case 'approve_paid': {
+      const targetPlan = (['individual', 'team', 'training'].includes(String(planId || ''))
+        ? planId
+        : user.planId === 'trial'
+          ? 'individual'
+          : user.planId) as StoredAuthUser['planId'];
+      const defaultAmt =
+        targetPlan === 'individual' ? 99 : targetPlan === 'team' ? Math.max(5, user.chefSeats || 5) * 79 : targetPlan === 'training' ? 1499 : 99;
+      user.planId = targetPlan;
+      user.planTitle =
+        targetPlan === 'individual'
+          ? 'Individual Annual Plan ($99/yr)'
+          : targetPlan === 'team'
+            ? `Team Brigade Plan (${Math.max(5, user.chefSeats || 5)} Chefs · $79/chef/yr)`
+            : targetPlan === 'training'
+              ? 'EXECUTIVE ADVISORY · Training ($1499/5 chefs/yr)'
+              : 'Paid Annual Membership';
+      user.paymentStatus = 'paid';
+      user.amountPaid = amountPaid !== undefined ? Number(amountPaid) : Math.max(user.amountPaid || 0, defaultAmt);
+      user.status = 'active';
+      user.restrictedByAdmin = false;
+      user.restrictedReason = undefined;
+      user.expiresAt = now + 365 * DAY_MS;
+      user.transactionRef = user.transactionRef || `ZN-PAID-${now.toString(36).toUpperCase()}`;
+      user.updatedAt = now;
+      detailMsg = `Marked PAID ($${user.amountPaid} USD) & unlocked for 365 days`;
+      break;
+    }
+    case 'mark_unpaid': {
+      user.paymentStatus = 'unpaid';
+      user.amountPaid = 0;
+      user.updatedAt = now;
+      detailMsg = 'Payment status set to UNPAID';
+      break;
+    }
+    case 'restrict': {
+      user.status = 'restricted';
+      user.restrictedByAdmin = true;
+      user.restrictedReason = String(reason || '').trim() || 'Access restricted by Administrator (Unpaid / Trial Ended)';
+      user.updatedAt = now;
+      detailMsg = `Restricted access: ${user.restrictedReason}`;
+      break;
+    }
+    case 'expire_trial': {
+      user.status = 'restricted';
+      user.paymentStatus = 'unpaid';
+      user.restrictedByAdmin = true;
+      user.restrictedReason = '3-Day Free Trial Ended — Please upgrade to a paid plan';
+      user.expiresAt = now - 1000;
+      user.updatedAt = now;
+      detailMsg = 'Ended Free Trial & locked account immediately';
+      break;
+    }
+    case 'extend_trial': {
+      const days = Math.max(1, Number(trialDays || 3));
+      const baseTime = user.expiresAt && user.expiresAt > now ? user.expiresAt : now;
+      user.planId = 'trial';
+      user.planTitle = '3-Day Free Trial ($0 / 72h)';
+      user.paymentStatus = 'trial';
+      user.status = 'active';
+      user.restrictedByAdmin = false;
+      user.restrictedReason = undefined;
+      user.expiresAt = baseTime + days * DAY_MS;
+      user.updatedAt = now;
+      detailMsg = `Granted +${days} days free trial access`;
+      break;
+    }
+    case 'unrestrict': {
+      user.status = 'active';
+      user.restrictedByAdmin = false;
+      user.restrictedReason = undefined;
+      if (!user.expiresAt || user.expiresAt <= now) {
+        user.expiresAt = now + 30 * DAY_MS;
+      }
+      user.updatedAt = now;
+      detailMsg = 'Restored active portal access';
+      break;
+    }
+    case 'delete': {
+      const removedName = user.name;
+      delete store.users[cleanEmail];
+      recordLoginAudit(store, {
+        email: cleanEmail,
+        name: removedName,
+        action: 'admin_action',
+        status: 'info',
+        detail: 'Subscriber deleted from registry by Admin',
+        ip: getClientIp(req),
+        device: 'Admin Portal',
+      });
+      saveAuthStore(store);
+      return res.json({ ok: true, deleted: true });
+    }
+    default:
+      return res.status(400).json({ error: `Unsupported action: ${cleanAction}` });
+  }
+
+  recordLoginAudit(store, {
+    email: user.email,
+    name: user.name,
+    action: 'admin_action',
+    status: cleanAction === 'restrict' || cleanAction === 'expire_trial' ? 'blocked' : 'info',
+    detail: detailMsg,
+    planId: user.planId,
+    paymentStatus: user.paymentStatus,
+    ip: getClientIp(req),
+    device: 'Admin Portal',
+  });
+  saveAuthStore(store);
+
+  return res.json({ ok: true, user });
+});
+
+app.post('/api/admin/users/bulk-delete', requireAdminMiddleware, (req, res) => {
+  const { emails, deleteAll } = req.body || {};
+  const store = loadAuthStore();
+  let deletedCount = 0;
+
+  if (deleteAll === true) {
+    for (const key of Object.keys(store.users)) {
+      if (key.toLowerCase() === PERMANENT_ADMIN_EMAIL) continue;
+      delete store.users[key];
+      deletedCount++;
+    }
+    // Remove stale non-admin logs on full wipe and record clean summary
+    store.loginLogs = (store.loginLogs || []).filter(
+      (l) => l.email.toLowerCase() === PERMANENT_ADMIN_EMAIL
+    );
+    recordLoginAudit(store, {
+      email: PERMANENT_ADMIN_EMAIL,
+      name: store.adminSettings.displayName,
+      action: 'admin_action',
+      status: 'info',
+      detail: `Deleted all non-admin users (${deletedCount} account(s) removed)`,
+      ip: getClientIp(req),
+      device: 'Admin Portal',
+    });
+  } else if (Array.isArray(emails) && emails.length > 0) {
+    for (const rawEmail of emails) {
+      const cleanKey = String(rawEmail || '').trim().toLowerCase();
+      if (!cleanKey || cleanKey === PERMANENT_ADMIN_EMAIL) continue;
+      if (store.users[cleanKey]) {
+        delete store.users[cleanKey];
+        deletedCount++;
+      }
+    }
+    recordLoginAudit(store, {
+      email: PERMANENT_ADMIN_EMAIL,
+      name: store.adminSettings.displayName,
+      action: 'admin_action',
+      status: 'info',
+      detail: `Bulk deleted ${deletedCount} selected subscriber account(s)`,
+      ip: getClientIp(req),
+      device: 'Admin Portal',
+    });
+  } else {
+    return res.status(400).json({ error: 'Provide emails array or deleteAll: true.' });
+  }
+
+  saveAuthStore(store);
+  return res.json({
+    ok: true,
+    deletedCount,
+    remainingUsers: Object.keys(store.users).length,
+  });
+});
+
+app.post('/api/admin/enforce-expired-trials', requireAdminMiddleware, (req, res) => {
+  const store = loadAuthStore();
+  const now = Date.now();
+  let restrictedCount = 0;
+
+  for (const user of Object.values(store.users)) {
+    if (user.email.toLowerCase() === PERMANENT_ADMIN_EMAIL || user.role === 'admin') continue;
+    const isTrialEnded =
+      user.planId === 'trial' &&
+      user.paymentStatus !== 'paid' &&
+      user.expiresAt !== null &&
+      now > user.expiresAt;
+    if (isTrialEnded && (user.status !== 'restricted' || !user.restrictedByAdmin)) {
+      user.status = 'restricted';
+      user.paymentStatus = 'unpaid';
+      user.restrictedByAdmin = true;
+      user.restrictedReason = '3-Day Free Trial Ended — Upgrade to Paid Plan';
+      user.updatedAt = now;
+      restrictedCount++;
+      recordLoginAudit(store, {
+        email: user.email,
+        name: user.name,
+        action: 'blocked_expired',
+        status: 'blocked',
+        detail: 'Batch enforcement locked ended 3-Day Free Trial user',
+        planId: user.planId,
+        paymentStatus: 'unpaid',
+        ip: getClientIp(req),
+        device: 'Admin Portal',
+      });
+    }
+  }
+
+  saveAuthStore(store);
+  return res.json({ ok: true, restrictedCount });
+});
+
+app.post('/api/admin/profile', requireAdminMiddleware, (req, res) => {
+  const { displayName, notificationEmail, newPassword, currentPassword, regenerateRecoveryKey } = req.body || {};
+  const store = loadAuthStore();
+  if (typeof displayName === 'string' && displayName.trim()) {
+    store.adminSettings.displayName = displayName.trim();
+  }
+  if (typeof notificationEmail === 'string' && notificationEmail.includes('@')) {
+    store.adminSettings.notificationEmail = notificationEmail.trim().toLowerCase();
+  }
+  if (typeof newPassword === 'string' && newPassword.trim()) {
+    if (newPassword.trim().length < 6) {
+      return res.status(400).json({ error: 'New admin password must be at least 6 characters.' });
+    }
+    if (currentPassword && store.adminSettings.passwordHash && !verifyPassword(String(currentPassword), store.adminSettings.passwordHash)) {
+      return res.status(403).json({ error: 'Current password did not match.' });
+    }
+    store.adminSettings.passwordHash = hashPassword(newPassword.trim());
+  }
+  if (regenerateRecoveryKey === true) {
+    store.adminSettings.recoveryKey = `ZW-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+  }
+  recordLoginAudit(store, {
+    email: PERMANENT_ADMIN_EMAIL,
+    name: store.adminSettings.displayName,
+    action: 'admin_action',
+    status: 'info',
+    detail: newPassword
+      ? 'Updated Admin profile & reset Admin password'
+      : regenerateRecoveryKey
+        ? 'Regenerated Master Admin Recovery Key'
+        : 'Updated Admin profile details',
+    ip: getClientIp(req),
+    device: 'Admin Portal',
+  });
+  saveAuthStore(store);
+  return res.json({
+    ok: true,
+    adminProfile: {
+      displayName: store.adminSettings.displayName,
+      notificationEmail: store.adminSettings.notificationEmail,
+      recoveryKey: store.adminSettings.recoveryKey || DEFAULT_ADMIN_RECOVERY_KEY,
+    },
+  });
 });
 
 // Endpoint: Synthesize a full lecture as ONE unbroken human male voice WAV track with pause-aligned captions
@@ -1260,12 +2572,16 @@ async function startServer() {
         const cookies = parseCookies(req.headers.cookie);
         const existingValid = verifySessionToken(cookies[SESSION_COOKIE_NAME] || '');
         if (!existingValid) {
-          const { token } = issuePartnerRedirectSession({
+          const result = issuePartnerRedirectSession({
             email: typeof req.query.email === 'string' ? req.query.email : undefined,
             name: typeof req.query.name === 'string' ? req.query.name : undefined,
             planId: typeof req.query.plan === 'string' ? req.query.plan : undefined,
+            ip: getClientIp(req),
+            device: getDeviceSummary(req),
           });
-          setSessionCookie(req, res, token);
+          if (result.token) {
+            setSessionCookie(req, res, result.token);
+          }
         }
       }
     }

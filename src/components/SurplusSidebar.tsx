@@ -29,7 +29,6 @@ interface SurplusSidebarProps {
   isCertificateUnlocked?: boolean;
   examStatus?: ExamUnlockStatus;
   onOpenCertify: () => void;
-  onOpenExporter: () => void;
   onCloseDrawer?: () => void;
 }
 
@@ -42,7 +41,6 @@ export const SurplusSidebar: React.FC<SurplusSidebarProps> = ({
   isCertificateUnlocked = false,
   examStatus,
   onOpenCertify,
-  onOpenExporter,
   onCloseDrawer,
 }) => {
   const handleNavClick = (tab: string) => {
@@ -60,7 +58,13 @@ export const SurplusSidebar: React.FC<SurplusSidebarProps> = ({
       {/* Mobile Drawer Header with Close Button */}
       {onCloseDrawer && (
         <div className="lg:hidden flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
-          <SupritamoneLogo size="sm" />
+          <button
+            onClick={() => handleNavClick('home')}
+            className="cursor-pointer focus:outline-none"
+            title="Go to Home Page"
+          >
+            <SupritamoneLogo size="sm" />
+          </button>
           <button 
             onClick={onCloseDrawer}
             className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200"
@@ -321,7 +325,7 @@ export const SurplusSidebar: React.FC<SurplusSidebarProps> = ({
         </div>
       </div>
 
-      {/* Bottom Sticky Card: Diploma Status & Alison Exporter */}
+      {/* Bottom Sticky Card: Diploma Status */}
       <div className="p-4 border-t border-slate-200 bg-slate-50 space-y-2">
         <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between text-xs mb-1.5">

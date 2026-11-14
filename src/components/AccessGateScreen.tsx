@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   Lock,
-  Check,
   ShieldCheck,
   Mail,
   KeyRound,
@@ -16,8 +15,12 @@ import {
   AlertCircle,
   Loader2,
   CheckCircle2,
+  Eye,
+  EyeOff,
+  Menu,
 } from 'lucide-react';
 import { SupritamoneLogo } from './SupritamoneLogo';
+import { SurplusHomeView, HomePlanId } from './SurplusHomeView';
 
 export interface AuthenticatedSessionUser {
   email: string;
@@ -32,13 +35,8 @@ export interface AuthenticatedSessionUser {
 interface AccessPlanOption {
   id: 'trial' | 'individual' | 'team' | 'training';
   title: string;
-  badge?: string;
-  description: string;
   price: string;
   cadence: string;
-  features: string[];
-  buttonText: string;
-  highlighted?: boolean;
   isTrial?: boolean;
   ziinaPayUrl?: string;
 }
@@ -47,101 +45,67 @@ export const ACADEMY_PLANS: AccessPlanOption[] = [
   {
     id: 'trial',
     title: '3-Day Free Trial',
-    badge: 'START RISK FREE',
-    description: 'Instant 72-hour full unrestricted brigade access without credit card.',
     price: '$0',
     cadence: 'free for 3 days',
-    features: [
-      'Full access to all 60+ zero-waste recipes',
-      'Catalogue of byproducts & upcycling tips',
-      'Interactive kitchen inventory dashboard',
-      'Live community food rescue dispatch',
-      'Unlimited access across mobile & tablet',
-      'No upfront payment or card required',
-    ],
-    buttonText: 'START 3-DAY FREE TRIAL',
     isTrial: true,
   },
   {
     id: 'individual',
     title: 'Individual',
-    description: 'Annual subscription. No per-module fees. Full access on every plan.',
     price: '$99',
     cadence: 'per person/year',
-    features: [
-      'A library of zero-waste recipes',
-      'Catalogue of byproducts and tips',
-      'Training courses for chefs',
-      'Best practices & SOP downloads',
-      'Exclusive live masterclass Q&A calls with master mentors',
-      'Members only newsletter',
-      'Printable kitchen posters & prep guides',
-      'Unlimited access to all resources',
-      'Access to all future content',
-      'Mobile app access',
-    ],
-    buttonText: 'JOIN NOW',
     ziinaPayUrl: 'https://pay.ziina.com/topinfluencer/PXdVCwkJTu?source=app',
   },
   {
     id: 'team',
     title: 'Team',
-    badge: 'MOST POPULAR',
-    description: 'Minimum 5 chefs included. Perfect for restaurant and hotel brigades.',
     price: '$79',
     cadence: 'per chef/year',
-    features: [
-      'Everything in Individual plan, plus:',
-      'Team progress tracking & analytics',
-      'Engagement reports for Head Chefs',
-      'Minimum 5 chefs included',
-      'Dedicated brigade onboarding kit',
-      'Shared kitchen recipe binder',
-      'Priority live Q&A sessions',
-    ],
-    buttonText: 'GET STARTED',
-    highlighted: true,
     ziinaPayUrl: 'https://pay.ziina.com/topinfluencer/K_Yuf5UfM?source=app',
   },
   {
     id: 'training',
     title: 'Training',
-    badge: 'EXECUTIVE ADVISORY',
-    description: 'Comprehensive operational transformation and executive culinary advisory.',
     price: '$1499',
     cadence: 'per 5 chefs/year',
-    features: [
-      'Everything in the Team plan, plus:',
-      '3x tailored private online sessions',
-      'Private dedicated brigade advisory channel',
-      'Food waste data review & bin audit analysis',
-      'Customized menu circularity roadmap',
-      'Certified Zero Waste Brigade credential',
-    ],
-    buttonText: 'ENQUIRE NOW',
     ziinaPayUrl: 'https://pay.ziina.com/topinfluencer/V4v9zEpeg?source=app',
   },
 ];
 
 interface AccessGateScreenProps {
   onUnlocked: (user: AuthenticatedSessionUser, token: string) => void;
+  onOpenAdminPortal?: () => void;
   initialNotice?: string | null;
 }
 
 export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
   onUnlocked,
+  onOpenAdminPortal,
   initialNotice = null,
 }) => {
+  const [showSignInModal, setShowSignInModal] = useState(Boolean(initialNotice));
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(initialNotice);
+  const [loginSuccess, setLoginSuccess] = useState<string | null>(null);
+
+  // Member Forgot Password state
+  const [showMemberForgot, setShowMemberForgot] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetVerification, setResetVerification] = useState('');
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
 
   // Plan Checkout / Trial Activation Modal state
   const [selectedPlan, setSelectedPlan] = useState<AccessPlanOption | null>(null);
   const [signupName, setSignupName] = useState('');
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
+  const [signupWorkPlace, setSignupWorkPlace] = useState('');
   const [chefSeats, setChefSeats] = useState<number>(5);
   const [transactionRef, setTransactionRef] = useState('');
   const [hasOpenedPayment, setHasOpenedPayment] = useState(false);
@@ -149,10 +113,36 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
   const [signupError, setSignupError] = useState<string | null>(null);
 
   const isPermanentAdminInput = loginEmail.trim().toLowerCase() === 'supritamone@gmail.com';
+  const isResetAdminInput = resetEmail.trim().toLowerCase() === 'supritamone@gmail.com';
+
+  const scrollToElement = (id: string) => {
+    setIsMobileMenuOpen(false);
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handleOpenPlanModal = (planId: HomePlanId) => {
+    const found = ACADEMY_PLANS.find((p) => p.id === planId) || ACADEMY_PLANS[0];
+    setSelectedPlan(found);
+    setSignupError(null);
+    setHasOpenedPayment(false);
+    setTransactionRef('');
+    if (loginEmail.trim()) {
+      setSignupEmail(loginEmail.trim());
+    }
+  };
+
+  const handleLockedFeaturePrompt = (featureLabel: string) => {
+    setLoginError(
+      `Sign in or start your 3-Day Free Trial to unlock ${featureLabel}.`
+    );
+    setShowSignInModal(true);
+  };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
+    setLoginSuccess(null);
     setLoginLoading(true);
     try {
       const res = await fetch('/api/auth/login', {
@@ -178,13 +168,48 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
     }
   };
 
-  const handleOpenPlanModal = (plan: AccessPlanOption) => {
-    setSelectedPlan(plan);
-    setSignupError(null);
-    setHasOpenedPayment(false);
-    setTransactionRef('');
-    if (loginEmail.trim()) {
-      setSignupEmail(loginEmail.trim());
+  const handleMemberPasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetError(null);
+    if (isResetAdminInput) {
+      if (onOpenAdminPortal) {
+        setShowSignInModal(false);
+        onOpenAdminPortal();
+      } else {
+        setResetError('Please reset Admin password via the Admin Portal Forgot Password option.');
+      }
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: resetEmail.trim(),
+          fullName: resetVerification.trim(),
+          verificationValue: resetVerification.trim(),
+          newPassword: resetNewPassword,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setResetError(data?.error || 'Unable to verify your account details.');
+        return;
+      }
+      setLoginEmail(resetEmail.trim());
+      setLoginPassword('');
+      setShowMemberForgot(false);
+      setResetVerification('');
+      setResetNewPassword('');
+      setLoginError(null);
+      setLoginSuccess('Your password has been reset. You can now sign in below.');
+    } catch {
+      setResetError('Network error while resetting password. Please try again.');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -204,6 +229,7 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
           name: signupName.trim(),
           email: signupEmail.trim(),
           password: signupPassword,
+          workPlace: signupWorkPlace.trim(),
           chefSeats: selectedPlan.id === 'team' ? Math.max(5, chefSeats) : undefined,
           transactionRef: transactionRef.trim() || undefined,
         }),
@@ -222,339 +248,493 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
     }
   };
 
-  const scrollToPlans = () => {
-    const el = document.getElementById('academy-pricing-plans');
-    if (el) el.scrollIntoView({ behavior: 'smooth' });
-  };
-
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* Top Gate Header */}
-      <header className="border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="bg-white rounded-lg px-2 py-1">
-              <SupritamoneLogo size="sm" />
-            </div>
-            <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-md">
-              <Lock className="w-3.5 h-3.5" />
-              <span>Members-Only Culinary Academy</span>
-            </span>
-          </div>
+    <div className="min-h-screen bg-white text-[#111111] font-sans antialiased flex flex-col selection:bg-black selection:text-white">
+      {/* Minimal Top Navigation matching zerowaste.supritamone.com across Mobile, Tablet, Laptop & Desktop */}
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-xs border-b border-neutral-200 safe-pt">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16 gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen((prev) => !prev)}
+                className="lg:hidden p-2 -ml-1 rounded-lg text-neutral-700 hover:text-black hover:bg-neutral-100 transition-colors cursor-pointer shrink-0"
+                aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+              >
+                {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              </button>
 
-          <div className="flex items-center gap-2.5">
-            <a
-              href="https://zerowaste.supritamone.com/"
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 text-xs font-semibold text-slate-200 transition-colors"
-            >
-              <span>zerowaste.supritamone.com</span>
-              <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-            </a>
-            <button
-              onClick={scrollToPlans}
-              className="px-3.5 py-1.5 rounded-lg bg-[#a435f0] hover:bg-[#8710d8] text-white text-xs font-bold transition-colors cursor-pointer"
-            >
-              View Plans
-            </button>
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="flex items-center gap-2.5 sm:gap-3 text-left focus:outline-none cursor-pointer shrink-0"
+                title="Zero waste by Supritamone"
+              >
+                <SupritamoneLogo size="md" />
+                <span className="hidden sm:inline-block border-l border-neutral-300 pl-3 text-xs font-semibold text-neutral-800 tracking-tight whitespace-nowrap">
+                  Zero waste by Supritamone
+                </span>
+              </button>
+            </div>
+
+            <nav className="hidden lg:flex items-center gap-5 xl:gap-6 text-xs font-medium text-neutral-500">
+              <button
+                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                className="h-16 inline-flex items-center border-b-2 border-black text-black font-bold cursor-pointer whitespace-nowrap"
+              >
+                ZERO WASTE App
+              </button>
+              <button
+                onClick={() => scrollToElement('problem-solution')}
+                className="h-16 inline-flex items-center border-b-2 border-transparent hover:text-black cursor-pointer whitespace-nowrap"
+              >
+                Problem &amp; Solutions
+              </button>
+              <button
+                onClick={() => handleLockedFeaturePrompt('Recipes & Byproducts')}
+                className="h-16 inline-flex items-center border-b-2 border-transparent hover:text-black cursor-pointer whitespace-nowrap"
+              >
+                Recipes &amp; Byproducts
+              </button>
+              <button
+                onClick={() => scrollToElement('pricing')}
+                className="h-16 inline-flex items-center border-b-2 border-transparent hover:text-black cursor-pointer whitespace-nowrap"
+              >
+                Training &amp; Pricing
+              </button>
+              <button
+                onClick={() => scrollToElement('faq')}
+                className="h-16 inline-flex items-center border-b-2 border-transparent hover:text-black cursor-pointer whitespace-nowrap"
+              >
+                FAQ
+              </button>
+              <button
+                onClick={() => scrollToElement('about')}
+                className="h-16 inline-flex items-center border-b-2 border-transparent hover:text-black cursor-pointer whitespace-nowrap"
+              >
+                About
+              </button>
+            </nav>
+
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              {onOpenAdminPortal && (
+                <button
+                  onClick={onOpenAdminPortal}
+                  className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 hover:border-black text-xs font-semibold text-neutral-700 hover:text-black transition-colors cursor-pointer"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Admin Portal</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => {
+                  setLoginError(initialNotice);
+                  setLoginSuccess(null);
+                  setShowMemberForgot(false);
+                  setShowSignInModal(true);
+                  setIsMobileMenuOpen(false);
+                }}
+                className="px-2.5 sm:px-3.5 py-2 rounded-lg border border-neutral-300 hover:border-black text-[11px] sm:text-xs font-bold text-neutral-900 transition-colors cursor-pointer whitespace-nowrap"
+              >
+                Sign In
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  handleOpenPlanModal('trial');
+                }}
+                className="px-2.5 sm:px-4 py-2 rounded-lg bg-black hover:bg-neutral-800 text-white text-[11px] sm:text-xs font-bold transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <span className="sm:hidden">Free Trial</span>
+                <span className="hidden sm:inline">Start Free Trial</span>
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* Mobile & Tablet Drop-Down Navigation Menu (< lg) */}
+        {isMobileMenuOpen && (
+          <div className="lg:hidden border-t border-neutral-200 bg-white px-4 py-3 space-y-1 shadow-lg animate-fadeIn">
+            <button
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-black bg-neutral-100 cursor-pointer"
+            >
+              ZERO WASTE App
+            </button>
+            <button
+              onClick={() => scrollToElement('problem-solution')}
+              className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-semibold text-neutral-700 hover:bg-neutral-50 cursor-pointer"
+            >
+              Problem &amp; Solutions
+            </button>
+            <button
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                handleLockedFeaturePrompt('Recipes & Byproducts');
+              }}
+              className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-semibold text-neutral-700 hover:bg-neutral-50 cursor-pointer"
+            >
+              Recipes &amp; Byproducts
+            </button>
+            <button
+              onClick={() => scrollToElement('pricing')}
+              className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-semibold text-neutral-700 hover:bg-neutral-50 cursor-pointer"
+            >
+              Training &amp; Pricing
+            </button>
+            <button
+              onClick={() => scrollToElement('faq')}
+              className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-semibold text-neutral-700 hover:bg-neutral-50 cursor-pointer"
+            >
+              FAQ
+            </button>
+            <button
+              onClick={() => scrollToElement('about')}
+              className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-semibold text-neutral-700 hover:bg-neutral-50 cursor-pointer"
+            >
+              About
+            </button>
+            {onOpenAdminPortal && (
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  onOpenAdminPortal();
+                }}
+                className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 flex items-center gap-2 mt-2 cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>Admin Portal</span>
+              </button>
+            )}
+          </div>
+        )}
       </header>
 
-      {/* Main Split Access Hero & Sign-In */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-12">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-          {/* Left: Protected Curriculum Summary */}
-          <div className="lg:col-span-7 space-y-5">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-400/30 text-amber-300 text-xs font-bold uppercase tracking-wider">
-              <ShieldCheck className="w-4 h-4 shrink-0" />
-              <span>Protected Portal · Authorized Members Only</span>
+      {/* Restriction / Expired Trial Alert Strip (shown only when blocked or expired) */}
+      {initialNotice && (
+        <div className="bg-red-50 border-b border-red-200 px-4 py-3 text-xs text-red-900">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+            <div className="flex items-center gap-2 font-semibold">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>{initialNotice}</span>
             </div>
-
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white leading-[1.12]">
-              The Zero Waste Kitchen Academy & Chef Diploma
-            </h1>
-
-            <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-2xl">
-              Already signed in on{' '}
-              <a
-                href="https://zerowaste.supritamone.com/"
-                className="text-emerald-400 underline hover:text-emerald-300 font-semibold"
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => scrollToElement('pricing')}
+                className="px-3 py-1 rounded-md bg-black text-white font-bold text-[11px] cursor-pointer"
               >
-                https://zerowaste.supritamone.com/
-              </a>{' '}
-              (Free Trial or any paid plan)? Routing from that site unlocks the Academy automatically with no extra login required. Direct visitors can sign in with their email &amp; password or choose a plan below.
-            </p>
-
-            {/* 3 Clear Ways to Unlock */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-              <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1">
-                <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>1. No Second Login</span>
-                </span>
-                <p className="text-[11px] text-slate-400 leading-snug">
-                  Users routed from <strong className="text-slate-200">zerowaste.supritamone.com</strong> enter automatically
-                </p>
-              </div>
-              <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1">
-                <span className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
-                  <KeyRound className="w-3.5 h-3.5" />
-                  <span>2. Member Login</span>
-                </span>
-                <p className="text-[11px] text-slate-400 leading-snug">
-                  Use your registered email & password (or Admin account)
-                </p>
-              </div>
-              <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1">
-                <span className="text-xs font-bold text-purple-400 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>3. Select Any Plan</span>
-                </span>
-                <p className="text-[11px] text-slate-400 leading-snug">
-                  Start with our $0 3-Day Free Trial or enroll your kitchen brigade
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Right: Login Card */}
-          <div className="lg:col-span-5">
-            <div className="bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200 p-6 sm:p-7 space-y-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-extrabold text-slate-900">Sign In to Academy</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Use your zerowaste.supritamone.com or Academy credentials
-                  </p>
-                </div>
-                <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0">
-                  <Lock className="w-4 h-4 text-amber-400" />
-                </div>
-              </div>
-
-              {loginError && (
-                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-                  <span>{loginError}</span>
-                </div>
-              )}
-
-              {isPermanentAdminInput && (
-                <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2 font-semibold">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Master Admin recognized: Permanent unrestricted access enabled.</span>
-                </div>
-              )}
-
-              <form onSubmit={handleLoginSubmit} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label htmlFor="gate-login-email" className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                    <Mail className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Email Address</span>
-                  </label>
-                  <input
-                    id="gate-login-email"
-                    type="email"
-                    required
-                    value={loginEmail}
-                    onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="chef@restaurant.com"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#a435f0]/30 focus:border-[#a435f0]"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label htmlFor="gate-login-password" className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                    <KeyRound className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Password {isPermanentAdminInput ? '(Optional for Admin)' : ''}</span>
-                  </label>
-                  <input
-                    id="gate-login-password"
-                    type="password"
-                    required={!isPermanentAdminInput}
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    placeholder={isPermanentAdminInput ? 'Permanent Admin Access' : 'Enter your password'}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#a435f0]/30 focus:border-[#a435f0]"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loginLoading}
-                  className="w-full py-3 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                >
-                  {loginLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <>
-                      <span>Unlock Academy</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              </form>
-
-              <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-slate-500">
-                <span>Already signed in on partner site?</span>
-                <a
-                  href="https://zerowaste.supritamone.com/"
-                  className="font-bold text-[#a435f0] hover:underline inline-flex items-center gap-1"
-                >
-                  <span>Go to zerowaste.supritamone.com</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
+                Upgrade Plan
+              </button>
+              <button
+                onClick={() => setShowSignInModal(true)}
+                className="px-3 py-1 rounded-md border border-red-300 bg-white text-red-800 font-bold text-[11px] cursor-pointer"
+              >
+                Sign In
+              </button>
             </div>
           </div>
         </div>
+      )}
 
-        {/* 4 Exact Plans Pricing Section */}
-        <section id="academy-pricing-plans" className="pt-4 space-y-6">
-          <div className="text-center max-w-2xl mx-auto space-y-2">
-            <span className="text-[11px] font-bold uppercase tracking-widest text-emerald-400">
-              Instant Brigade & Chef Access
-            </span>
-            <h2 className="text-2xl sm:text-3xl font-black text-white">
-              Start with a 3-Day Free Trial or Enroll Your Brigade
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-400">
-              Transparent pricing in USD ($). Unlock all 12 Sections, 24 Chapters (26h 00m Video Mastery), 120 Assessment Questions, and the Official Certificate.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 items-stretch">
-            {ACADEMY_PLANS.map((plan) => {
-              const isHighlighted = Boolean(plan.highlighted);
-              return (
-                <div
-                  key={plan.id}
-                  className={`rounded-2xl p-6 flex flex-col justify-between transition-all ${
-                    isHighlighted
-                      ? 'bg-white text-slate-900 ring-4 ring-[#a435f0]/40 shadow-2xl border-2 border-[#a435f0]'
-                      : 'bg-slate-900/95 text-slate-100 border border-slate-800 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="space-y-5">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2 min-h-[24px]">
-                        <h3 className={`text-lg font-extrabold ${isHighlighted ? 'text-slate-900' : 'text-white'}`}>
-                          {plan.title}
-                        </h3>
-                        {plan.badge && (
-                          <span
-                            className={`text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-md ${
-                              plan.isTrial
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                : isHighlighted
-                                  ? 'bg-[#a435f0] text-white'
-                                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            }`}
-                          >
-                            {plan.badge}
-                          </span>
-                        )}
-                      </div>
-
-                      <p className={`text-xs leading-relaxed ${isHighlighted ? 'text-slate-600' : 'text-slate-400'}`}>
-                        {plan.description}
-                      </p>
-                    </div>
-
-                    <div className={`pb-4 border-b ${isHighlighted ? 'border-slate-200' : 'border-slate-800'}`}>
-                      <div className="flex items-baseline gap-1.5">
-                        <span className={`text-4xl font-black tracking-tight ${isHighlighted ? 'text-slate-900' : 'text-white'}`}>
-                          {plan.price}
-                        </span>
-                        <span className={`text-xs font-bold uppercase ${isHighlighted ? 'text-slate-500' : 'text-slate-400'}`}>
-                          USD
-                        </span>
-                      </div>
-                      <span className={`text-xs block mt-0.5 ${isHighlighted ? 'text-slate-500' : 'text-slate-400'}`}>
-                        {plan.cadence}
-                      </span>
-                    </div>
-
-                    <div className="space-y-2.5">
-                      <p className={`text-xs font-bold ${isHighlighted ? 'text-slate-800' : 'text-slate-300'}`}>
-                        What&apos;s included:
-                      </p>
-                      <ul className="space-y-2">
-                        {plan.features.map((feat, idx) => (
-                          <li key={idx} className="flex items-start gap-2 text-xs leading-snug">
-                            <Check
-                              className={`w-4 h-4 shrink-0 mt-0.5 ${
-                                plan.isTrial
-                                  ? 'text-emerald-400'
-                                  : isHighlighted
-                                    ? 'text-[#a435f0]'
-                                    : 'text-emerald-400'
-                              }`}
-                            />
-                            <span className={isHighlighted ? 'text-slate-700' : 'text-slate-300'}>
-                              {feat}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-
-                  <div className="pt-6">
-                    <button
-                      onClick={() => handleOpenPlanModal(plan)}
-                      className={`w-full py-3 px-4 rounded-xl text-xs font-extrabold uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                        plan.isTrial
-                          ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg'
-                          : isHighlighted
-                            ? 'bg-[#a435f0] hover:bg-[#8710d8] text-white shadow-lg'
-                            : 'bg-white hover:bg-slate-200 text-slate-950'
-                      }`}
-                    >
-                      <span>{plan.buttonText}</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
+      {/* Full Minimal Front Home Page copied from zerowaste.supritamone.com */}
+      <main className="flex-1 w-full bg-white">
+        <SurplusHomeView
+          isGuestPreview
+          onOpenCourse={() => handleLockedFeaturePrompt('the 26h Zero Waste Kitchen Course')}
+          onOpenLibrary={() => handleLockedFeaturePrompt('the 500+ Recipe & Byproduct Library')}
+          onOpenCertify={() => handleLockedFeaturePrompt('Official Certification')}
+          onOpenSection={(sectionId) =>
+            handleLockedFeaturePrompt(
+              sectionId === 'waste-calculator' ? 'the Live Waste Calculator' : 'Academy Modules'
+            )
+          }
+          onSelectNavTab={(tab) => handleLockedFeaturePrompt(`Academy (${tab})`)}
+          onOpenAdminPortal={onOpenAdminPortal}
+          onSelectPlan={handleOpenPlanModal}
+        />
       </main>
 
-      {/* Footer Support */}
-      <footer className="border-t border-slate-800/80 py-5 px-4 text-center text-xs text-slate-500">
-        <span>Supritamone Academy · Executive Zero Waste Culinary Certification · Support: </span>
-        <a href="mailto:supritam.basu@supritamone.com" className="text-slate-300 hover:underline">
-          supritam.basu@supritamone.com
-        </a>
-      </footer>
+      {/* MEMBER SIGN-IN & FORGOT PASSWORD MODAL */}
+      {showSignInModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white text-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 w-full max-w-md overflow-hidden max-h-[92vh] overflow-y-auto">
+            <div className="px-5 sm:px-6 py-4 bg-black text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
+                <div>
+                  <h2 className="font-bold text-sm">
+                    {showMemberForgot ? 'Reset Password · Supritamone Academy' : 'Member Sign-In · Supritamone Academy'}
+                  </h2>
+                  <p className="text-[11px] text-neutral-400">
+                    {showMemberForgot
+                      ? 'Verify your registered account details to set a new password'
+                      : 'Sign in with your active trial or membership credentials'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSignInModal(false)}
+                className="p-1 text-neutral-400 hover:text-white cursor-pointer"
+                aria-label="Close sign in modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-      {/* Checkout / Trial Activation Modal */}
+            <div className="p-5 sm:p-6 space-y-4">
+              {!showMemberForgot ? (
+                <>
+                  {loginSuccess && (
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-start gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <span>{loginSuccess}</span>
+                    </div>
+                  )}
+
+                  {loginError && (
+                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                      <span>{loginError}</span>
+                    </div>
+                  )}
+
+                  {isPermanentAdminInput && (
+                    <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2 font-semibold">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>Master Admin recognized: Enter your admin password to unlock unrestricted access.</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleLoginSubmit} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label htmlFor="gate-login-email" className="text-xs font-bold text-neutral-700 flex items-center gap-1.5">
+                        <Mail className="w-3.5 h-3.5 text-neutral-500" />
+                        <span>Email Address</span>
+                      </label>
+                      <input
+                        id="gate-login-email"
+                        type="email"
+                        required
+                        value={loginEmail}
+                        onChange={(e) => setLoginEmail(e.target.value)}
+                        placeholder="chef@restaurant.com"
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 text-sm text-neutral-900 focus:outline-none focus:border-black"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <label htmlFor="gate-login-password" className="text-xs font-bold text-neutral-700 flex items-center gap-1.5">
+                          <KeyRound className="w-3.5 h-3.5 text-neutral-500" />
+                          <span>Password</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowMemberForgot(true);
+                            setResetEmail(loginEmail.trim());
+                            setResetError(null);
+                          }}
+                          className="text-[11px] font-semibold text-neutral-600 hover:text-black underline cursor-pointer"
+                        >
+                          Forgot password?
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <input
+                          id="gate-login-password"
+                          type={showLoginPassword ? 'text' : 'password'}
+                          required
+                          value={loginPassword}
+                          onChange={(e) => setLoginPassword(e.target.value)}
+                          placeholder={isPermanentAdminInput ? 'Enter admin password' : 'Enter your password'}
+                          className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-neutral-300 text-sm text-neutral-900 focus:outline-none focus:border-black"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowLoginPassword((prev) => !prev)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-black p-1 cursor-pointer"
+                          aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loginLoading}
+                      className="w-full py-3 rounded-xl bg-black hover:bg-neutral-800 disabled:opacity-60 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                    >
+                      {loginLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          <span>Sign In &amp; Unlock Academy</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </>
+                      )}
+                    </button>
+                  </form>
+
+                  <div className="pt-3 border-t border-neutral-100 flex items-center justify-between text-xs text-neutral-500">
+                    <span>New chef or brigade?</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowSignInModal(false);
+                        handleOpenPlanModal('trial');
+                      }}
+                      className="font-bold text-black hover:underline cursor-pointer"
+                    >
+                      Start 3-Day Free Trial →
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <form onSubmit={handleMemberPasswordReset} className="space-y-4">
+                  {resetError && (
+                    <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                      <span>{resetError}</span>
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <label htmlFor="reset-email-input" className="text-xs font-bold text-neutral-700 block">
+                      Registered Email Address
+                    </label>
+                    <input
+                      id="reset-email-input"
+                      type="email"
+                      required
+                      value={resetEmail}
+                      onChange={(e) => setResetEmail(e.target.value)}
+                      placeholder="chef@restaurant.com"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 text-sm text-neutral-900 focus:outline-none focus:border-black"
+                    />
+                  </div>
+
+                  {isResetAdminInput ? (
+                    <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs space-y-2.5">
+                      <p className="font-bold flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>Master Admin Recovery</span>
+                      </p>
+                      <p className="text-emerald-900 leading-relaxed">
+                        For security, Master Admin password resets use the Admin Portal verification flow (backup email or Admin Recovery Key).
+                      </p>
+                      {onOpenAdminPortal && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowSignInModal(false);
+                            onOpenAdminPortal();
+                          }}
+                          className="w-full py-2.5 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold uppercase tracking-wider cursor-pointer"
+                        >
+                          Open Admin Portal Reset →
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-1.5">
+                        <label htmlFor="reset-verify-input" className="text-xs font-bold text-neutral-700 block">
+                          Verification (Registered Full Name or Payment Ref ID)
+                        </label>
+                        <input
+                          id="reset-verify-input"
+                          type="text"
+                          required
+                          value={resetVerification}
+                          onChange={(e) => setResetVerification(e.target.value)}
+                          placeholder="Full name on account or Transaction Ref"
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 text-sm text-neutral-900 focus:outline-none focus:border-black"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label htmlFor="reset-new-pw-input" className="text-xs font-bold text-neutral-700 block">
+                          New Password (min 4 characters)
+                        </label>
+                        <input
+                          id="reset-new-pw-input"
+                          type="password"
+                          required
+                          minLength={4}
+                          value={resetNewPassword}
+                          onChange={(e) => setResetNewPassword(e.target.value)}
+                          placeholder="Enter new login password"
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 text-sm text-neutral-900 focus:outline-none focus:border-black"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={resetLoading}
+                        className="w-full py-3 rounded-xl bg-black hover:bg-neutral-800 disabled:opacity-60 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                      >
+                        {resetLoading ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <span>Verify &amp; Reset Password</span>
+                        )}
+                      </button>
+                    </>
+                  )}
+
+                  <div className="pt-2 border-t border-neutral-100 flex items-center justify-between text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMemberForgot(false);
+                        setResetError(null);
+                      }}
+                      className="font-bold text-black hover:underline cursor-pointer"
+                    >
+                      ← Back to Sign In
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CHECKOUT / TRIAL ACTIVATION MODAL */}
       {selectedPlan && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden max-h-[92vh] overflow-y-auto">
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white text-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 w-full max-w-lg overflow-hidden max-h-[92vh] overflow-y-auto">
+            <div className="px-6 py-4 bg-black text-white flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 {selectedPlan.isTrial ? (
                   <Clock className="w-5 h-5 text-emerald-400" />
                 ) : selectedPlan.id === 'team' ? (
-                  <Users className="w-5 h-5 text-[#a435f0]" />
+                  <Users className="w-5 h-5 text-emerald-400" />
                 ) : selectedPlan.id === 'training' ? (
                   <Crown className="w-5 h-5 text-amber-400" />
                 ) : (
-                  <Sparkles className="w-5 h-5 text-blue-400" />
+                  <Sparkles className="w-5 h-5 text-emerald-400" />
                 )}
                 <div>
                   <h3 className="font-bold text-sm">{selectedPlan.title}</h3>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-neutral-400">
                     {selectedPlan.price} USD {selectedPlan.cadence}
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setSelectedPlan(null)}
-                className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer"
+                className="p-1.5 rounded-lg hover:bg-white/10 text-neutral-400 hover:text-white cursor-pointer"
                 aria-label="Close"
               >
                 <X className="w-4 h-4" />
@@ -569,25 +749,41 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
                 </div>
               )}
 
-              <div className="space-y-1.5">
-                <label htmlFor="plan-full-name" className="font-bold text-slate-700 flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Full Name (Printed on Certificate)</span>
-                </label>
-                <input
-                  id="plan-full-name"
-                  type="text"
-                  required
-                  value={signupName}
-                  onChange={(e) => setSignupName(e.target.value)}
-                  placeholder="Chef Full Name"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#a435f0]/30 focus:border-[#a435f0]"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label htmlFor="plan-full-name" className="font-bold text-neutral-700 flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-neutral-500" />
+                    <span>Full Name (For Certificate)</span>
+                  </label>
+                  <input
+                    id="plan-full-name"
+                    type="text"
+                    required
+                    value={signupName}
+                    onChange={(e) => setSignupName(e.target.value)}
+                    placeholder="Chef Full Name"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 text-sm text-neutral-900 focus:outline-none focus:border-black"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="plan-workplace" className="font-bold text-neutral-700 block">
+                    Kitchen / Hotel Property
+                  </label>
+                  <input
+                    id="plan-workplace"
+                    type="text"
+                    value={signupWorkPlace}
+                    onChange={(e) => setSignupWorkPlace(e.target.value)}
+                    placeholder="Property / Restaurant"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 text-sm text-neutral-900 focus:outline-none focus:border-black"
+                  />
+                </div>
               </div>
 
               <div className="space-y-1.5">
-                <label htmlFor="plan-email" className="font-bold text-slate-700 flex items-center gap-1.5">
-                  <Mail className="w-3.5 h-3.5 text-slate-500" />
+                <label htmlFor="plan-email" className="font-bold text-neutral-700 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-neutral-500" />
                   <span>Work / Academy Email ID</span>
                 </label>
                 <input
@@ -597,13 +793,13 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
                   value={signupEmail}
                   onChange={(e) => setSignupEmail(e.target.value)}
                   placeholder="chef@restaurant.com"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#a435f0]/30 focus:border-[#a435f0]"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 text-sm text-neutral-900 focus:outline-none focus:border-black"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label htmlFor="plan-password" className="font-bold text-slate-700 flex items-center gap-1.5">
-                  <KeyRound className="w-3.5 h-3.5 text-slate-500" />
+                <label htmlFor="plan-password" className="font-bold text-neutral-700 flex items-center gap-1.5">
+                  <KeyRound className="w-3.5 h-3.5 text-neutral-500" />
                   <span>Create Login Password (min 4 characters)</span>
                 </label>
                 <input
@@ -614,13 +810,13 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
                   value={signupPassword}
                   onChange={(e) => setSignupPassword(e.target.value)}
                   placeholder="Create password for future sign-ins"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#a435f0]/30 focus:border-[#a435f0]"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 text-sm text-neutral-900 focus:outline-none focus:border-black"
                 />
               </div>
 
               {selectedPlan.id === 'team' && (
                 <div className="space-y-1.5">
-                  <label htmlFor="plan-seats" className="font-bold text-slate-700 block">
+                  <label htmlFor="plan-seats" className="font-bold text-neutral-700 block">
                     Number of Chef Seats (Minimum 5 chefs · $79 USD/chef/year)
                   </label>
                   <input
@@ -629,19 +825,19 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
                     min={5}
                     value={chefSeats}
                     onChange={(e) => setChefSeats(Math.max(5, Number(e.target.value) || 5))}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900"
+                    className="w-full px-3.5 py-2 rounded-xl border border-neutral-300 text-sm text-neutral-900"
                   />
-                  <p className="text-[11px] font-bold text-[#a435f0]">
+                  <p className="text-[11px] font-bold text-emerald-700">
                     Total Team Annual Investment: ${Math.max(5, chefSeats) * 79} USD / year
                   </p>
                 </div>
               )}
 
               {!selectedPlan.isTrial && selectedPlan.ziinaPayUrl && (
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="p-4 rounded-xl bg-neutral-50 border border-neutral-200 space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-900">Step 1: Complete Secure Payment</span>
-                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                    <span className="font-bold text-neutral-900">Step 1: Complete Secure Payment</span>
+                    <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
                       {selectedPlan.id === 'team'
                         ? `$${Math.max(5, chefSeats) * 79} USD`
                         : `${selectedPlan.price} USD`}
@@ -652,13 +848,13 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => setHasOpenedPayment(true)}
-                    className="w-full py-2.5 px-4 rounded-xl bg-[#a435f0] hover:bg-[#8710d8] text-white font-bold flex items-center justify-center gap-2 transition-colors"
+                    className="w-full py-2.5 px-4 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold flex items-center justify-center gap-2 transition-colors"
                   >
                     <span>Proceed to Checkout ({selectedPlan.price} USD)</span>
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                   <div className="space-y-1">
-                    <label htmlFor="plan-tx-ref" className="font-semibold text-slate-700 block">
+                    <label htmlFor="plan-tx-ref" className="font-semibold text-neutral-700 block">
                       Step 2: Payment Confirmation ID / Order Reference (after checkout)
                     </label>
                     <input
@@ -667,7 +863,7 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
                       value={transactionRef}
                       onChange={(e) => setTransactionRef(e.target.value)}
                       placeholder={hasOpenedPayment ? 'Paste payment receipt / reference ID' : 'Optional confirmation ID'}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs text-slate-900"
+                      className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-xs text-neutral-900"
                     />
                   </div>
                 </div>
@@ -684,14 +880,14 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedPlan(null)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold hover:bg-slate-50 cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl border border-neutral-300 text-neutral-700 font-semibold hover:bg-neutral-50 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={signupLoading}
-                  className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white font-bold flex items-center gap-1.5 cursor-pointer"
+                  className="px-5 py-2.5 rounded-xl bg-black hover:bg-neutral-800 disabled:opacity-60 text-white font-bold flex items-center gap-1.5 cursor-pointer"
                 >
                   {signupLoading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
