@@ -67,7 +67,12 @@ import {
   formatCompactDuration,
   loadStoredExamProgress
 } from '../data/udemyCourseStructure';
-import { audioNarrator, tokenizeTextIntoWords } from '../utils/audioNarrator';
+import {
+  audioNarrator,
+  tokenizeTextIntoWords,
+  computeWordProgressRanges,
+  findWeightedWordIndex,
+} from '../utils/audioNarrator';
 import { SupritamoneLogo } from './SupritamoneLogo';
 import iso9001Logo from '../assets/images/iso_9001_certified.png';
 
@@ -177,6 +182,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
 
   // Video playback state (100% audio-driven live sync)
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isAudioBuffering, setIsAudioBuffering] = useState<boolean>(false);
   const [currentSlideIdx, setCurrentSlideIdx] = useState<number>(0);
   const [activeSentenceIdx, setActiveSentenceIdx] = useState<number>(0);
   const [sentenceElapsed, setSentenceElapsed] = useState<number>(0);
@@ -335,6 +341,10 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   const currentSlide = currentLecture.slides[currentSlideIdx] || currentLecture.slides[0];
   const currentTranscript = currentLecture.transcript || [];
   const currentCaption = currentTranscript[activeSentenceIdx] || currentTranscript[0];
+  const captionTokens = useMemo(
+    () => (currentCaption ? tokenizeTextIntoWords(currentCaption.text) : []),
+    [currentCaption]
+  );
 
   // Subscribe to actual decoded WAV durations so scrubber & timeline match real audio length
   useEffect(() => {
@@ -579,6 +589,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
       startTimeOffset: startOffset,
       rate: playbackSpeedRef.current,
       volume: volumeRef.current,
+      onLoadingChange: (loading) => {
+        if (currentLectureRef.current.id === lecture.id) {
+          setIsAudioBuffering(loading);
+        }
+      },
       onProgress: (p) => {
         if (!isPlayingRef.current || currentLectureRef.current.id !== lecture.id) return;
         setActiveSentenceIdx(p.sentenceIndex);
@@ -588,6 +603,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
       },
       onEnd: () => {
         if (currentLectureRef.current.id !== lecture.id) return;
+        setIsAudioBuffering(false);
         setActiveWordIndex(-1);
         setIsPlaying(false);
         isPlayingRef.current = false;
@@ -631,6 +647,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
     } else {
       setIsPlaying(false);
       isPlayingRef.current = false;
+      setIsAudioBuffering(false);
       if (audioNarrator.getIsSpeaking()) {
         audioNarrator.pause();
       } else {
@@ -642,13 +659,18 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   // Muted silent visual progress loop (runs only when isPlaying && isMuted)
   useEffect(() => {
     if (!isPlaying || !isMuted || isQuizMode) return;
+    const words = tokenizeTextIntoWords(currentTranscript[activeSentenceIdx]?.text || '');
+    const ranges = computeWordProgressRanges(words);
     const interval = setInterval(() => {
       setSentenceElapsed(prev => {
         const next = prev + 0.08 * playbackSpeedRef.current;
         const dur = sentenceDurations[activeSentenceIdx] || 5;
-        const words = (currentTranscript[activeSentenceIdx]?.text || '').split(/\s+/).filter(Boolean);
         const fraction = Math.min(1, next / Math.max(0.5, dur));
-        setActiveWordIndex(Math.min(Math.max(0, words.length - 1), Math.floor(fraction * words.length)));
+        setActiveWordIndex(
+          ranges.length > 0
+            ? findWeightedWordIndex(ranges, fraction)
+            : Math.min(Math.max(0, words.length - 1), Math.floor(fraction * words.length))
+        );
 
         if (next >= dur) {
           if (activeSentenceIdx + 1 < currentTranscript.length) {
@@ -1351,11 +1373,15 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   <div className="w-full bg-black/80 backdrop-blur-xs px-2 py-0.5 sm:py-1 rounded text-[9px] sm:text-[10px] flex items-center justify-between text-white">
                     <span className="truncate font-semibold">Dr. Chef Basu</span>
                     {isPlaying && !isMuted ? (
-                      <div className="flex items-center gap-0.5 ml-1">
-                        <span className="w-1 h-2 bg-emerald-400 rounded-full animate-pulse" />
-                        <span className="w-1 h-3 bg-emerald-400 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
-                        <span className="w-1 h-1.5 bg-emerald-400 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
-                      </div>
+                      isAudioBuffering ? (
+                        <span className="text-[8px] text-amber-300 font-semibold animate-pulse ml-1">Syncing</span>
+                      ) : (
+                        <div className="flex items-center gap-0.5 ml-1">
+                          <span className="w-1 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                          <span className="w-1 h-3 bg-emerald-400 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                          <span className="w-1 h-1.5 bg-emerald-400 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+                        </div>
+                      )
                     ) : (
                       <span className="text-[8px] text-slate-400">Host</span>
                     )}
@@ -1377,7 +1403,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                 {showCaptions && currentCaption && (
                   <div className="absolute bottom-12 sm:bottom-14 left-2 right-2 sm:left-4 sm:right-4 z-20 flex justify-center pointer-events-none">
                     <div className="bg-black/85 text-white text-[11px] sm:text-sm font-medium px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg max-w-2xl text-center shadow-2xl backdrop-blur-xs border border-white/10 leading-relaxed">
-                      {tokenizeTextIntoWords(currentCaption.text).map((tok, wIdx) => {
+                      {captionTokens.map((tok, wIdx) => {
                         const isActiveWord = isPlaying && wIdx === activeWordIndex;
                         const isSpoken = isPlaying && activeWordIndex >= 0 && wIdx < activeWordIndex;
                         return (
@@ -1391,7 +1417,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                                   : 'text-slate-200'
                             }`}
                           >
-                            {tok.word}{wIdx < tokenizeTextIntoWords(currentCaption.text).length - 1 ? ' ' : ''}
+                            {tok.word}{wIdx < captionTokens.length - 1 ? ' ' : ''}
                           </span>
                         );
                       })}

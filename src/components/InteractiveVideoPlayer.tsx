@@ -13,7 +13,12 @@ import {
   ChefHat
 } from 'lucide-react';
 import { VideoMasterclass, VideoQuizCheckpoint } from '../types/course';
-import { audioNarrator, tokenizeTextIntoWords } from '../utils/audioNarrator';
+import {
+  audioNarrator,
+  tokenizeTextIntoWords,
+  computeWordProgressRanges,
+  findWeightedWordIndex,
+} from '../utils/audioNarrator';
 
 interface InteractiveVideoPlayerProps {
   video: VideoMasterclass;
@@ -208,6 +213,8 @@ export const InteractiveVideoPlayer: React.FC<InteractiveVideoPlayerProps> = ({
   // Muted progress loop
   useEffect(() => {
     if (!isPlaying || !isMuted || activeCheckpoint) return;
+    const words = tokenizeTextIntoWords(transcript[activeSentenceIndex]?.text || '');
+    const ranges = computeWordProgressRanges(words);
     const interval = setInterval(() => {
       setSentenceElapsed((prev) => {
         const next = prev + 0.1 * playbackSpeedRef.current;
@@ -215,8 +222,10 @@ export const InteractiveVideoPlayer: React.FC<InteractiveVideoPlayerProps> = ({
         const fraction = Math.min(1, next / Math.max(0.25, dur));
         setSentenceProgress(fraction);
 
-        const words = (transcript[activeSentenceIndex]?.text || '').split(/\s+/).filter(Boolean);
-        const wIdx = Math.min(Math.max(0, words.length - 1), Math.floor(fraction * words.length));
+        const wIdx =
+          ranges.length > 0
+            ? findWeightedWordIndex(ranges, fraction)
+            : Math.min(Math.max(0, words.length - 1), Math.floor(fraction * words.length));
         setActiveWordIndex(wIdx);
 
         if (next >= dur) {

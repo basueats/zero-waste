@@ -816,6 +816,8 @@ function getGeminiClient() {
 export interface SentenceTiming {
   start: number;
   end: number;
+  speechStart?: number;
+  speechEnd?: number;
 }
 
 export interface CachedLectureAudio {
@@ -823,12 +825,13 @@ export interface CachedLectureAudio {
   mimeType: string;
   duration: number;
   sentenceTimings: SentenceTiming[];
+  modelUsed?: string;
 }
 
 // In-memory + disk TTS caches
 const ttsAudioCache = new Map<string, string>();
 const lectureTtsCache = new Map<string, CachedLectureAudio>();
-const ttsInFlight = new Map<string, Promise<{ audio?: string; errorDetail?: string; statusCode?: number }>>();
+const ttsInFlight = new Map<string, Promise<{ audio?: string; modelUsed?: string; errorDetail?: string; statusCode?: number }>>();
 const lectureInFlight = new Map<string, Promise<CachedLectureAudio | { errorDetail: string; statusCode: number }>>();
 
 function hashCacheKey(key: string): string {
@@ -882,21 +885,21 @@ function releaseTtsSlot(): void {
 
 const CANONICAL_FENRIR_VOICE = 'Fenrir';
 const DEFAULT_CALM_STYLE =
-  'Calm, deep, steady, unhurried human male baritone voice of an experienced executive master chef and university professor teaching in a quiet studio, consistent pitch, warm tone, and even pacing throughout';
+  'Calm, deep, steady, unhurried human male baritone voice of an experienced executive master chef and university professor teaching in a quiet studio, consistent pitch, warm tone, gentle natural pauses between sentences, and even pacing throughout';
 
 async function generateTtsWithRetry(
   ai: GoogleGenAI,
   cleanText: string,
   voice: string,
   style: string
-): Promise<{ audio?: string; errorDetail?: string; statusCode?: number }> {
-  // Use gemini-3.8-flash-lite-tts consistently so voice & studio tone never shift; fail over only on hard daily exhaustion
+): Promise<{ audio?: string; modelUsed?: string; errorDetail?: string; statusCode?: number }> {
+  // Always lock to gemini-3.8-flash-lite-tts so studio tone & vocal timbre never shift mid-course; fail over only on hard daily exhaustion
   const modelsToTry = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'];
   let lastError = 'Unknown error';
   let lastStatus = 502;
 
   for (const modelName of modelsToTry) {
-    const maxAttempts = 3;
+    const maxAttempts = modelName === 'gemini-3.8-flash-lite-tts' ? 3 : 2;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const response = await ai.models.generateContent({
@@ -918,14 +921,14 @@ async function generateTtsWithRetry(
             responseModalities: ['AUDIO'],
             speechConfig: {
               voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: voice || 'Fenrir' },
+                prebuiltVoiceConfig: { voiceName: voice || CANONICAL_FENRIR_VOICE },
               },
             },
           },
         });
         const candidate = response.candidates?.[0];
         const data = candidate?.content?.parts?.[0]?.inlineData?.data;
-        if (data) return { audio: data };
+        if (data) return { audio: data, modelUsed: modelName };
         lastError = `${modelName}: No audio part (finishReason=${candidate?.finishReason || 'none'})`;
         lastStatus = 502;
       } catch (err: any) {
@@ -939,7 +942,7 @@ async function generateTtsWithRetry(
           break;
         }
         if (attempt < maxAttempts) {
-          await new Promise((r) => setTimeout(r, isRateLimit || isUnavailable ? 1400 * attempt : 500));
+          await new Promise((r) => setTimeout(r, isRateLimit || isUnavailable ? 1400 * attempt : 600));
         }
       }
     }
@@ -947,7 +950,24 @@ async function generateTtsWithRetry(
   return { errorDetail: lastError, statusCode: lastStatus };
 }
 
-// Parse WAV RIFF chunks and align sentence timings to real silence valleys in the PCM waveform
+// Estimate spoken duration weight accounting for numbers, chemical formulas, acronyms & punctuation pauses
+function estimateSpokenWeight(sentence: string): number {
+  const expanded = sentence
+    .trim()
+    .replace(/CO2|CO₂/gi, 'carbon dioxide')
+    .replace(/CH4|CH₄/gi, 'methane')
+    .replace(/≥|>=/g, ' greater than or equal to ')
+    .replace(/≤|<=/g, ' less than or equal to ')
+    .replace(/°C/g, ' degrees celsius ')
+    .replace(/%/g, ' percent ')
+    .replace(/\bDr\./gi, 'Doctor')
+    .replace(/\b(\d+)\.(\d+)\b/g, '$1 point $2 ')
+    .replace(/\b\d+\b/g, (m) => ' '.repeat(Math.max(4, m.length * 4)));
+  const punctMatches = sentence.match(/[,;:—–-]/g)?.length || 0;
+  return Math.max(10, expanded.length + punctMatches * 7);
+}
+
+// Parse WAV RIFF chunks and align sentence timings to real inter-sentence silence valleys in the PCM waveform
 function parseWavInfoAndAlignSentences(base64Audio: string, sentences: string[]): {
   duration: number;
   sentenceTimings: SentenceTiming[];
@@ -982,21 +1002,6 @@ function parseWavInfoAndAlignSentences(base64Audio: string, sentences: string[])
   const totalSamples = Math.floor(dataSize / bytesPerSample);
   const totalDuration = Math.max(1, totalSamples / sampleRate);
 
-  if (sentences.length <= 1) {
-    return {
-      duration: totalDuration,
-      sentenceTimings: [{ start: 0, end: totalDuration }],
-    };
-  }
-
-  // Weight each sentence by speakable characters + punctuation pauses
-  const weights = sentences.map((s) => {
-    const clean = s.trim();
-    const punctMatches = clean.match(/[,;:—–-]/g)?.length || 0;
-    return Math.max(8, clean.length + punctMatches * 5);
-  });
-  const totalWeight = weights.reduce((a, b) => a + b, 0);
-
   // Compute 20ms RMS energy profile across the WAV PCM stream (for 16-bit PCM)
   const frameMs = 0.02;
   const samplesPerFrame = Math.max(1, Math.floor(sampleRate * frameMs));
@@ -1018,35 +1023,101 @@ function parseWavInfoAndAlignSentences(base64Audio: string, sentences: string[])
     }
   }
 
-  // Snap each expected sentence boundary to the deepest pause valley within +/-3.2s
+  const findSpeechBounds = (segStart: number, segEnd: number): { speechStart: number; speechEnd: number } => {
+    if (numFrames <= 4) {
+      return { speechStart: segStart, speechEnd: segEnd };
+    }
+    const fStart = Math.max(0, Math.floor(segStart / frameMs));
+    const fEnd = Math.min(numFrames - 1, Math.floor(segEnd / frameMs));
+    const speechThreshold = 0.015;
+    let firstVoiced = fStart;
+    let lastVoiced = fEnd;
+    for (let f = fStart; f <= fEnd; f++) {
+      if (frameRms[f] >= speechThreshold) {
+        firstVoiced = f;
+        break;
+      }
+    }
+    for (let f = fEnd; f >= firstVoiced; f--) {
+      if (frameRms[f] >= speechThreshold) {
+        lastVoiced = f;
+        break;
+      }
+    }
+    const sStart = Number(Math.max(segStart, firstVoiced * frameMs).toFixed(3));
+    const sEnd = Number(Math.min(segEnd, Math.max(sStart + 0.25, (lastVoiced + 1) * frameMs)).toFixed(3));
+    return { speechStart: sStart, speechEnd: sEnd };
+  };
+
+  if (sentences.length <= 1) {
+    const bounds = findSpeechBounds(0, totalDuration);
+    return {
+      duration: Number(totalDuration.toFixed(3)),
+      sentenceTimings: [{ start: 0, end: Number(totalDuration.toFixed(3)), ...bounds }],
+    };
+  }
+
+  // Weight each sentence by expanded spoken content + punctuation pauses
+  const weights = sentences.map((s) => estimateSpokenWeight(s));
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+
+  // Measure silence span width around each frame so wide inter-sentence pauses beat short intra-sentence commas
+  const silentThreshold = 0.012;
+  const silenceWidthMs: number[] = new Array(numFrames).fill(0);
+  let runStart = -1;
+  for (let f = 0; f <= numFrames; f++) {
+    const isSilent = f < numFrames && frameRms[f] < silentThreshold;
+    if (isSilent && runStart === -1) {
+      runStart = f;
+    } else if (!isSilent && runStart !== -1) {
+      const spanMs = (f - runStart) * frameMs * 1000;
+      for (let k = runStart; k < f; k++) {
+        silenceWidthMs[k] = spanMs;
+      }
+      runStart = -1;
+    }
+  }
+
+  // Snap each expected sentence boundary to the deepest & widest inter-sentence pause valley
   const boundaries: number[] = [0];
   let cumWeight = 0;
+  const searchRadiusSec = Math.max(4.5, Math.min(10.0, totalDuration * 0.22));
   for (let i = 0; i < sentences.length - 1; i++) {
     cumWeight += weights[i];
-    const expectedTime = (cumWeight / totalWeight) * totalDuration;
-    const minTime = Math.min(totalDuration - 0.5 * (sentences.length - 1 - i), boundaries[i] + 1.0);
-    const maxTime = Math.max(minTime, totalDuration - 0.5 * (sentences.length - 1 - i));
+    const remainingMin = 0.8 * (sentences.length - 1 - i);
+    const minTime = Math.min(totalDuration - remainingMin, boundaries[i] + 1.1);
+    const maxTime = Math.max(minTime, totalDuration - remainingMin);
+
+    // Proactively adjust expected anchor by any cumulative shift already observed
+    const remainingWeight = totalWeight - cumWeight;
+    const prevBoundary = boundaries[i];
+    const estRemainingTime = totalDuration - prevBoundary;
+    const adaptiveExpected =
+      prevBoundary +
+      (weights[i] / Math.max(1, weights[i] + remainingWeight)) * estRemainingTime;
+    const globalExpected = (cumWeight / totalWeight) * totalDuration;
+    const expectedTime = adaptiveExpected * 0.65 + globalExpected * 0.35;
 
     let bestTime = Math.max(minTime, Math.min(maxTime, expectedTime));
     if (numFrames > 10) {
-      const searchStart = Math.max(minTime, expectedTime - 3.2);
-      const searchEnd = Math.min(maxTime, expectedTime + 3.2);
+      const searchStart = Math.max(minTime, expectedTime - searchRadiusSec);
+      const searchEnd = Math.min(maxTime, expectedTime + searchRadiusSec);
       const startFrame = Math.max(1, Math.floor(searchStart / frameMs));
       const endFrame = Math.min(numFrames - 2, Math.ceil(searchEnd / frameMs));
 
       let bestScore = Number.POSITIVE_INFINITY;
       for (let f = startFrame; f <= endFrame; f++) {
-        // 100ms smoothed silence average centered at frame f
-        const windowEnergy =
-          (frameRms[Math.max(0, f - 2)] +
-            frameRms[Math.max(0, f - 1)] +
-            frameRms[f] +
-            frameRms[Math.min(numFrames - 1, f + 1)] +
-            frameRms[Math.min(numFrames - 1, f + 2)]) /
-          5;
-        // Slight bias toward expected proportional timestamp so ties pick the closest natural pause
-        const distancePenalty = Math.abs(f * frameMs - expectedTime) * 0.002;
-        const score = windowEnergy + distancePenalty;
+        // 180ms smoothed silence average centered at frame f
+        let energySum = 0;
+        for (let d = -4; d <= 4; d++) {
+          const idx = Math.max(0, Math.min(numFrames - 1, f + d));
+          energySum += frameRms[idx];
+        }
+        const windowEnergy = energySum / 9;
+        // Prefer wide genuine pauses (>= 450ms) over tiny intra-sentence breath pauses
+        const widthBonus = Math.min(0.06, (silenceWidthMs[f] / 1000) * 0.05);
+        const distancePenalty = Math.abs(f * frameMs - expectedTime) * 0.0025;
+        const score = windowEnergy - widthBonus + distancePenalty;
         if (score < bestScore) {
           bestScore = score;
           bestTime = f * frameMs;
@@ -1059,13 +1130,17 @@ function parseWavInfoAndAlignSentences(base64Audio: string, sentences: string[])
 
   const sentenceTimings: SentenceTiming[] = [];
   for (let i = 0; i < sentences.length; i++) {
+    const start = boundaries[i];
+    const end = Math.max(boundaries[i] + 0.3, boundaries[i + 1]);
+    const bounds = findSpeechBounds(start, end);
     sentenceTimings.push({
-      start: boundaries[i],
-      end: Math.max(boundaries[i] + 0.3, boundaries[i + 1]),
+      start,
+      end,
+      ...bounds,
     });
   }
 
-  return { duration: totalDuration, sentenceTimings };
+  return { duration: Number(totalDuration.toFixed(3)), sentenceTimings };
 }
 
 // Check AI status
@@ -2284,9 +2359,24 @@ app.post('/api/tts/lecture', async (req, res) => {
 
     const diskHit = readDiskCacheJson<CachedLectureAudio>('lec', rawKey);
     if (diskHit?.audio) {
-      lectureTtsCache.set(rawKey, diskHit);
+      let resolvedDiskHit = diskHit;
+      const needsRealign =
+        !Array.isArray(diskHit.sentenceTimings) ||
+        diskHit.sentenceTimings.length !== cleanSentences.length ||
+        diskHit.sentenceTimings.some((t) => typeof t.speechStart !== 'number' || typeof t.speechEnd !== 'number');
+      if (needsRealign) {
+        const aligned = parseWavInfoAndAlignSentences(diskHit.audio, cleanSentences);
+        resolvedDiskHit = {
+          ...diskHit,
+          mimeType: diskHit.mimeType || 'audio/wav',
+          duration: aligned.duration,
+          sentenceTimings: aligned.sentenceTimings,
+        };
+        writeDiskCacheJson('lec', rawKey, resolvedDiskHit);
+      }
+      lectureTtsCache.set(rawKey, resolvedDiskHit);
       res.setHeader('Cache-Control', 'private, max-age=86400');
-      return res.json({ ...diskHit, voice: resolvedVoice, cached: true });
+      return res.json({ ...resolvedDiskHit, voice: resolvedVoice, cached: true });
     }
 
     const ai = getGeminiClient();
@@ -2314,6 +2404,7 @@ app.post('/api/tts/lecture', async (req, res) => {
             mimeType: 'audio/wav',
             duration,
             sentenceTimings,
+            modelUsed: result.modelUsed,
           };
           return payload;
         } finally {
@@ -2340,7 +2431,7 @@ app.post('/api/tts/lecture', async (req, res) => {
     lectureTtsCache.set(rawKey, result);
     writeDiskCacheJson('lec', rawKey, result);
 
-    return res.json({ ...result, cached: false });
+    return res.json({ ...result, voice: resolvedVoice, cached: false });
   } catch (err: any) {
     console.error('Error generating lecture speech:', err);
     return res.status(500).json({
@@ -2424,6 +2515,8 @@ app.post('/api/tts', async (req, res) => {
     return res.json({
       audio: result.audio,
       mimeType: 'audio/wav',
+      voice: resolvedVoice,
+      modelUsed: result.modelUsed,
       cached: false,
     });
   } catch (err: any) {

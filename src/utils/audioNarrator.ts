@@ -60,9 +60,47 @@ export function tokenizeTextIntoWords(text: string): SpokenWordToken[] {
   return tokens;
 }
 
+export interface WordTimingRange {
+  startFrac: number;
+  endFrac: number;
+}
+
+export function computeWordProgressRanges(tokens: SpokenWordToken[]): WordTimingRange[] {
+  if (tokens.length === 0) return [];
+  const weights = tokens.map((tok) => {
+    const clean = tok.word;
+    const base = Math.max(2, clean.replace(/[^a-zA-Z0-9]/g, '').length);
+    const hasDigit = /\d/.test(clean) ? 3 : 0;
+    const minorPunct = /[,;:—–-]$/.test(clean) ? 3.5 : 0;
+    const majorPunct = /[.!?]$/.test(clean) ? 4.5 : 0;
+    return base + hasDigit + minorPunct + majorPunct;
+  });
+  const total = weights.reduce((a, b) => a + b, 0) || 1;
+  let acc = 0;
+  return weights.map((w) => {
+    const startFrac = acc / total;
+    acc += w;
+    const endFrac = acc / total;
+    return { startFrac, endFrac };
+  });
+}
+
+export function findWeightedWordIndex(ranges: WordTimingRange[], frac: number): number {
+  if (ranges.length === 0) return 0;
+  const clamped = Math.max(0, Math.min(0.99999, frac));
+  for (let i = 0; i < ranges.length; i++) {
+    if (clamped < ranges[i].endFrac) {
+      return i;
+    }
+  }
+  return ranges.length - 1;
+}
+
 export interface SentenceTiming {
   start: number;
   end: number;
+  speechStart?: number;
+  speechEnd?: number;
 }
 
 export interface LectureAudioData {
@@ -88,6 +126,7 @@ export interface LectureSpeakOptions {
   onProgress?: (progress: LectureProgressEvent) => void;
   onEnd?: () => void;
   onQuotaFallback?: () => void;
+  onLoadingChange?: (loading: boolean) => void;
 }
 
 interface LectureChunkPlan {
@@ -107,9 +146,9 @@ interface ResolvedChunkPlan extends LectureChunkPlan {
 
 // Canonical studio voice prompt aligned 1:1 with server.ts DEFAULT_CALM_STYLE
 const CALM_MALE_STYLE =
-  'Calm, deep, steady, unhurried human male baritone voice of an experienced executive master chef and university professor teaching in a quiet studio, consistent pitch, warm tone, and even pacing throughout';
+  'Calm, deep, steady, unhurried human male baritone voice of an experienced executive master chef and university professor teaching in a quiet studio, consistent pitch, warm tone, gentle natural pauses between sentences, and even pacing throughout';
 
-const AUDIO_IDB_NAME = 'supritamone_fenrir_audio_v1';
+const AUDIO_IDB_NAME = 'supritamone_fenrir_audio_v2';
 const AUDIO_IDB_STORE = 'audio_entries';
 
 class PersistentAudioCache {
@@ -209,9 +248,11 @@ class AudioNarrator {
   private currentVolume: number = 0.9;
   private webAudioTimings: SentenceTiming[] = [];
   private webAudioTokens: SpokenWordToken[][] = [];
+  private webAudioWordRanges: WordTimingRange[][] = [];
   private webAudioOpts: LectureSpeakOptions | null = null;
   private webAudioSingleOpts: SpeakOptions | null = null;
   private webAudioSingleTokens: SpokenWordToken[] = [];
+  private webAudioSingleWordRanges: WordTimingRange[] = [];
   private webAudioSessionId: number = 0;
   private audioUnlocked: boolean = false;
 
@@ -330,7 +371,7 @@ class AudioNarrator {
         if ((ctx.state as string) !== 'running') {
           ctx.resume().catch(() => {});
         }
-        if (!this.audioUnlocked) {
+        if (!this.audioUnlocked || (ctx.state as string) !== 'running') {
           const silentBuf = ctx.createBuffer(1, 1, 22050);
           const src = ctx.createBufferSource();
           src.buffer = silentBuf;
@@ -344,8 +385,10 @@ class AudioNarrator {
     }
     try {
       const audio = this.getSharedAudio();
-      if (!audio.src) {
-        audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+      if (!this.isSpeaking && audio.paused) {
+        if (!audio.src) {
+          audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+        }
         audio.volume = 0;
         const p = audio.play();
         if (p && typeof p.then === 'function') {
@@ -904,7 +947,12 @@ class AudioNarrator {
       if (this.webAudioMode === 'single' && this.webAudioSingleOpts) {
         const words = this.webAudioSingleTokens;
         const frac = Math.min(1, Math.max(0, cur / Math.max(0.1, dur)));
-        const wordIdx = words.length > 0 ? Math.min(words.length - 1, Math.floor(frac * words.length)) : 0;
+        const wordIdx =
+          this.webAudioSingleWordRanges.length > 0
+            ? findWeightedWordIndex(this.webAudioSingleWordRanges, frac)
+            : words.length > 0
+              ? Math.min(words.length - 1, Math.floor(frac * words.length))
+              : 0;
         const activeToken = words[wordIdx];
         this.webAudioSingleOpts.onProgress?.({
           currentTime: cur / this.webAudioRate,
@@ -927,11 +975,19 @@ class AudioNarrator {
           }
         }
         const t = timings[sIdx] || { start: 0, end: dur };
-        const segDur = Math.max(0.25, t.end - t.start);
         const segElapsed = Math.max(0, cur - t.start);
-        const segFrac = Math.min(1, segElapsed / segDur);
+        const speechStart = t.speechStart !== undefined ? t.speechStart : t.start;
+        const speechEnd = t.speechEnd !== undefined ? Math.max(speechStart + 0.25, t.speechEnd) : t.end;
+        const speechDur = Math.max(0.25, speechEnd - speechStart);
+        const speechFrac = Math.min(1, Math.max(0, (cur - speechStart) / speechDur));
         const words = this.webAudioTokens[sIdx] || [];
-        const wordIdx = words.length > 0 ? Math.min(words.length - 1, Math.floor(segFrac * words.length)) : 0;
+        const ranges = this.webAudioWordRanges[sIdx] || [];
+        const wordIdx =
+          ranges.length > 0
+            ? findWeightedWordIndex(ranges, speechFrac)
+            : words.length > 0
+              ? Math.min(words.length - 1, Math.floor(speechFrac * words.length))
+              : 0;
 
         this.webAudioOpts.onProgress?.({
           currentTime: cur,
@@ -1148,6 +1204,7 @@ class AudioNarrator {
     };
 
     if (this.lectureCache.has(key)) {
+      opts.onLoadingChange?.(false);
       this.playLectureWav(
         this.lectureCache.get(key)!,
         chunk.sentences,
@@ -1159,8 +1216,10 @@ class AudioNarrator {
       return;
     }
 
+    opts.onLoadingChange?.(true);
     this.fetchLectureAudio(chunk.sentences).then((data) => {
       if (this.currentSessionId !== sessionId) return;
+      opts.onLoadingChange?.(false);
       if (data) {
         this.playLectureWav(data, chunk.sentences, this.currentRate, this.currentVolume, sessionId, chunkOpts);
       } else {
@@ -1192,6 +1251,7 @@ class AudioNarrator {
     const safeVol = Math.max(0, Math.min(1, volume));
     const timings = lectureData.sentenceTimings;
     const tokenizedSentences = sentences.map((s) => tokenizeTextIntoWords(s));
+    const wordRangesPerSentence = tokenizedSentences.map((toks) => computeWordProgressRanges(toks));
     const startOffset = Math.max(0, opts.startTimeOffset || 0);
 
     // Primary Cross-Platform Engine: Hardware-clock Web Audio API (Identical Fenrir voice + exact timing across iOS, Android, Tablet & Desktop)
@@ -1209,14 +1269,20 @@ class AudioNarrator {
         this.webAudioMode = 'lecture';
         this.webAudioSingleOpts = null;
         this.webAudioSingleTokens = [];
+        this.webAudioSingleWordRanges = [];
         this.webAudioBuffer = audioBuffer;
         this.webAudioRate = Math.max(0.75, Math.min(2.0, this.currentRate || safeRate));
         this.webAudioVolume = Math.max(0, Math.min(1, this.currentVolume));
         this.webAudioTimings = timings;
         this.webAudioTokens = tokenizedSentences;
+        this.webAudioWordRanges = wordRangesPerSentence;
         this.webAudioOpts = opts;
         this.webAudioSessionId = sessionId;
         opts.onStart?.(timings, audioBuffer.duration || lectureData.duration);
+        if (this.isPaused) {
+          this.webAudioStartOffset = Math.max(0, Math.min(Math.max(0, audioBuffer.duration - 0.05), startOffset));
+          return;
+        }
         this.startWebAudioBufferFrom(startOffset);
       };
 
@@ -1286,6 +1352,7 @@ class AudioNarrator {
 
       const timings = lectureData.sentenceTimings;
       const tokenizedSentences = sentences.map((s) => tokenizeTextIntoWords(s));
+      const wordRangesPerSentence = tokenizedSentences.map((toks) => computeWordProgressRanges(toks));
       let hasEnded = false;
       const startOffset = Math.max(0, opts.startTimeOffset || 0);
 
@@ -1322,11 +1389,19 @@ class AudioNarrator {
         }
 
         const t = timings[sIdx] || { start: 0, end: dur };
-        const segDur = Math.max(0.25, t.end - t.start);
         const segElapsed = Math.max(0, cur - t.start);
-        const segFrac = Math.min(1, segElapsed / segDur);
+        const speechStart = t.speechStart !== undefined ? t.speechStart : t.start;
+        const speechEnd = t.speechEnd !== undefined ? Math.max(speechStart + 0.25, t.speechEnd) : t.end;
+        const speechDur = Math.max(0.25, speechEnd - speechStart);
+        const speechFrac = Math.min(1, Math.max(0, (cur - speechStart) / speechDur));
         const words = tokenizedSentences[sIdx] || [];
-        const wordIdx = words.length > 0 ? Math.min(words.length - 1, Math.floor(segFrac * words.length)) : 0;
+        const ranges = wordRangesPerSentence[sIdx] || [];
+        const wordIdx =
+          ranges.length > 0
+            ? findWeightedWordIndex(ranges, speechFrac)
+            : words.length > 0
+              ? Math.min(words.length - 1, Math.floor(speechFrac * words.length))
+              : 0;
 
         opts.onProgress?.({
           currentTime: cur,
@@ -1366,6 +1441,7 @@ class AudioNarrator {
 
       this.currentAudio = audio;
       applyStartOffset();
+      if (this.isPaused) return;
       audio.play().catch(() => {
         if (this.currentSessionId === sessionId) {
           this.clearAllTimers();
@@ -1414,21 +1490,28 @@ class AudioNarrator {
       const line = sentences[idx];
       const baseStart = timings[idx].start;
       const lineOffset = idx === startIdx ? Math.max(0, startOffsetSec - baseStart) : 0;
-      const estLineDur = Math.max(0.5, (timings[idx].end - timings[idx].start - lineOffset) / rate);
+      const activeRate = Math.max(0.75, Math.min(2.0, this.currentRate || rate));
+      const estLineDur = Math.max(0.5, (timings[idx].end - timings[idx].start - lineOffset) / activeRate);
       const tokens = tokenizeTextIntoWords(line);
+      const ranges = computeWordProgressRanges(tokens);
 
       const lineStartMs = Date.now();
+      let receivedBoundary = false;
       this.clearAllTimers();
       this.fallbackInterval = setInterval(() => {
-        if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused) return;
+        if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused || receivedBoundary) return;
+        const liveRate = Math.max(0.75, Math.min(2.0, this.currentRate || activeRate));
         const elapsed = (Date.now() - lineStartMs) / 1000;
-        const frac = Math.min(0.99, (lineOffset + elapsed * rate) / Math.max(0.5, estDurs[idx]));
-        const wIdx = Math.min(tokens.length - 1, Math.floor(frac * tokens.length));
+        const frac = Math.min(0.99, (lineOffset + elapsed * liveRate) / Math.max(0.5, estDurs[idx]));
+        const wIdx =
+          ranges.length > 0
+            ? findWeightedWordIndex(ranges, frac)
+            : Math.min(tokens.length - 1, Math.floor(frac * tokens.length));
         opts.onProgress?.({
-          currentTime: Math.min(totalDuration, baseStart + lineOffset + elapsed * rate),
+          currentTime: Math.min(totalDuration, baseStart + lineOffset + elapsed * liveRate),
           duration: totalDuration,
           sentenceIndex: idx,
-          sentenceElapsed: lineOffset + elapsed * rate,
+          sentenceElapsed: lineOffset + elapsed * liveRate,
           wordIndex: Math.max(0, wIdx),
         });
       }, 60);
@@ -1447,12 +1530,36 @@ class AudioNarrator {
           const utterance = new SpeechSynthesisUtterance(line);
           const voice = this.getBestBrowserVoice();
           if (voice) utterance.voice = voice;
-          utterance.rate = Math.max(0.8, Math.min(1.8, rate * 0.94));
+          utterance.rate = Math.max(0.75, Math.min(1.65, activeRate * 0.90));
           utterance.pitch = 0.86;
-          utterance.volume = Math.max(0, Math.min(1, volume));
+          utterance.volume = Math.max(0, Math.min(1, this.currentVolume ?? volume));
+          utterance.onboundary = (e) => {
+            if (this.currentSessionId !== sessionId || lineDone) return;
+            receivedBoundary = true;
+            const charIdx = e.charIndex;
+            let foundWordIdx = 0;
+            for (let i = 0; i < tokens.length; i++) {
+              if (charIdx >= tokens[i].startChar && charIdx <= tokens[i].endChar) {
+                foundWordIdx = i;
+                break;
+              } else if (charIdx < tokens[i].startChar) {
+                foundWordIdx = Math.max(0, i - 1);
+                break;
+              }
+            }
+            const progressFrac = Math.min(1, (foundWordIdx + 0.5) / Math.max(1, tokens.length));
+            const syncedElapsed = progressFrac * estDurs[idx];
+            opts.onProgress?.({
+              currentTime: Math.min(totalDuration, baseStart + syncedElapsed),
+              duration: totalDuration,
+              sentenceIndex: idx,
+              sentenceElapsed: syncedElapsed,
+              wordIndex: foundWordIdx,
+            });
+          };
           utterance.onend = advance;
           utterance.onerror = advance;
-          this.fallbackWatchdog = setTimeout(advance, (estLineDur + 1.5) * 1000);
+          this.fallbackWatchdog = setTimeout(advance, Math.max(4.0, estLineDur * 1.45 + 3.0) * 1000);
           this.currentUtterance = utterance;
           window.speechSynthesis.speak(utterance);
           return;
@@ -1529,6 +1636,7 @@ class AudioNarrator {
   ): void {
     const cacheKey = `${this.selectedVoice}_${text}`;
     const tokens = tokenizeTextIntoWords(text);
+    const wordRanges = computeWordProgressRanges(tokens);
     const safeRate = Math.max(0.75, Math.min(2.0, rate));
     const safeVol = Math.max(0, Math.min(1, volume));
 
@@ -1550,8 +1658,13 @@ class AudioNarrator {
         this.webAudioVolume = Math.max(0, Math.min(1, this.currentVolume));
         this.webAudioSingleOpts = opts;
         this.webAudioSingleTokens = tokens;
+        this.webAudioSingleWordRanges = wordRanges;
         this.webAudioSessionId = sessionId;
         opts.onStart?.((audioBuffer.duration || 1) / this.webAudioRate);
+        if (this.isPaused) {
+          this.webAudioStartOffset = 0;
+          return;
+        }
         this.startWebAudioBufferFrom(0);
       };
 
