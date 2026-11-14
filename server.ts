@@ -1,5 +1,4 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -561,10 +560,17 @@ function parseCookies(cookieHeader: string | undefined): Record<string, string> 
   return out;
 }
 
+function isHttpsRequest(req: express.Request): boolean {
+  const fwdProto = String(req.headers['x-forwarded-proto'] || '').toLowerCase();
+  return req.secure || fwdProto.includes('https');
+}
+
 function buildCookieAttributes(req: express.Request, maxAgeSeconds: number): string[] {
   const host = String(req.hostname || req.headers.host || '').toLowerCase().split(':')[0];
-  const isHttps = req.secure || String(req.headers['x-forwarded-proto'] || '').toLowerCase() === 'https';
-  const attrs = ['Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${maxAgeSeconds}`];
+  const isHttps = isHttpsRequest(req);
+  // Embedded AI Studio / iframe previews over HTTPS require SameSite=None; Secure
+  const sameSite = isHttps ? 'SameSite=None' : 'SameSite=Lax';
+  const attrs = ['Path=/', 'HttpOnly', sameSite, `Max-Age=${maxAgeSeconds}`];
   if (isHttps) {
     attrs.push('Secure');
   }
@@ -581,8 +587,9 @@ function setSessionCookie(req: express.Request, res: express.Response, token: st
 
 function clearSessionCookie(req: express.Request, res: express.Response): void {
   const host = String(req.hostname || req.headers.host || '').toLowerCase().split(':')[0];
-  const isHttps = req.secure || String(req.headers['x-forwarded-proto'] || '').toLowerCase() === 'https';
-  const base = ['Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0', ...(isHttps ? ['Secure'] : [])];
+  const isHttps = isHttpsRequest(req);
+  const sameSite = isHttps ? 'SameSite=None' : 'SameSite=Lax';
+  const base = ['Path=/', 'HttpOnly', sameSite, 'Max-Age=0', ...(isHttps ? ['Secure'] : [])];
   const cookiesToClear = [`${SESSION_COOKIE_NAME}=; ${base.join('; ')}`];
   if (host === 'supritamone.com' || host.endsWith('.supritamone.com')) {
     cookiesToClear.push(`${SESSION_COOKIE_NAME}=; ${[...base, 'Domain=.supritamone.com'].join('; ')}`);
@@ -597,8 +604,9 @@ function setAdminCookie(req: express.Request, res: express.Response, token: stri
 
 function clearAdminCookie(req: express.Request, res: express.Response): void {
   const host = String(req.hostname || req.headers.host || '').toLowerCase().split(':')[0];
-  const isHttps = req.secure || String(req.headers['x-forwarded-proto'] || '').toLowerCase() === 'https';
-  const base = ['Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0', ...(isHttps ? ['Secure'] : [])];
+  const isHttps = isHttpsRequest(req);
+  const sameSite = isHttps ? 'SameSite=None' : 'SameSite=Lax';
+  const base = ['Path=/', 'HttpOnly', sameSite, 'Max-Age=0', ...(isHttps ? ['Secure'] : [])];
   const cookiesToClear = [`${ADMIN_COOKIE_NAME}=; ${base.join('; ')}`];
   if (host === 'supritamone.com' || host.endsWith('.supritamone.com')) {
     cookiesToClear.push(`${ADMIN_COOKIE_NAME}=; ${[...base, 'Domain=.supritamone.com'].join('; ')}`);
@@ -776,6 +784,7 @@ function issuePartnerRedirectSession(opts: {
 }
 
 const app = express();
+app.set('trust proxy', 1);
 const portArgIndex = process.argv.indexOf('--port');
 const cliPort = portArgIndex !== -1 && process.argv[portArgIndex + 1] ? parseInt(process.argv[portArgIndex + 1], 10) : NaN;
 const PORT = !isNaN(cliPort) ? cliPort : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
@@ -1091,7 +1100,7 @@ app.get('/api/auth/session', (req, res) => {
       const blockCheck = isUserBlocked(record, now);
       if (blockCheck.blocked) {
         clearSessionCookie(req, res);
-        return res.status(403).json({
+        return res.status(200).json({
           authenticated: false,
           restricted: blockCheck.code === 'restricted',
           expired: blockCheck.code === 'expired',
@@ -1111,7 +1120,7 @@ app.get('/api/auth/session', (req, res) => {
   if (isPartnerOriginUrl(headerReferrer)) {
     const partnerSession = issuePartnerRedirectSession({ ip, device });
     if (partnerSession.blockedReason) {
-      return res.status(403).json({
+      return res.status(200).json({
         authenticated: false,
         restricted: partnerSession.blockedCode === 'restricted',
         expired: partnerSession.blockedCode === 'expired',
@@ -1128,7 +1137,7 @@ app.get('/api/auth/session', (req, res) => {
     }
   }
 
-  return res.status(401).json({ authenticated: false, error: 'Session locked or expired' });
+  return res.status(200).json({ authenticated: false });
 });
 
 // Verify redirect arriving from https://zerowaste.supritamone.com/
@@ -1608,7 +1617,7 @@ function requireAdminMiddleware(
 app.get('/api/admin/session', (req, res) => {
   const admin = resolveAdminSession(req);
   if (!admin) {
-    return res.status(401).json({ authenticated: false });
+    return res.status(200).json({ authenticated: false });
   }
   return res.json({ authenticated: true, admin });
 });
@@ -2621,12 +2630,29 @@ async function startServer() {
     next();
   });
 
+  // Ensure unmatched /api routes and API errors always return JSON (never HTML fallback)
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ error: 'API endpoint not found.' });
+  });
+
+  app.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) {
+      return next(err);
+    }
+    if (req.path.startsWith('/api/')) {
+      const msg = err instanceof Error ? err.message : 'Unexpected server error.';
+      return res.status(500).json({ error: msg });
+    }
+    return next(err);
+  });
+
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__dirname, 'dist'), { maxAge: '1d' }));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });
   } else {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',

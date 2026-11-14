@@ -30,6 +30,7 @@ import {
   Copy,
   Check,
 } from 'lucide-react';
+import { apiFetchJson } from '../utils/apiClient';
 
 export interface AdminManagedUser {
   email: string;
@@ -97,6 +98,12 @@ interface AdminOverviewResponse {
   };
 }
 
+interface AdminSessionInfo {
+  username: string;
+  displayName: string;
+  notificationEmail: string;
+}
+
 interface AdminPortalViewProps {
   onBackToApp: () => void;
 }
@@ -126,11 +133,7 @@ function formatRelative(ts?: number | null): string {
 
 export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp }) => {
   const [checkingSession, setCheckingSession] = useState(true);
-  const [adminSession, setAdminSession] = useState<{
-    username: string;
-    displayName: string;
-    notificationEmail: string;
-  } | null>(null);
+  const [adminSession, setAdminSession] = useState<AdminSessionInfo | null>(null);
   const [adminToken, setAdminToken] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem(ADMIN_TOKEN_KEY) || '';
@@ -216,17 +219,18 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     async (tokenOverride?: string) => {
       setLoadingData(true);
       try {
-        const res = await fetch('/api/admin/overview', {
-          credentials: 'include',
+        const res = await apiFetchJson<AdminOverviewResponse>('/api/admin/overview', {
           headers: authHeaders(tokenOverride),
         });
-        if (!res.ok) {
+        if (!res.ok || !res.data) {
           if (res.status === 401) {
             setAdminSession(null);
+          } else if (res.errorMessage) {
+            showToast('err', res.errorMessage);
           }
           return;
         }
-        const data: AdminOverviewResponse = await res.json();
+        const data = res.data;
         setOverview(data);
         if (data.adminProfile) {
           setProfileDisplayName(data.adminProfile.displayName);
@@ -235,8 +239,6 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
             setAdminRecoveryKey(data.adminProfile.recoveryKey);
           }
         }
-      } catch {
-        showToast('err', 'Failed to load subscriber telemetry.');
       } finally {
         setLoadingData(false);
       }
@@ -249,19 +251,17 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     let cancelled = false;
     const verify = async () => {
       try {
-        const res = await fetch('/api/admin/session', {
-          credentials: 'include',
+        const res = await apiFetchJson<{
+          authenticated?: boolean;
+          admin?: AdminSessionInfo;
+        }>('/api/admin/session', {
+          retries: 1,
           headers: adminToken ? { 'X-Admin-Token': adminToken } : undefined,
         });
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled && data?.authenticated && data?.admin) {
-            setAdminSession(data.admin);
-            await fetchOverview(adminToken);
-          }
+        if (res.ok && res.data?.authenticated && res.data.admin && !cancelled) {
+          setAdminSession(res.data.admin);
+          await fetchOverview(adminToken);
         }
-      } catch {
-        // Ignore startup check failure
       } finally {
         if (!cancelled) setCheckingSession(false);
       }
@@ -278,31 +278,30 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     setLoginSuccessMsg(null);
     setLoginLoading(true);
     try {
-      const res = await fetch('/api/admin/login', {
+      const res = await apiFetchJson<{
+        authenticated?: boolean;
+        admin?: AdminSessionInfo;
+        token?: string;
+        error?: string;
+      }>('/api/admin/login', {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: usernameInput.trim(),
           password: passwordInput,
         }),
       });
-      const data = await res.json();
-      if (!res.ok || !data?.authenticated) {
-        setLoginError(data?.error || 'Invalid administrator credentials.');
-        setLoginLoading(false);
+      if (!res.ok || !res.data?.authenticated || !res.data.admin) {
+        setLoginError(res.errorMessage || 'Invalid administrator credentials.');
         return;
       }
-      const newToken = data.token || '';
+      const newToken = res.data.token || '';
       setAdminToken(newToken);
       if (typeof window !== 'undefined' && newToken) {
         localStorage.setItem(ADMIN_TOKEN_KEY, newToken);
       }
-      setAdminSession(data.admin);
+      setAdminSession(res.data.admin);
       setPasswordInput('');
       await fetchOverview(newToken);
-    } catch {
-      setLoginError('Network error while authenticating Admin Portal.');
     } finally {
       setLoginLoading(false);
     }
@@ -313,24 +312,19 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     setForgotError(null);
     setForgotLoading(true);
     try {
-      const res = await fetch('/api/admin/forgot-password', {
+      const res = await apiFetchJson<{ verified?: boolean; resetCode?: string }>('/api/admin/forgot-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: forgotEmail.trim(),
           verificationAnswer: forgotVerification.trim(),
         }),
       });
-      const data = await res.json();
-      if (!res.ok || !data?.verified) {
-        setForgotError(data?.error || 'Identity verification failed.');
-        setForgotLoading(false);
+      if (!res.ok || !res.data?.verified) {
+        setForgotError(res.errorMessage || 'Identity verification failed.');
         return;
       }
-      setForgotResetCode(data.resetCode || '');
+      setForgotResetCode(res.data.resetCode || '');
       setForgotStep('reset');
-    } catch {
-      setForgotError('Network error while verifying Admin identity.');
     } finally {
       setForgotLoading(false);
     }
@@ -349,19 +343,16 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     }
     setForgotLoading(true);
     try {
-      const res = await fetch('/api/admin/reset-password', {
+      const res = await apiFetchJson<{ ok?: boolean }>('/api/admin/reset-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: forgotEmail.trim(),
           resetCode: forgotResetCode.trim(),
           newPassword: forgotNewPassword,
         }),
       });
-      const data = await res.json();
-      if (!res.ok || !data?.ok) {
-        setForgotError(data?.error || 'Could not reset Admin password.');
-        setForgotLoading(false);
+      if (!res.ok || !res.data?.ok) {
+        setForgotError(res.errorMessage || 'Could not reset Admin password.');
         return;
       }
       setUsernameInput(forgotEmail.trim());
@@ -373,8 +364,6 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
       setForgotNewPassword('');
       setForgotConfirmPassword('');
       setLoginSuccessMsg('Admin password reset successfully! Sign in below with your new password.');
-    } catch {
-      setForgotError('Network error while updating password.');
     } finally {
       setForgotLoading(false);
     }
@@ -397,15 +386,13 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
   ) => {
     setActionBusyEmail(email);
     try {
-      const res = await fetch('/api/admin/users/action', {
+      const res = await apiFetchJson<{ ok?: boolean; error?: string }>('/api/admin/users/action', {
         method: 'POST',
-        credentials: 'include',
         headers: authHeaders(),
         body: JSON.stringify({ email, action, ...extra }),
       });
-      const data = await res.json();
       if (!res.ok) {
-        showToast('err', data?.error || 'Action failed.');
+        showToast('err', res.errorMessage || 'Action failed.');
         return;
       }
       await fetchOverview();
@@ -419,8 +406,6 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
         delete: `Removed ${email} from registry.`,
       };
       showToast('ok', actionLabels[action] || 'Updated user record.');
-    } catch {
-      showToast('err', 'Network error executing user update.');
     } finally {
       setActionBusyEmail(null);
     }
@@ -434,15 +419,13 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
           ? { deleteAll: true }
           : { emails: Array.from(selectedEmails) };
 
-      const res = await fetch('/api/admin/users/bulk-delete', {
+      const res = await apiFetchJson<{ deletedCount?: number }>('/api/admin/users/bulk-delete', {
         method: 'POST',
-        credentials: 'include',
         headers: authHeaders(),
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
       if (!res.ok) {
-        showToast('err', data?.error || 'Bulk delete failed.');
+        showToast('err', res.errorMessage || 'Bulk delete failed.');
         return;
       }
       setSelectedEmails(new Set());
@@ -450,10 +433,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
       await fetchOverview();
       showToast(
         'ok',
-        `Deleted ${data.deletedCount} user(s). Master Admin account remains protected.`
+        `Deleted ${res.data?.deletedCount ?? 0} user(s). Master Admin account remains protected.`
       );
-    } catch {
-      showToast('err', 'Network error executing bulk delete.');
     } finally {
       setBulkDeleting(false);
     }
@@ -474,25 +455,22 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
   const handleEnforceExpiredTrials = async () => {
     setLoadingData(true);
     try {
-      const res = await fetch('/api/admin/enforce-expired-trials', {
+      const res = await apiFetchJson<{ restrictedCount?: number }>('/api/admin/enforce-expired-trials', {
         method: 'POST',
-        credentials: 'include',
         headers: authHeaders(),
       });
-      const data = await res.json();
       if (!res.ok) {
-        showToast('err', data?.error || 'Unable to scan expired trials.');
+        showToast('err', res.errorMessage || 'Unable to scan expired trials.');
         return;
       }
       await fetchOverview();
+      const count = res.data?.restrictedCount ?? 0;
       showToast(
         'ok',
-        data.restrictedCount > 0
-          ? `Restricted ${data.restrictedCount} ended trial user(s).`
+        count > 0
+          ? `Restricted ${count} ended trial user(s).`
           : 'All ended free trial accounts are already restricted.'
       );
-    } catch {
-      showToast('err', 'Failed to enforce trial restrictions.');
     } finally {
       setLoadingData(false);
     }
@@ -502,9 +480,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     e.preventDefault();
     setCreatingUser(true);
     try {
-      const res = await fetch('/api/admin/users/create', {
+      const res = await apiFetchJson<{ user?: { email: string } }>('/api/admin/users/create', {
         method: 'POST',
-        credentials: 'include',
         headers: authHeaders(),
         body: JSON.stringify({
           name: newUserName.trim(),
@@ -517,9 +494,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
           chefSeats: newUserPlan === 'team' ? Math.max(5, newUserSeats) : undefined,
         }),
       });
-      const data = await res.json();
       if (!res.ok) {
-        showToast('err', data?.error || 'Could not create subscriber.');
+        showToast('err', res.errorMessage || 'Could not create subscriber.');
         return;
       }
       setShowAddUserModal(false);
@@ -529,9 +505,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
       setNewUserWorkPlace('');
       setNewUserDesignation('');
       await fetchOverview();
-      showToast('ok', `Added ${data.user.email} to registry.`);
-    } catch {
-      showToast('err', 'Network error creating user.');
+      showToast('ok', `Added ${res.data?.user?.email || newUserEmail.trim()} to registry.`);
     } finally {
       setCreatingUser(false);
     }
@@ -545,9 +519,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     }
     setSavingProfile(true);
     try {
-      const res = await fetch('/api/admin/profile', {
+      const res = await apiFetchJson<{ ok?: boolean }>('/api/admin/profile', {
         method: 'POST',
-        credentials: 'include',
         headers: authHeaders(),
         body: JSON.stringify({
           displayName: profileDisplayName.trim(),
@@ -556,9 +529,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
           newPassword: profileNewPassword.trim() || undefined,
         }),
       });
-      const data = await res.json();
       if (!res.ok) {
-        showToast('err', data?.error || 'Could not update profile.');
+        showToast('err', res.errorMessage || 'Could not update profile.');
         return;
       }
       setProfileCurrentPassword('');
@@ -566,8 +538,6 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
       setProfileConfirmPassword('');
       await fetchOverview();
       showToast('ok', profileNewPassword.trim() ? 'Admin password & profile updated!' : 'Admin settings saved.');
-    } catch {
-      showToast('err', 'Network error saving Admin settings.');
     } finally {
       setSavingProfile(false);
     }
@@ -576,21 +546,17 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
   const handleRegenerateRecoveryKey = async () => {
     setSavingProfile(true);
     try {
-      const res = await fetch('/api/admin/profile', {
+      const res = await apiFetchJson<{ adminProfile?: { recoveryKey?: string } }>('/api/admin/profile', {
         method: 'POST',
-        credentials: 'include',
         headers: authHeaders(),
         body: JSON.stringify({ regenerateRecoveryKey: true }),
       });
-      const data = await res.json();
-      if (res.ok && data?.adminProfile?.recoveryKey) {
-        setAdminRecoveryKey(data.adminProfile.recoveryKey);
+      if (res.ok && res.data?.adminProfile?.recoveryKey) {
+        setAdminRecoveryKey(res.data.adminProfile.recoveryKey);
         showToast('ok', 'Generated new Master Admin Recovery Key. Save it securely.');
       } else {
-        showToast('err', data?.error || 'Could not regenerate key.');
+        showToast('err', res.errorMessage || 'Could not regenerate key.');
       }
-    } catch {
-      showToast('err', 'Network error regenerating recovery key.');
     } finally {
       setSavingProfile(false);
     }

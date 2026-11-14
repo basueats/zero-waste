@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { SupritamoneLogo } from './SupritamoneLogo';
 import { SurplusHomeView, HomePlanId } from './SurplusHomeView';
+import { apiFetchJson } from '../utils/apiClient';
 
 const AboutDrBasuModal = lazy(() =>
   import('./AboutDrBasuModal').then((m) => ({ default: m.AboutDrBasuModal }))
@@ -150,24 +151,23 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
     setLoginSuccess(null);
     setLoginLoading(true);
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await apiFetchJson<{
+        authenticated?: boolean;
+        user?: AuthenticatedSessionUser;
+        token?: string;
+        error?: string;
+      }>('/api/auth/login', {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: loginEmail.trim(),
           password: loginPassword,
         }),
       });
-      const data = await res.json();
-      if (!res.ok || !data?.authenticated) {
-        setLoginError(data?.error || 'Unable to verify credentials.');
-        setLoginLoading(false);
+      if (!res.ok || !res.data?.authenticated || !res.data.user || !res.data.token) {
+        setLoginError(res.errorMessage || 'Unable to verify credentials.');
         return;
       }
-      onUnlocked(data.user, data.token);
-    } catch {
-      setLoginError('Network connection error while signing in. Please try again.');
+      onUnlocked(res.data.user, res.data.token);
     } finally {
       setLoginLoading(false);
     }
@@ -188,10 +188,8 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
 
     setResetLoading(true);
     try {
-      const res = await fetch('/api/auth/reset-password', {
+      const res = await apiFetchJson<{ ok?: boolean; error?: string }>('/api/auth/reset-password', {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: resetEmail.trim(),
           fullName: resetVerification.trim(),
@@ -199,9 +197,8 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
           newPassword: resetNewPassword,
         }),
       });
-      const data = await res.json();
       if (!res.ok) {
-        setResetError(data?.error || 'Unable to verify your account details.');
+        setResetError(res.errorMessage || 'Unable to verify your account details.');
         return;
       }
       setLoginEmail(resetEmail.trim());
@@ -211,8 +208,6 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
       setResetNewPassword('');
       setLoginError(null);
       setLoginSuccess('Your password has been reset. You can now sign in below.');
-    } catch {
-      setResetError('Network error while resetting password. Please try again.');
     } finally {
       setResetLoading(false);
     }
@@ -225,10 +220,13 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
     setSignupLoading(true);
 
     try {
-      const res = await fetch('/api/auth/activate-plan', {
+      const res = await apiFetchJson<{
+        authenticated?: boolean;
+        user?: AuthenticatedSessionUser;
+        token?: string;
+        error?: string;
+      }>('/api/auth/activate-plan', {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           planId: selectedPlan.id,
           name: signupName.trim(),
@@ -239,15 +237,11 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
           transactionRef: transactionRef.trim() || undefined,
         }),
       });
-      const data = await res.json();
-      if (!res.ok || !data?.authenticated) {
-        setSignupError(data?.error || 'Unable to activate plan. Please check your details.');
-        setSignupLoading(false);
+      if (!res.ok || !res.data?.authenticated || !res.data.user || !res.data.token) {
+        setSignupError(res.errorMessage || 'Unable to activate plan. Please check your details.');
         return;
       }
-      onUnlocked(data.user, data.token);
-    } catch {
-      setSignupError('Connection error while activating membership. Please retry.');
+      onUnlocked(res.data.user, res.data.token);
     } finally {
       setSignupLoading(false);
     }

@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import { SurplusHeader } from './components/SurplusHeader';
 import { SurplusSidebar } from './components/SurplusSidebar';
 import type { AuthenticatedSessionUser } from './components/AccessGateScreen';
+import { apiFetchJson } from './utils/apiClient';
 import {
   Compass,
   BookOpen,
@@ -309,10 +310,14 @@ export default function App() {
 
         // 1. Auto-unlock immediately if routed from https://zerowaste.supritamone.com/
         if (looksLikePartnerRedirect) {
-          const res = await fetch('/api/auth/verify-redirect', {
+          const res = await apiFetchJson<{
+            authenticated?: boolean;
+            user?: AuthenticatedSessionUser;
+            token?: string;
+            error?: string;
+          }>('/api/auth/verify-redirect', {
             method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
+            retries: 1,
             body: JSON.stringify({
               referrer: refUrl,
               fromParam,
@@ -321,55 +326,52 @@ export default function App() {
               planId: planParam,
             }),
           });
-          if (res.ok) {
-            const data = await res.json();
-            if (!cancelled && data?.authenticated && data?.user && data?.token) {
-              applyAuthenticatedSession(data.user, data.token, true);
-              if (window.location.search && fromParam) {
-                window.history.replaceState({}, '', window.location.pathname);
-              }
-              setIsCheckingAccess(false);
-              return;
+          if (res.ok && res.data?.authenticated && res.data.user && res.data.token && !cancelled) {
+            applyAuthenticatedSession(res.data.user, res.data.token, true);
+            if (window.location.search && fromParam) {
+              window.history.replaceState({}, '', window.location.pathname);
             }
-          } else if (res.status === 403) {
-            const errData = await res.json().catch(() => null);
-            if (!cancelled) {
-              setAuthUser(null);
-              setGateNotice(
-                errData?.error ||
-                  'Your 3-Day Free Trial has ended or access was restricted. Select a paid plan or contact Admin.'
-              );
-            }
+            setIsCheckingAccess(false);
+            return;
+          } else if (res.status === 403 && !cancelled) {
+            setAuthUser(null);
+            setGateNotice(
+              res.errorMessage ||
+                'Your 3-Day Free Trial has ended or access was restricted. Select a paid plan or contact Admin.'
+            );
           }
         }
 
         // 2. Validate server session (cookie or Bearer token)
         const savedToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
-        const res = await fetch('/api/auth/session', {
-          credentials: 'include',
+        const res = await apiFetchJson<{
+          authenticated?: boolean;
+          user?: AuthenticatedSessionUser;
+          token?: string;
+          restricted?: boolean;
+          expired?: boolean;
+          error?: string;
+        }>('/api/auth/session', {
+          retries: 1,
           headers: savedToken ? { Authorization: `Bearer ${savedToken}` } : undefined,
         });
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled && data?.authenticated && data?.user) {
-            // Preserve current navigation state if optimistically hydrated
-            applyAuthenticatedSession(data.user, data.token || savedToken || '', !initialAuthSnapshot.hasOptimisticSession);
-            setIsCheckingAccess(false);
-            return;
-          }
-        } else {
-          const errData = await res.json().catch(() => null);
-          if (savedToken) {
-            localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-            localStorage.removeItem(AUTH_USER_STORAGE_KEY);
-          }
+        if (res.ok && res.data?.authenticated && res.data.user) {
           if (!cancelled) {
-            setAuthUser(null);
-            if (res.status === 403 || (savedToken && res.status === 401)) {
-              setGateNotice(
-                errData?.error || 'Your session or trial has expired. Sign in or select a plan to restore access.'
-              );
-            }
+            applyAuthenticatedSession(res.data.user, res.data.token || savedToken || '', !initialAuthSnapshot.hasOptimisticSession);
+            setIsCheckingAccess(false);
+          }
+          return;
+        }
+        if (savedToken) {
+          localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+          localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+        }
+        if (!cancelled) {
+          setAuthUser(null);
+          if (res.data?.restricted || res.data?.expired || (savedToken && res.data?.error)) {
+            setGateNotice(
+              res.data?.error || 'Your session or trial has expired. Sign in or select a plan to restore access.'
+            );
           }
         }
       } catch {

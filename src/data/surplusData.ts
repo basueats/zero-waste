@@ -662,7 +662,7 @@ export const monthlyRecordings: MonthlyRecording[] = [
     title: 'Executive Masterclass - March 2026: Biochemical Trim Valorization',
     date: 'March 2026',
     duration: '58 mins',
-    posterImage: '/src/assets/images/hero_sustainable_kitchen_1793976158274.jpg',
+    posterImage: '/assets/images/hero_sustainable_kitchen_1793976158274.jpg',
     instructor: 'Dr. Chef Supritam Basu',
     description: 'Live masterclass on cold gravity-drip tomato consommé, banquet bread starch retrogradation, and line-cook waste separation auditing.',
     featuredQuestions: [
@@ -681,7 +681,7 @@ export const monthlyRecordings: MonthlyRecording[] = [
     title: 'Executive Masterclass - February 2026: Buffet Thermodynamics & Portion Calibration',
     date: 'February 2026',
     duration: '52 mins',
-    posterImage: '/src/assets/images/root_to_stem_prep_1793976158854.jpg',
+    posterImage: '/assets/images/root_to_stem_prep_1793976158854.jpg',
     instructor: 'Dr. Chef Supritam Basu',
     description: 'Operational strategy breakdown: Overcoming buffet drying out, shallow insert physics, and HACCP blast chilling.',
     featuredQuestions: [
@@ -700,7 +700,7 @@ export const monthlyRecordings: MonthlyRecording[] = [
     title: 'Executive Masterclass - January 2026: Setting 2026 Zero-Waste Kitchen KPIs',
     date: 'January 2026',
     duration: '61 mins',
-    posterImage: '/src/assets/images/bone_broth_pot_1793976160130.jpg',
+    posterImage: '/assets/images/bone_broth_pot_1793976160130.jpg',
     instructor: 'Dr. Chef Supritam Basu',
     description: 'Annual strategic planning for hotel and restaurant culinary brigades: KPI metrics, bonus structures, and scrap utilization formulas.',
     featuredQuestions: [

@@ -15,15 +15,39 @@
       "restrictedByAdmin": false,
       "expiresAt": null,
       "source": "admin_root",
-      "lastLoginAt": 1794614371859,
-      "loginCount": 6,
+      "lastLoginAt": 1794688371751,
+      "loginCount": 7,
       "lastIp": "127.0.0.1",
-      "deviceInfo": "Browser · Device",
+      "deviceInfo": "CLI / cURL",
       "createdAt": 1794601255792,
-      "updatedAt": 1794614371859
+      "updatedAt": 1794688371751
     }
   },
   "loginLogs": [
+    {
+      "email": "supritamone@gmail.com",
+      "name": "Supritamone Master Admin",
+      "action": "login",
+      "status": "success",
+      "detail": "Permanent Master Admin signed in",
+      "planId": "admin",
+      "paymentStatus": "admin",
+      "ip": "127.0.0.1",
+      "device": "CLI / cURL",
+      "id": "log-mwgv4ad3-876623",
+      "timestamp": 1794688371832
+    },
+    {
+      "email": "supritambasu1991@gmail.com",
+      "name": "Supritambasu1991",
+      "action": "blocked_bad_password",
+      "status": "blocked",
+      "detail": "Login attempt for unregistered email",
+      "ip": "127.0.0.1",
+      "device": "CLI / cURL",
+      "id": "log-mwgux3tq-0c8761",
+      "timestamp": 1794688036767
+    },
     {
       "email": "supritamone@gmail.com",
       "name": "Dr. Chef Supritam Basu",
