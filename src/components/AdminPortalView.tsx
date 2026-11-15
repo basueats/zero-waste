@@ -29,8 +29,17 @@ import {
   EyeOff,
   Copy,
   Check,
+  Cloud,
 } from 'lucide-react';
 import { apiFetchJson } from '../utils/apiClient';
+import { auth } from '../firebase';
+import {
+  connectAdminGoogleCloud,
+  subscribeAdminFirestore,
+  adminMutateFirestoreUser,
+  FirestoreUserRecord,
+  FirestoreLogRecord,
+} from '../services/firestoreAcademy';
 
 export interface AdminManagedUser {
   email: string;
@@ -109,6 +118,30 @@ interface AdminPortalViewProps {
 }
 
 const ADMIN_TOKEN_KEY = 'supritamone_admin_token_v1';
+const ADMIN_REMEMBER_UNTIL_KEY = 'supritamone_admin_remember_until_v1';
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function readCachedAdminToken(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    const sessToken = sessionStorage.getItem(ADMIN_TOKEN_KEY);
+    if (sessToken) return sessToken;
+    const localToken = localStorage.getItem(ADMIN_TOKEN_KEY);
+    if (localToken) {
+      const untilRaw = localStorage.getItem(ADMIN_REMEMBER_UNTIL_KEY);
+      if (untilRaw && Date.now() > Number(untilRaw)) {
+        localStorage.removeItem(ADMIN_TOKEN_KEY);
+        localStorage.removeItem(ADMIN_REMEMBER_UNTIL_KEY);
+        return '';
+      }
+      return localToken;
+    }
+  } catch {
+    // Ignore storage read errors
+  }
+  return '';
+}
 
 function formatTimestamp(ts?: number | null): string {
   if (!ts) return 'Never';
@@ -134,17 +167,13 @@ function formatRelative(ts?: number | null): string {
 export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp }) => {
   const [checkingSession, setCheckingSession] = useState(true);
   const [adminSession, setAdminSession] = useState<AdminSessionInfo | null>(null);
-  const [adminToken, setAdminToken] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem(ADMIN_TOKEN_KEY) || '';
-    }
-    return '';
-  });
+  const [adminToken, setAdminToken] = useState<string>(() => readCachedAdminToken());
 
   // Login Gate state
   const [usernameInput, setUsernameInput] = useState('supritamone@gmail.com');
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginSuccessMsg, setLoginSuccessMsg] = useState<string | null>(null);
@@ -162,6 +191,10 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
 
   // Dashboard state
   const [overview, setOverview] = useState<AdminOverviewResponse | null>(null);
+  const [cloudUsers, setCloudUsers] = useState<FirestoreUserRecord[]>([]);
+  const [cloudLogs, setCloudLogs] = useState<FirestoreLogRecord[]>([]);
+  const [cloudSyncing, setCloudSyncing] = useState(false);
+  const [cloudConnected, setCloudConnected] = useState(() => Boolean(auth.currentUser));
   const [loadingData, setLoadingData] = useState(false);
   const [actionBusyEmail, setActionBusyEmail] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
@@ -272,6 +305,31 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     };
   }, [adminToken, fetchOverview]);
 
+  // Real-time Firestore listener when Admin Portal is open and Firebase Google auth is connected
+  useEffect(() => {
+    if (!adminSession) return;
+    if (!auth.currentUser && !cloudConnected) return;
+    const unsub = subscribeAdminFirestore(
+      (users) => setCloudUsers(users),
+      (logs) => setCloudLogs(logs)
+    );
+    return () => unsub();
+  }, [adminSession, cloudConnected]);
+
+  const handleConnectCloudSync = async () => {
+    setCloudSyncing(true);
+    try {
+      await connectAdminGoogleCloud();
+      setCloudConnected(true);
+      await fetchOverview();
+      showToast('ok', 'Live cloud registry connected — all subscriber logins & audit logs synced.');
+    } catch (err: unknown) {
+      showToast('err', err instanceof Error ? err.message : 'Could not connect cloud registry.');
+    } finally {
+      setCloudSyncing(false);
+    }
+  };
+
   const handleAdminSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
@@ -288,6 +346,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
         body: JSON.stringify({
           username: usernameInput.trim(),
           password: passwordInput,
+          rememberMe,
         }),
       });
       if (!res.ok || !res.data?.authenticated || !res.data.admin) {
@@ -297,7 +356,19 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
       const newToken = res.data.token || '';
       setAdminToken(newToken);
       if (typeof window !== 'undefined' && newToken) {
-        localStorage.setItem(ADMIN_TOKEN_KEY, newToken);
+        try {
+          if (rememberMe) {
+            localStorage.setItem(ADMIN_TOKEN_KEY, newToken);
+            localStorage.setItem(ADMIN_REMEMBER_UNTIL_KEY, String(Date.now() + THIRTY_DAYS_MS));
+            sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+          } else {
+            sessionStorage.setItem(ADMIN_TOKEN_KEY, newToken);
+            localStorage.removeItem(ADMIN_TOKEN_KEY);
+            localStorage.removeItem(ADMIN_REMEMBER_UNTIL_KEY);
+          }
+        } catch {
+          // Ignore storage quota errors
+        }
       }
       setAdminSession(res.data.admin);
       setPasswordInput('');
@@ -374,7 +445,13 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     setOverview(null);
     setAdminToken('');
     if (typeof window !== 'undefined') {
-      localStorage.removeItem(ADMIN_TOKEN_KEY);
+      try {
+        localStorage.removeItem(ADMIN_TOKEN_KEY);
+        localStorage.removeItem(ADMIN_REMEMBER_UNTIL_KEY);
+        sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+      } catch {
+        // Ignore storage errors
+      }
     }
     await fetch('/api/admin/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
   };
@@ -391,7 +468,9 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
         headers: authHeaders(),
         body: JSON.stringify({ email, action, ...extra }),
       });
-      if (!res.ok) {
+      // Also mirror moderation actions to Firestore if cloud registry is connected
+      const syncedFirestore = await adminMutateFirestoreUser(email, action, extra);
+      if (!res.ok && !syncedFirestore) {
         showToast('err', res.errorMessage || 'Action failed.');
         return;
       }
@@ -563,7 +642,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
   };
 
   const handleExportCsv = () => {
-    if (!overview?.users) return;
+    const exportList = mergedOverview?.users || overview?.users;
+    if (!exportList) return;
     const headers = [
       'Email',
       'Name',
@@ -581,7 +661,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
       'Expires At',
       'Transaction Ref',
     ];
-    const rows = overview.users.map((u) => [
+    const rows = exportList.map((u) => [
       u.email,
       u.name,
       u.role,
@@ -610,8 +690,109 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     URL.revokeObjectURL(url);
   };
 
+  const mergedOverview = useMemo<AdminOverviewResponse | null>(() => {
+    if (!overview && cloudUsers.length === 0 && cloudLogs.length === 0) return null;
+    const now = Date.now();
+    const userMap = new Map<string, AdminManagedUser>();
+
+    for (const u of overview?.users || []) {
+      userMap.set(u.email.toLowerCase(), u);
+    }
+    for (const cu of cloudUsers) {
+      const key = cu.email.toLowerCase();
+      if (!key) continue;
+      const existing = userMap.get(key);
+      const msSinceCreated = Math.max(0, now - (cu.createdAtMs || now));
+      const msRemaining = cu.expiresAt ? cu.expiresAt - now : null;
+      const isPermAdmin = key === 'supritamone@gmail.com' || cu.role === 'admin';
+      const cloudMapped: AdminManagedUser = {
+        email: key,
+        name: cu.name,
+        role: cu.role,
+        planId: cu.planId,
+        planTitle: cu.planTitle,
+        paymentStatus: cu.paymentStatus,
+        amountPaid: cu.amountPaid,
+        currency: cu.currency,
+        workPlace: cu.workPlace,
+        designation: cu.designation,
+        chefSeats: cu.chefSeats,
+        status: cu.status,
+        restrictedByAdmin: cu.restrictedByAdmin,
+        restrictedReason: cu.restrictedReason,
+        expiresAt: cu.expiresAt,
+        transactionRef: cu.transactionRef,
+        source: cu.source,
+        lastLoginAt: cu.lastLoginAt,
+        loginCount: cu.loginCount,
+        lastIp: cu.lastIp,
+        deviceInfo: cu.deviceInfo,
+        createdAt: cu.createdAtMs,
+        updatedAt: cu.updatedAtMs,
+        daysRunning: Math.max(1, Math.ceil(msSinceCreated / DAY_MS)),
+        daysLeft: msRemaining !== null ? Math.ceil(msRemaining / DAY_MS) : null,
+        hoursLeft: msRemaining !== null ? Math.max(0, Math.ceil(msRemaining / (60 * 60 * 1000))) : null,
+        trialExpired: Boolean(!isPermAdmin && cu.expiresAt && now > cu.expiresAt),
+        isPermanentAdmin: key === 'supritamone@gmail.com',
+      };
+      if (!existing) {
+        userMap.set(key, cloudMapped);
+      } else if ((cloudMapped.updatedAt || 0) >= (existing.updatedAt || 0)) {
+        userMap.set(key, {
+          ...existing,
+          ...cloudMapped,
+          loginCount: Math.max(existing.loginCount || 0, cloudMapped.loginCount || 0),
+          lastLoginAt: Math.max(existing.lastLoginAt || 0, cloudMapped.lastLoginAt || 0) || null,
+        });
+      } else {
+        userMap.set(key, {
+          ...cloudMapped,
+          ...existing,
+          loginCount: Math.max(existing.loginCount || 0, cloudMapped.loginCount || 0),
+          lastLoginAt: Math.max(existing.lastLoginAt || 0, cloudMapped.lastLoginAt || 0) || null,
+        });
+      }
+    }
+
+    const users = Array.from(userMap.values()).sort(
+      (a, b) => (b.lastLoginAt || b.updatedAt || 0) - (a.lastLoginAt || a.updatedAt || 0)
+    );
+
+    const logMap = new Map<string, AdminLoginLog>();
+    for (const l of [...(overview?.loginLogs || []), ...cloudLogs]) {
+      if (!l.id) continue;
+      if (!logMap.has(l.id)) {
+        logMap.set(l.id, l);
+      }
+    }
+    const loginLogs = Array.from(logMap.values())
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      .slice(0, 350);
+
+    const nonAdmin = users.filter((u) => u.role !== 'admin');
+    return {
+      stats: {
+        totalUsers: users.length,
+        memberCount: nonAdmin.length,
+        paidUsers: nonAdmin.filter((u) => u.paymentStatus === 'paid').length,
+        unpaidUsers: nonAdmin.filter((u) => u.paymentStatus === 'unpaid' || u.paymentStatus === 'pending_approval').length,
+        activeTrials: nonAdmin.filter((u) => u.planId === 'trial' && u.status === 'active' && !u.trialExpired).length,
+        restrictedOrExpired: nonAdmin.filter((u) => u.status === 'restricted' || u.status === 'expired' || u.trialExpired).length,
+        pendingApproval: nonAdmin.filter((u) => u.status === 'pending_approval' || u.paymentStatus === 'pending_approval').length,
+        totalRevenueUsd: nonAdmin.reduce((s, u) => (u.paymentStatus === 'paid' ? s + (u.amountPaid || 0) : s), 0),
+        totalLogins: users.reduce((s, u) => s + (u.loginCount || 0), 0),
+      },
+      users,
+      loginLogs,
+      adminProfile: overview?.adminProfile || {
+        displayName: 'Dr. Chef Supritam Basu',
+        notificationEmail: 'supritam.basu@supritamone.com',
+      },
+    };
+  }, [overview, cloudUsers, cloudLogs]);
+
   const filteredUsers = useMemo(() => {
-    const list = overview?.users || [];
+    const list = mergedOverview?.users || [];
     const q = searchQuery.trim().toLowerCase();
     return list.filter((u) => {
       if (statusFilter === 'paid' && u.paymentStatus !== 'paid') return false;
@@ -646,7 +827,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
         u.planTitle.toLowerCase().includes(q)
       );
     });
-  }, [overview?.users, searchQuery, statusFilter]);
+  }, [mergedOverview?.users, searchQuery, statusFilter]);
 
   const selectableFilteredUsers = useMemo(
     () => filteredUsers.filter((u) => !u.isPermanentAdmin),
@@ -654,8 +835,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
   );
 
   const selectableTotalCount = useMemo(
-    () => (overview?.users || []).filter((u) => !u.isPermanentAdmin).length,
-    [overview?.users]
+    () => (mergedOverview?.users || []).filter((u) => !u.isPermanentAdmin).length,
+    [mergedOverview?.users]
   );
 
   const allFilteredSelected =
@@ -676,12 +857,12 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
   };
 
   const billingUsers = useMemo(() => {
-    const list = (overview?.users || []).filter((u) => u.role !== 'admin');
+    const list = (mergedOverview?.users || []).filter((u) => u.role !== 'admin');
     if (billingFilter === 'paid') return list.filter((u) => u.paymentStatus === 'paid');
     if (billingFilter === 'unpaid') return list.filter((u) => u.paymentStatus === 'unpaid');
     if (billingFilter === 'pending') return list.filter((u) => u.paymentStatus === 'pending_approval');
     return list;
-  }, [overview?.users, billingFilter]);
+  }, [mergedOverview?.users, billingFilter]);
 
   if (checkingSession) {
     return (
@@ -801,6 +982,18 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
                     </button>
                   </div>
                 </div>
+
+                <label className="flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 rounded border-[#2c384b] bg-[#131b27] accent-[#00c86d] cursor-pointer"
+                  />
+                  <span>
+                    Remember me for 30 days <span className="text-slate-400">(auto sign-in without password)</span>
+                  </span>
+                </label>
 
                 <button
                   type="submit"
@@ -958,7 +1151,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
   }
 
   // AUTHENTICATED ADMIN DASHBOARD
-  const stats = overview?.stats || {
+  const stats = mergedOverview?.stats || {
     totalUsers: 0,
     memberCount: 0,
     paidUsers: 0,
@@ -990,6 +1183,20 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleConnectCloudSync}
+              disabled={cloudSyncing}
+              className={`px-2.5 sm:px-3 py-2 rounded-lg border text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
+                cloudConnected
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                  : 'border-neutral-200 hover:border-black text-neutral-700'
+              }`}
+              title="Sync global cross-device logins & subscriber records from Google Cloud"
+            >
+              <Cloud className={`w-3.5 h-3.5 ${cloudSyncing ? 'animate-pulse' : ''}`} />
+              <span className="hidden sm:inline">{cloudConnected ? 'Cloud Synced' : 'Sync Cloud Records'}</span>
+            </button>
+
             <button
               onClick={() => fetchOverview()}
               disabled={loadingData}
@@ -1135,7 +1342,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
                 activeTab === 'logs' ? 'bg-black text-white' : 'text-neutral-600 hover:text-black'
               }`}
             >
-              Login &amp; Lockout Logs ({overview?.loginLogs?.length || 0})
+              Login &amp; Lockout Logs ({mergedOverview?.loginLogs?.length || 0})
             </button>
             <button
               onClick={() => setActiveTab('settings')}
@@ -1843,7 +2050,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
             </div>
             {/* Mobile Stacked Cards View (< md) */}
             <div className="md:hidden divide-y divide-neutral-100">
-              {(overview?.loginLogs || []).map((log) => (
+              {(mergedOverview?.loginLogs || []).map((log) => (
                 <div key={`mlog-${log.id}`} className="p-4 space-y-1.5 text-xs">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -1883,7 +2090,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">
-                  {(overview?.loginLogs || []).map((log) => (
+                  {(mergedOverview?.loginLogs || []).map((log) => (
                     <tr key={log.id} className="hover:bg-neutral-50/70">
                       <td className="py-3 px-4 whitespace-nowrap text-neutral-500 text-[11px]">
                         {formatTimestamp(log.timestamp)}

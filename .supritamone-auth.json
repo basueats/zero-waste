@@ -15,15 +15,76 @@
       "restrictedByAdmin": false,
       "expiresAt": null,
       "source": "admin_root",
-      "lastLoginAt": 1794688371751,
-      "loginCount": 7,
+      "lastLoginAt": 1794753544434,
+      "loginCount": 8,
       "lastIp": "127.0.0.1",
-      "deviceInfo": "CLI / cURL",
+      "deviceInfo": "Browser · Device",
       "createdAt": 1794601255792,
-      "updatedAt": 1794688371751
+      "updatedAt": 1794753544434
     }
   },
   "loginLogs": [
+    {
+      "email": "verify_shahrukh_1794753544076@example.com",
+      "name": "Shahrukh Test",
+      "action": "admin_action",
+      "status": "info",
+      "detail": "Subscriber deleted from registry by Admin",
+      "ip": "127.0.0.1",
+      "device": "Admin Portal",
+      "id": "log-mwhxx5y6-31c40f",
+      "timestamp": 1794753544542
+    },
+    {
+      "email": "verify_shahrukh_1794753544076@example.com",
+      "name": "Shahrukh Test",
+      "action": "blocked_expired",
+      "status": "blocked",
+      "detail": "Signed in while auto-restricted (3-Day Free Trial ($0 / 72h) · All features locked)",
+      "planId": "trial",
+      "paymentStatus": "unpaid",
+      "ip": "127.0.0.1",
+      "device": "Browser · Device",
+      "id": "log-mwhxx5xk-55be16",
+      "timestamp": 1794753544520
+    },
+    {
+      "email": "verify_shahrukh_1794753544076@example.com",
+      "name": "Shahrukh Test",
+      "action": "admin_action",
+      "status": "blocked",
+      "detail": "Ended Free Trial & locked account immediately",
+      "planId": "trial",
+      "paymentStatus": "unpaid",
+      "ip": "127.0.0.1",
+      "device": "Admin Portal",
+      "id": "log-mwhxx5vn-398ade",
+      "timestamp": 1794753544452
+    },
+    {
+      "email": "supritamone@gmail.com",
+      "name": "Dr. Chef Supritam Basu",
+      "action": "admin_action",
+      "status": "success",
+      "detail": "Signed into Zero Waste Administrator Portal",
+      "ip": "127.0.0.1",
+      "device": "Browser · Device",
+      "id": "log-mwhxx5v7-0b5f4c",
+      "timestamp": 1794753544435
+    },
+    {
+      "email": "verify_shahrukh_1794753544076@example.com",
+      "name": "Shahrukh Test",
+      "action": "trial_started",
+      "status": "success",
+      "detail": "3-Day Free Trial ($0 / 72h) activated (TRIAL-MWHXX5PV)",
+      "planId": "trial",
+      "paymentStatus": "trial",
+      "ip": "127.0.0.1",
+      "device": "Browser · Device",
+      "id": "log-mwhxx5sa-d8cf03",
+      "timestamp": 1794753544330
+    },
     {
       "email": "supritamone@gmail.com",
       "name": "Supritamone Master Admin",

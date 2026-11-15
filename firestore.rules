@@ -1,0 +1,252 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (
+          isEmailVerified() &&
+          (
+            request.auth.token.email == 'basueats@gmail.com' ||
+            request.auth.token.email == 'supritamone@gmail.com'
+          )
+        )
+      );
+    }
+
+    function isValidAcademyUser(data) {
+      return data.keys().hasAll([
+          'uid',
+          'email',
+          'name',
+          'role',
+          'planId',
+          'planTitle',
+          'paymentStatus',
+          'amountPaid',
+          'currency',
+          'status',
+          'restrictedByAdmin',
+          'loginCount',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid',
+          'email',
+          'name',
+          'role',
+          'planId',
+          'planTitle',
+          'paymentStatus',
+          'amountPaid',
+          'currency',
+          'workPlace',
+          'designation',
+          'chefSeats',
+          'status',
+          'restrictedByAdmin',
+          'restrictedReason',
+          'expiresAt',
+          'transactionRef',
+          'source',
+          'lastLoginAt',
+          'loginCount',
+          'lastIp',
+          'deviceInfo',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.role in ['admin', 'member'] &&
+        data.planId in ['admin', 'trial', 'individual', 'team', 'training', 'partner_member'] &&
+        data.planTitle is string && data.planTitle.size() >= 1 && data.planTitle.size() <= 160 &&
+        data.paymentStatus in ['paid', 'unpaid', 'trial', 'pending_approval', 'admin'] &&
+        (data.amountPaid is int || data.amountPaid is float) && data.amountPaid >= 0 &&
+        data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10 &&
+        data.status in ['active', 'expired', 'restricted', 'pending_approval'] &&
+        data.restrictedByAdmin is bool &&
+        (data.loginCount is int || data.loginCount is float) && data.loginCount >= 0 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        (!('workPlace' in data) || (data.workPlace is string && data.workPlace.size() <= 160)) &&
+        (!('designation' in data) || (data.designation is string && data.designation.size() <= 120)) &&
+        (!('chefSeats' in data) || data.chefSeats == null || data.chefSeats is int || data.chefSeats is float) &&
+        (!('restrictedReason' in data) || (data.restrictedReason is string && data.restrictedReason.size() <= 300)) &&
+        (!('expiresAt' in data) || data.expiresAt == null || data.expiresAt is int || data.expiresAt is float) &&
+        (!('transactionRef' in data) || (data.transactionRef is string && data.transactionRef.size() <= 120)) &&
+        (!('source' in data) || (data.source is string && data.source.size() <= 120)) &&
+        (!('lastLoginAt' in data) || data.lastLoginAt == null || data.lastLoginAt is int || data.lastLoginAt is float) &&
+        (!('lastIp' in data) || (data.lastIp is string && data.lastIp.size() <= 80)) &&
+        (!('deviceInfo' in data) || (data.deviceInfo is string && data.deviceInfo.size() <= 120));
+    }
+
+    function isValidAcademyLog(data) {
+      return data.keys().hasAll([
+          'uid',
+          'email',
+          'name',
+          'action',
+          'status',
+          'detail',
+          'timestamp'
+        ]) &&
+        data.keys().hasOnly([
+          'uid',
+          'email',
+          'name',
+          'action',
+          'status',
+          'detail',
+          'planId',
+          'paymentStatus',
+          'ip',
+          'device',
+          'timestamp'
+        ]) &&
+        isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.action in [
+          'login',
+          'partner_sso',
+          'plan_activation',
+          'trial_started',
+          'blocked_expired',
+          'blocked_restricted',
+          'blocked_bad_password',
+          'admin_action'
+        ] &&
+        data.status in ['success', 'blocked', 'info'] &&
+        data.detail is string && data.detail.size() >= 1 && data.detail.size() <= 400 &&
+        data.timestamp is timestamp &&
+        (!('planId' in data) || (data.planId is string && data.planId.size() <= 40)) &&
+        (!('paymentStatus' in data) || (data.paymentStatus is string && data.paymentStatus.size() <= 40)) &&
+        (!('ip' in data) || (data.ip is string && data.ip.size() <= 80)) &&
+        (!('device' in data) || (data.device is string && data.device.size() <= 120));
+    }
+
+    function isValidAdminMarker(data) {
+      return data.keys().hasAll(['email', 'grantedAt']) &&
+        data.keys().hasOnly(['email', 'grantedAt']) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+        data.grantedAt is timestamp;
+    }
+
+    match /academy_users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isSignedIn() && (isAdmin() || resource.data.uid == request.auth.uid);
+
+      allow create: if isSignedIn() && isValidId(userId) && isValidAcademyUser(incoming()) && (
+        isAdmin() ||
+        (
+          isOwner(userId) &&
+          isEmailVerified() &&
+          incoming().uid == request.auth.uid &&
+          incoming().role == 'member' &&
+          incoming().paymentStatus in ['trial', 'unpaid', 'pending_approval'] &&
+          incoming().status == 'active' &&
+          incoming().restrictedByAdmin == false &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time
+        )
+      );
+
+      allow update: if isSignedIn() && isValidId(userId) && isValidAcademyUser(incoming()) && (
+        isAdmin() ||
+        (
+          isOwner(userId) &&
+          isEmailVerified() &&
+          incoming().uid == existing().uid &&
+          incoming().email == existing().email &&
+          incoming().role == existing().role &&
+          incoming().planId == existing().planId &&
+          incoming().paymentStatus == existing().paymentStatus &&
+          incoming().amountPaid == existing().amountPaid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'name',
+              'workPlace',
+              'designation',
+              'lastLoginAt',
+              'loginCount',
+              'lastIp',
+              'deviceInfo',
+              'updatedAt'
+            ]) ||
+            (
+              existing().expiresAt != null &&
+              incoming().status == 'restricted' &&
+              incoming().paymentStatus == existing().paymentStatus &&
+              incoming().restrictedByAdmin == true &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'status',
+                'restrictedByAdmin',
+                'restrictedReason',
+                'updatedAt'
+              ])
+            )
+          )
+        )
+      );
+
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    match /academy_logs/{logId} {
+      allow get: if isSignedIn() && isValidId(logId) && (isAdmin() || existing().uid == request.auth.uid);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.uid == request.auth.uid);
+
+      allow create: if isSignedIn() && isValidId(logId) && isValidAcademyLog(incoming()) && (
+        isAdmin() ||
+        (
+          isEmailVerified() &&
+          incoming().uid == request.auth.uid &&
+          incoming().timestamp == request.time
+        )
+      );
+
+      allow update, delete: if isAdmin() && isValidId(logId);
+    }
+
+    match /admins/{uid} {
+      allow get: if isSignedIn() && isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if isAdmin() && isValidId(uid) && isValidAdminMarker(incoming());
+      allow delete: if isAdmin() && isValidId(uid);
+    }
+  }
+}

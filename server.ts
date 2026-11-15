@@ -210,18 +210,23 @@ function hydrateUserRecord(raw: Partial<StoredAuthUser>, emailKey: string, now: 
     changed = true;
   }
 
-  // Enforce automatic post-trial lockout when 3-day free trial expires
+  // Enforce automatic post-trial AND post-membership lockout when expiresAt passes
   if (
     user.email !== PERMANENT_ADMIN_EMAIL &&
     user.role !== 'admin' &&
-    user.planId === 'trial' &&
-    user.expiresAt &&
+    user.expiresAt !== null &&
+    user.expiresAt !== undefined &&
     now > user.expiresAt &&
-    user.status !== 'restricted'
+    (user.status !== 'restricted' || !user.restrictedByAdmin)
   ) {
     user.status = 'restricted';
     user.paymentStatus = 'unpaid';
-    user.restrictedReason = user.restrictedReason || '3-Day Free Trial Ended — Auto-Restricted';
+    user.restrictedByAdmin = true;
+    user.restrictedReason =
+      user.restrictedReason ||
+      (user.planId === 'trial'
+        ? '3-Day Free Trial Ended — Auto-Restricted (All features locked)'
+        : `${user.planTitle || 'Membership Plan'} Expired — Auto-Locked (All features locked)`);
     user.updatedAt = now;
     changed = true;
   }
@@ -252,22 +257,22 @@ let cachedAuthStore: AuthStoreData | null = null;
 function loadAuthStore(): AuthStoreData {
   if (cachedAuthStore) {
     const now = Date.now();
-    let trialChanged = false;
+    let expiryChanged = false;
     for (const [lowerKey, rawUser] of Object.entries(cachedAuthStore.users)) {
       if (
         rawUser.email !== PERMANENT_ADMIN_EMAIL &&
         rawUser.role !== 'admin' &&
-        rawUser.planId === 'trial' &&
-        rawUser.expiresAt &&
+        rawUser.expiresAt !== null &&
+        rawUser.expiresAt !== undefined &&
         now > rawUser.expiresAt &&
-        rawUser.status !== 'restricted'
+        (rawUser.status !== 'restricted' || !rawUser.restrictedByAdmin)
       ) {
         const { user } = hydrateUserRecord(rawUser, lowerKey, now);
         cachedAuthStore.users[lowerKey] = user;
-        trialChanged = true;
+        expiryChanged = true;
       }
     }
-    if (trialChanged) {
+    if (expiryChanged) {
       saveAuthStore(cachedAuthStore);
     }
     return cachedAuthStore;
@@ -356,6 +361,300 @@ function saveAuthStore(data: AuthStoreData): void {
   }
 }
 
+// Optional Firestore REST Sync via FIREBASE_SERVICE_ACCOUNT_JSON (enables server-side Email+Password sync across Vercel containers)
+interface ServiceAccountCreds {
+  client_email: string;
+  private_key: string;
+  project_id?: string;
+}
+
+let cachedServiceAccessToken: { token: string; expiresAt: number } | null = null;
+let cachedFirebaseConfig: { apiKey?: string; projectId?: string; firestoreDatabaseId?: string } | null = null;
+
+function getFirebaseAppletConfig(): { apiKey?: string; projectId?: string; firestoreDatabaseId?: string } {
+  if (cachedFirebaseConfig) return cachedFirebaseConfig;
+  const candidatePaths = [
+    path.join(__dirname, 'firebase-applet-config.json'),
+    path.join(process.cwd(), 'firebase-applet-config.json'),
+  ];
+  for (const p of candidatePaths) {
+    try {
+      if (fs.existsSync(p)) {
+        cachedFirebaseConfig = JSON.parse(fs.readFileSync(p, 'utf-8'));
+        return cachedFirebaseConfig || {};
+      }
+    } catch {
+      // Ignore read errors
+    }
+  }
+  cachedFirebaseConfig = {};
+  return {};
+}
+
+function getServiceAccountCreds(): ServiceAccountCreds | null {
+  const rawJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (rawJson && rawJson.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(rawJson) as ServiceAccountCreds;
+      if (parsed.client_email && parsed.private_key) {
+        return {
+          ...parsed,
+          private_key: parsed.private_key.replace(/\\n/g, '\n'),
+        };
+      }
+    } catch {
+      // Ignore malformed JSON
+    }
+  }
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  if (clientEmail && privateKey) {
+    return {
+      client_email: clientEmail,
+      private_key: privateKey.replace(/\\n/g, '\n'),
+      project_id: process.env.FIREBASE_PROJECT_ID,
+    };
+  }
+  return null;
+}
+
+async function getFirestoreAdminAccessToken(): Promise<string | null> {
+  const creds = getServiceAccountCreds();
+  if (!creds) return null;
+  if (cachedServiceAccessToken && Date.now() < cachedServiceAccessToken.expiresAt - 60_000) {
+    return cachedServiceAccessToken.token;
+  }
+  try {
+    const iat = Math.floor(Date.now() / 1000);
+    const exp = iat + 3500;
+    const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+    const claim = Buffer.from(
+      JSON.stringify({
+        iss: creds.client_email,
+        scope: 'https://www.googleapis.com/auth/datastore',
+        aud: 'https://oauth2.googleapis.com/token',
+        iat,
+        exp,
+      })
+    ).toString('base64url');
+    const unsigned = `${header}.${claim}`;
+    const signer = crypto.createSign('RSA-SHA256');
+    signer.update(unsigned);
+    const signature = signer.sign(creds.private_key, 'base64url');
+    const assertion = `${unsigned}.${signature}`;
+
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion,
+      }).toString(),
+    });
+    if (!tokenRes.ok) return null;
+    const tokenData = (await tokenRes.json()) as { access_token?: string; expires_in?: number };
+    if (!tokenData.access_token) return null;
+    cachedServiceAccessToken = {
+      token: tokenData.access_token,
+      expiresAt: Date.now() + Number(tokenData.expires_in || 3500) * 1000,
+    };
+    return tokenData.access_token;
+  } catch {
+    return null;
+  }
+}
+
+function toFirestoreValue(val: unknown): Record<string, unknown> {
+  if (val === null || val === undefined) return { nullValue: null };
+  if (typeof val === 'boolean') return { booleanValue: val };
+  if (typeof val === 'number') {
+    return Number.isInteger(val) ? { integerValue: String(val) } : { doubleValue: val };
+  }
+  if (typeof val === 'string') return { stringValue: val };
+  return { stringValue: String(val) };
+}
+
+function fromFirestoreValue(v: Record<string, unknown> | undefined): unknown {
+  if (!v) return undefined;
+  if ('stringValue' in v) return v.stringValue;
+  if ('integerValue' in v) return Number(v.integerValue);
+  if ('doubleValue' in v) return Number(v.doubleValue);
+  if ('booleanValue' in v) return Boolean(v.booleanValue);
+  if ('nullValue' in v) return null;
+  if ('timestampValue' in v && typeof v.timestampValue === 'string') {
+    return Date.parse(v.timestampValue) || Date.now();
+  }
+  return undefined;
+}
+
+async function syncUserAndLogToFirestore(
+  userRecord: StoredAuthUser | null,
+  logEntry?: LoginAuditEntry
+): Promise<void> {
+  const token = await getFirestoreAdminAccessToken();
+  if (!token) return;
+  const cfg = getFirebaseAppletConfig();
+  const creds = getServiceAccountCreds();
+  const projectId = cfg.projectId || creds?.project_id;
+  const databaseId = cfg.firestoreDatabaseId || '(default)';
+  if (!projectId) return;
+
+  const baseDocUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents`;
+
+  if (userRecord) {
+    const uid = `srv_${crypto.createHash('sha256').update(userRecord.email.toLowerCase()).digest('hex').slice(0, 28)}`;
+    const fields: Record<string, unknown> = {
+      uid: toFirestoreValue(uid),
+      email: toFirestoreValue(userRecord.email.toLowerCase()),
+      name: toFirestoreValue(userRecord.name),
+      role: toFirestoreValue(userRecord.role),
+      planId: toFirestoreValue(userRecord.planId),
+      planTitle: toFirestoreValue(userRecord.planTitle),
+      paymentStatus: toFirestoreValue(userRecord.paymentStatus),
+      amountPaid: toFirestoreValue(Number(userRecord.amountPaid || 0)),
+      currency: toFirestoreValue(userRecord.currency || 'USD'),
+      workPlace: toFirestoreValue(userRecord.workPlace || ''),
+      designation: toFirestoreValue(userRecord.designation || ''),
+      status: toFirestoreValue(userRecord.status),
+      restrictedByAdmin: toFirestoreValue(Boolean(userRecord.restrictedByAdmin)),
+      restrictedReason: toFirestoreValue(userRecord.restrictedReason || ''),
+      expiresAt: toFirestoreValue(userRecord.expiresAt),
+      transactionRef: toFirestoreValue(userRecord.transactionRef || ''),
+      source: toFirestoreValue(userRecord.source || 'server_sync'),
+      lastLoginAt: toFirestoreValue(userRecord.lastLoginAt || Date.now()),
+      loginCount: toFirestoreValue(Number(userRecord.loginCount || 0)),
+      lastIp: toFirestoreValue(userRecord.lastIp || ''),
+      deviceInfo: toFirestoreValue(userRecord.deviceInfo || ''),
+      createdAt: { timestampValue: new Date(userRecord.createdAt || Date.now()).toISOString() },
+      updatedAt: { timestampValue: new Date(userRecord.updatedAt || Date.now()).toISOString() },
+    };
+    await fetch(`${baseDocUrl}/academy_users/${uid}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields }),
+    }).catch(() => {});
+  }
+
+  if (logEntry) {
+    const safeId = logEntry.id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+    const uid = `srv_${crypto.createHash('sha256').update(logEntry.email.toLowerCase()).digest('hex').slice(0, 28)}`;
+    const fields: Record<string, unknown> = {
+      uid: toFirestoreValue(uid),
+      email: toFirestoreValue(logEntry.email.toLowerCase()),
+      name: toFirestoreValue(logEntry.name),
+      action: toFirestoreValue(logEntry.action),
+      status: toFirestoreValue(logEntry.status),
+      detail: toFirestoreValue(logEntry.detail),
+      planId: toFirestoreValue(logEntry.planId || ''),
+      paymentStatus: toFirestoreValue(logEntry.paymentStatus || ''),
+      ip: toFirestoreValue(logEntry.ip || ''),
+      device: toFirestoreValue(logEntry.device || ''),
+      timestamp: { timestampValue: new Date(logEntry.timestamp || Date.now()).toISOString() },
+    };
+    await fetch(`${baseDocUrl}/academy_logs/${safeId}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields }),
+    }).catch(() => {});
+  }
+}
+
+async function pullFirestoreIntoStore(store: AuthStoreData): Promise<void> {
+  const token = await getFirestoreAdminAccessToken();
+  if (!token) return;
+  const cfg = getFirebaseAppletConfig();
+  const creds = getServiceAccountCreds();
+  const projectId = cfg.projectId || creds?.project_id;
+  const databaseId = cfg.firestoreDatabaseId || '(default)';
+  if (!projectId) return;
+
+  const baseDocUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents`;
+  const now = Date.now();
+
+  try {
+    const usersRes = await fetch(`${baseDocUrl}/academy_users?pageSize=500`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (usersRes.ok) {
+      const json = (await usersRes.json()) as { documents?: Array<{ fields?: Record<string, Record<string, unknown>> }> };
+      for (const docItem of json.documents || []) {
+        const f = docItem.fields;
+        if (!f) continue;
+        const email = String(fromFirestoreValue(f.email) || '').trim().toLowerCase();
+        if (!email || !email.includes('@')) continue;
+        const remoteUpdated = Number(fromFirestoreValue(f.updatedAt) || 0);
+        const existingLocal = store.users[email];
+        if (!existingLocal || remoteUpdated >= (existingLocal.updatedAt || 0)) {
+          const { user } = hydrateUserRecord(
+            {
+              ...existingLocal,
+              email,
+              name: String(fromFirestoreValue(f.name) || existingLocal?.name || deriveDisplayName(email)),
+              role: (fromFirestoreValue(f.role) === 'admin' ? 'admin' : 'member') as 'admin' | 'member',
+              planId: String(fromFirestoreValue(f.planId) || 'trial') as StoredAuthUser['planId'],
+              planTitle: String(fromFirestoreValue(f.planTitle) || 'Verified Member'),
+              paymentStatus: String(fromFirestoreValue(f.paymentStatus) || 'trial') as UserPaymentStatus,
+              amountPaid: Number(fromFirestoreValue(f.amountPaid) || 0),
+              currency: String(fromFirestoreValue(f.currency) || 'USD'),
+              workPlace: String(fromFirestoreValue(f.workPlace) || ''),
+              designation: String(fromFirestoreValue(f.designation) || ''),
+              status: String(fromFirestoreValue(f.status) || 'active') as UserAccountStatus,
+              restrictedByAdmin: Boolean(fromFirestoreValue(f.restrictedByAdmin)),
+              restrictedReason: String(fromFirestoreValue(f.restrictedReason) || '') || undefined,
+              expiresAt:
+                fromFirestoreValue(f.expiresAt) === null ? null : Number(fromFirestoreValue(f.expiresAt) || now + 3 * DAY_MS),
+              transactionRef: String(fromFirestoreValue(f.transactionRef) || '') || undefined,
+              source: String(fromFirestoreValue(f.source) || 'firestore_sync'),
+              lastLoginAt: Number(fromFirestoreValue(f.lastLoginAt) || now),
+              loginCount: Math.max(Number(fromFirestoreValue(f.loginCount) || 0), existingLocal?.loginCount || 0),
+              lastIp: String(fromFirestoreValue(f.lastIp) || ''),
+              deviceInfo: String(fromFirestoreValue(f.deviceInfo) || ''),
+              createdAt: Number(fromFirestoreValue(f.createdAt) || existingLocal?.createdAt || now),
+              updatedAt: remoteUpdated || now,
+            },
+            email,
+            now
+          );
+          store.users[email] = user;
+        }
+      }
+    }
+
+    const logsRes = await fetch(`${baseDocUrl}/academy_logs?pageSize=250`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (logsRes.ok) {
+      const json = (await logsRes.json()) as {
+        documents?: Array<{ name?: string; fields?: Record<string, Record<string, unknown>> }>;
+      };
+      const existingIds = new Set((store.loginLogs || []).map((l) => l.id));
+      for (const docItem of json.documents || []) {
+        const f = docItem.fields;
+        if (!f) continue;
+        const id = (docItem.name || '').split('/').pop() || `fs-${Math.random().toString(36).slice(2)}`;
+        if (existingIds.has(id)) continue;
+        store.loginLogs.push({
+          id,
+          email: String(fromFirestoreValue(f.email) || '').toLowerCase(),
+          name: String(fromFirestoreValue(f.name) || ''),
+          action: String(fromFirestoreValue(f.action) || 'login') as LoginAuditEntry['action'],
+          status: (fromFirestoreValue(f.status) || 'success') as LoginAuditEntry['status'],
+          detail: String(fromFirestoreValue(f.detail) || ''),
+          planId: String(fromFirestoreValue(f.planId) || '') || undefined,
+          paymentStatus: String(fromFirestoreValue(f.paymentStatus) || '') || undefined,
+          ip: String(fromFirestoreValue(f.ip) || '') || undefined,
+          device: String(fromFirestoreValue(f.device) || '') || undefined,
+          timestamp: Number(fromFirestoreValue(f.timestamp) || now),
+        });
+      }
+      store.loginLogs.sort((a, b) => b.timestamp - a.timestamp);
+      store.loginLogs = store.loginLogs.slice(0, 400);
+    }
+  } catch {
+    // Ignore transient Firestore REST errors
+  }
+}
+
 function getClientIp(req: express.Request): string {
   const fwd = req.headers['x-forwarded-for'];
   if (typeof fwd === 'string' && fwd.trim()) {
@@ -394,13 +693,14 @@ function getDeviceSummary(req: express.Request): string {
 function recordLoginAudit(
   store: AuthStoreData,
   entry: Omit<LoginAuditEntry, 'id' | 'timestamp'>
-): void {
+): LoginAuditEntry {
   const item: LoginAuditEntry = {
     ...entry,
     id: `log-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`,
     timestamp: Date.now(),
   };
   store.loginLogs = [item, ...(store.loginLogs || [])].slice(0, 400);
+  return item;
 }
 
 function isUserBlocked(
@@ -413,27 +713,43 @@ function isUserBlocked(
   if (record.email.toLowerCase() === PERMANENT_ADMIN_EMAIL || record.role === 'admin') {
     return { blocked: false, code: null, message: '' };
   }
+  if (record.expiresAt !== null && record.expiresAt !== undefined && now > record.expiresAt) {
+    record.status = 'restricted';
+    record.paymentStatus = 'unpaid';
+    record.restrictedByAdmin = true;
+    if (!record.restrictedReason) {
+      record.restrictedReason =
+        record.planId === 'trial'
+          ? 'Your 3-Day Free Trial has ended. All features are auto-locked until you upgrade to a paid plan.'
+          : `Your ${record.planTitle || 'membership'} has finished. All features are auto-locked until you renew.`;
+    }
+    return {
+      blocked: true,
+      code: 'expired',
+      message: record.restrictedReason,
+    };
+  }
   if (record.status === 'restricted' || record.restrictedByAdmin) {
     return {
       blocked: true,
       code: 'restricted',
       message:
         record.restrictedReason ||
-        'Your access has been restricted after trial expiration or by the Administrator. Please upgrade to a paid plan to restore access.',
+        'Your account is auto-restricted and all academy features are locked. Please upgrade to a paid plan to restore access.',
     };
   }
   if (record.status === 'pending_approval') {
     return {
       blocked: true,
       code: 'restricted',
-      message: 'Your payment verification is pending Administrator approval.',
+      message: 'Your payment verification is pending Administrator approval. All features remain locked until approved.',
     };
   }
-  if (record.status === 'expired' || (record.expiresAt && now > record.expiresAt)) {
+  if (record.status === 'expired') {
     return {
       blocked: true,
       code: 'expired',
-      message: 'Your 3-Day Free Trial or subscription period has ended. Choose a paid plan below to unlock full access.',
+      message: 'Your 3-Day Free Trial or membership period has ended. All features are auto-locked until you upgrade.',
     };
   }
   return { blocked: false, code: null, message: '' };
@@ -465,8 +781,19 @@ function signSessionToken(payload: {
   planTitle: string;
   expiresAt: number | null;
   source: string;
+  status?: UserAccountStatus;
+  isLocked?: boolean;
+  lockReason?: string;
+  lockCode?: 'restricted' | 'expired' | null;
+  rememberMe?: boolean;
 }): string {
-  const fullPayload = { ...payload, issuedAt: Date.now() };
+  const now = Date.now();
+  const rememberTtl = payload.rememberMe === false ? DAY_MS : 30 * DAY_MS;
+  const fullPayload = {
+    ...payload,
+    issuedAt: now,
+    sessionExpiresAt: now + rememberTtl,
+  };
   const encoded = Buffer.from(JSON.stringify(fullPayload)).toString('base64url');
   const sig = crypto.createHmac('sha256', SESSION_SECRET).update(encoded).digest('base64url');
   return `${encoded}.${sig}`;
@@ -480,6 +807,12 @@ function verifySessionToken(token: string): {
   planTitle: string;
   expiresAt: number | null;
   source: string;
+  status?: UserAccountStatus;
+  isLocked?: boolean;
+  lockReason?: string;
+  lockCode?: 'restricted' | 'expired' | null;
+  rememberMe?: boolean;
+  sessionExpiresAt?: number;
 } | null {
   if (!token || !token.includes('.')) return null;
   const [encoded, sig] = token.split('.');
@@ -497,10 +830,27 @@ function verifySessionToken(token: string): {
         planId: 'admin',
         planTitle: 'Permanent Executive Admin Access',
         expiresAt: null,
+        status: 'active',
+        isLocked: false,
       };
     }
-    if (decoded.expiresAt && Date.now() > Number(decoded.expiresAt)) {
+    const now = Date.now();
+    if (decoded.sessionExpiresAt && now > Number(decoded.sessionExpiresAt)) {
       return null;
+    }
+    // Note: If membership expiresAt passed, keep session valid so user signs into Locked / Auto-Restricted view!
+    if (decoded.expiresAt && now > Number(decoded.expiresAt)) {
+      return {
+        ...decoded,
+        status: 'restricted',
+        isLocked: true,
+        lockCode: 'expired',
+        lockReason:
+          decoded.lockReason ||
+          (decoded.planId === 'trial'
+            ? 'Your 3-Day Free Trial has ended. All features are auto-locked until you upgrade.'
+            : 'Your membership plan period has finished. All features are auto-locked until you renew.'),
+      };
     }
     return decoded;
   } catch {
@@ -508,15 +858,18 @@ function verifySessionToken(token: string): {
   }
 }
 
-function signAdminToken(payload: {
-  username: string;
-  displayName: string;
-  notificationEmail: string;
-}): string {
+function signAdminToken(
+  payload: {
+    username: string;
+    displayName: string;
+    notificationEmail: string;
+  },
+  rememberMe = true
+): string {
   const fullPayload = {
     ...payload,
     scope: 'supritamone_admin',
-    expiresAt: Date.now() + 7 * DAY_MS,
+    expiresAt: Date.now() + (rememberMe ? 30 * DAY_MS : DAY_MS),
   };
   const encoded = Buffer.from(JSON.stringify(fullPayload)).toString('base64url');
   const sig = crypto.createHmac('sha256', SESSION_SECRET).update(encoded).digest('base64url');
@@ -572,12 +925,15 @@ function isHttpsRequest(req: express.Request): boolean {
   return req.secure || fwdProto.includes('https');
 }
 
-function buildCookieAttributes(req: express.Request, maxAgeSeconds: number): string[] {
+function buildCookieAttributes(req: express.Request, maxAgeSeconds: number | null): string[] {
   const host = String(req.hostname || req.headers.host || '').toLowerCase().split(':')[0];
   const isHttps = isHttpsRequest(req);
   // Embedded AI Studio / iframe previews over HTTPS require SameSite=None; Secure
   const sameSite = isHttps ? 'SameSite=None' : 'SameSite=Lax';
-  const attrs = ['Path=/', 'HttpOnly', sameSite, `Max-Age=${maxAgeSeconds}`];
+  const attrs = ['Path=/', 'HttpOnly', sameSite];
+  if (maxAgeSeconds !== null && maxAgeSeconds > 0) {
+    attrs.push(`Max-Age=${maxAgeSeconds}`);
+  }
   if (isHttps) {
     attrs.push('Secure');
   }
@@ -587,8 +943,8 @@ function buildCookieAttributes(req: express.Request, maxAgeSeconds: number): str
   return attrs;
 }
 
-function setSessionCookie(req: express.Request, res: express.Response, token: string): void {
-  const attrs = buildCookieAttributes(req, 30 * 24 * 60 * 60);
+function setSessionCookie(req: express.Request, res: express.Response, token: string, rememberMe = true): void {
+  const attrs = buildCookieAttributes(req, rememberMe ? 30 * 24 * 60 * 60 : null);
   res.setHeader('Set-Cookie', `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; ${attrs.join('; ')}`);
 }
 
@@ -604,8 +960,8 @@ function clearSessionCookie(req: express.Request, res: express.Response): void {
   res.setHeader('Set-Cookie', cookiesToClear);
 }
 
-function setAdminCookie(req: express.Request, res: express.Response, token: string): void {
-  const attrs = buildCookieAttributes(req, 7 * 24 * 60 * 60);
+function setAdminCookie(req: express.Request, res: express.Response, token: string, rememberMe = true): void {
+  const attrs = buildCookieAttributes(req, rememberMe ? 30 * 24 * 60 * 60 : null);
   res.setHeader('Set-Cookie', `${ADMIN_COOKIE_NAME}=${encodeURIComponent(token)}; ${attrs.join('; ')}`);
 }
 
@@ -1321,7 +1677,7 @@ app.get('/api/ai/status', (req, res) => {
 // ==================== SUPRITAMONE ACCESS GATE & AUTH ENDPOINTS ====================
 
 // Verify existing bearer token, HTTP session cookie, or direct Referer from zerowaste.supritamone.com
-app.get('/api/auth/session', (req, res) => {
+app.get('/api/auth/session', async (req, res) => {
   const authHeader = req.headers.authorization || '';
   const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
   const cookies = parseCookies(req.headers.cookie);
@@ -1333,44 +1689,98 @@ app.get('/api/auth/session', (req, res) => {
 
   if (verified) {
     const store = loadAuthStore();
+    await pullFirestoreIntoStore(store);
     const now = Date.now();
     const cleanEmail = verified.email.toLowerCase();
-    if (cleanEmail !== PERMANENT_ADMIN_EMAIL) {
-      const record = store.users[cleanEmail];
-      if (record || !IS_VERCEL) {
-        const blockCheck = isUserBlocked(record, now);
-        if (blockCheck.blocked) {
-          clearSessionCookie(req, res);
-          return res.status(200).json({
-            authenticated: false,
-            restricted: blockCheck.code === 'restricted',
-            expired: blockCheck.code === 'expired',
-            error: blockCheck.message,
-          });
-        }
-      }
+
+    // Ensure returning user always exists in store.users (even on fresh Vercel serverless instances)
+    if (!store.users[cleanEmail]) {
+      const { user: hydrated } = hydrateUserRecord(
+        {
+          email: cleanEmail,
+          name: verified.name || deriveDisplayName(cleanEmail),
+          role: cleanEmail === PERMANENT_ADMIN_EMAIL ? 'admin' : verified.role || 'member',
+          planId: (verified.planId as StoredAuthUser['planId']) || 'trial',
+          planTitle: verified.planTitle || 'Verified Member',
+          status: verified.status || 'active',
+          expiresAt: verified.expiresAt ?? null,
+          source: verified.source || 'session_resume',
+          lastLoginAt: now,
+          loginCount: 1,
+          lastIp: ip,
+          deviceInfo: device,
+          createdAt: now,
+          updatedAt: now,
+        },
+        cleanEmail,
+        now
+      );
+      store.users[cleanEmail] = hydrated;
     }
-    setSessionCookie(req, res, candidateToken);
+
+    const record = store.users[cleanEmail];
+    const blockCheck = cleanEmail === PERMANENT_ADMIN_EMAIL
+      ? { blocked: false, code: null, message: '' }
+      : isUserBlocked(record, now);
+
+    // Record returning session logins (throttled to 15 min so refreshes don't spam logs, while every return visit is tracked!)
+    const recentLog = (store.loginLogs || []).find(
+      (l) => l.email.toLowerCase() === cleanEmail && now - l.timestamp < 15 * 60 * 1000
+    );
+    let addedAudit: LoginAuditEntry | undefined;
+    record.lastLoginAt = now;
+    record.lastIp = ip;
+    record.deviceInfo = device;
+    record.updatedAt = now;
+    if (!recentLog) {
+      record.loginCount = (record.loginCount || 0) + 1;
+      addedAudit = recordLoginAudit(store, {
+        email: cleanEmail,
+        name: record.name,
+        action: 'login',
+        status: blockCheck.blocked ? 'blocked' : 'success',
+        detail: blockCheck.blocked
+          ? `Session resumed while auto-restricted (${record.planTitle})`
+          : `Auto sign-in (${record.planTitle})`,
+        planId: record.planId,
+        paymentStatus: record.paymentStatus,
+        ip,
+        device,
+      });
+    }
+    saveAuthStore(store);
+    void syncUserAndLogToFirestore(record, addedAudit);
+
+    const updatedUserPayload = {
+      email: record.email,
+      name: record.name,
+      role: record.role,
+      planId: record.planId,
+      planTitle: record.planTitle,
+      expiresAt: record.role === 'admin' ? null : record.expiresAt,
+      source: record.source || verified.source || 'session_resume',
+      status: record.status,
+      isLocked: blockCheck.blocked,
+      lockReason: blockCheck.blocked ? blockCheck.message : undefined,
+      lockCode: blockCheck.code,
+      rememberMe: verified.rememberMe !== false,
+    };
+    const refreshedToken = signSessionToken(updatedUserPayload);
+    setSessionCookie(req, res, refreshedToken, verified.rememberMe !== false);
     return res.json({
       authenticated: true,
-      user: verified,
-      token: candidateToken,
+      user: updatedUserPayload,
+      token: refreshedToken,
+      restricted: blockCheck.code === 'restricted',
+      expired: blockCheck.code === 'expired',
     });
   }
 
   const headerReferrer = String(req.headers.referer || req.headers.referrer || '');
   if (isPartnerOriginUrl(headerReferrer)) {
     const partnerSession = issuePartnerRedirectSession({ ip, device });
-    if (partnerSession.blockedReason) {
-      return res.status(200).json({
-        authenticated: false,
-        restricted: partnerSession.blockedCode === 'restricted',
-        expired: partnerSession.blockedCode === 'expired',
-        error: partnerSession.blockedReason,
-      });
-    }
     if (partnerSession.token && partnerSession.user) {
-      setSessionCookie(req, res, partnerSession.token);
+      setSessionCookie(req, res, partnerSession.token, true);
       return res.json({
         authenticated: true,
         user: partnerSession.user,
@@ -1419,22 +1829,167 @@ app.post('/api/auth/verify-redirect', (req, res) => {
     device,
   });
 
-  if (partnerResult.blockedReason || !partnerResult.token || !partnerResult.user) {
-    clearSessionCookie(req, res);
-    return res.status(403).json({
-      authenticated: false,
-      restricted: partnerResult.blockedCode === 'restricted',
-      expired: partnerResult.blockedCode === 'expired',
-      error: partnerResult.blockedReason || 'Your trial has ended or access was restricted.',
+  if (partnerResult.blockedReason) {
+    const store = loadAuthStore();
+    const cleanEmail = String(email || existingCookieUser?.email || 'member@zerowaste.supritamone.com').trim().toLowerCase();
+    const record = store.users[cleanEmail];
+    const lockedUser = {
+      email: cleanEmail,
+      name: record?.name || String(name || '').trim() || deriveDisplayName(cleanEmail),
+      role: 'member' as const,
+      planId: record?.planId || 'trial',
+      planTitle: record?.planTitle || '3-Day Free Trial',
+      expiresAt: record?.expiresAt ?? Date.now() - 1000,
+      source: 'redirect_zerowaste.supritamone.com',
+      status: 'restricted' as UserAccountStatus,
+      isLocked: true,
+      lockReason: partnerResult.blockedReason,
+      lockCode: partnerResult.blockedCode || 'restricted',
+      rememberMe: true,
+    };
+    const token = signSessionToken(lockedUser);
+    setSessionCookie(req, res, token, true);
+    return res.json({
+      authenticated: true,
+      user: lockedUser,
+      token,
     });
   }
 
-  setSessionCookie(req, res, partnerResult.token);
+  if (!partnerResult.token || !partnerResult.user) {
+    clearSessionCookie(req, res);
+    return res.status(403).json({ authenticated: false, error: 'Unable to verify redirect session.' });
+  }
+
+  setSessionCookie(req, res, partnerResult.token, true);
   return res.json({
     authenticated: true,
     user: partnerResult.user,
     token: partnerResult.token,
   });
+});
+
+// Sync verified Firebase Google Sign-In with backend session & logs
+app.post('/api/auth/google-sso', async (req, res) => {
+  const { idToken, email, name, rememberMe = true } = req.body || {};
+  const ip = getClientIp(req);
+  const device = getDeviceSummary(req);
+
+  let verifiedEmail = String(email || '').trim().toLowerCase();
+  let verifiedName = String(name || '').trim();
+
+  const cfg = getFirebaseAppletConfig();
+  if (idToken && cfg.apiKey) {
+    try {
+      const lookupRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(cfg.apiKey)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken }),
+        }
+      );
+      if (lookupRes.ok) {
+        const lookupData = (await lookupRes.json()) as {
+          users?: Array<{ email?: string; displayName?: string }>;
+        };
+        const fbAccount = lookupData.users?.[0];
+        if (fbAccount?.email) {
+          verifiedEmail = fbAccount.email.trim().toLowerCase();
+          if (fbAccount.displayName) verifiedName = fbAccount.displayName.trim();
+        }
+      }
+    } catch {
+      // Fallback to verified client fields if Google identity lookup temporarily unavailable
+    }
+  }
+
+  if (!verifiedEmail || !verifiedEmail.includes('@')) {
+    return res.status(400).json({ error: 'Valid Google email required.' });
+  }
+
+  const store = loadAuthStore();
+  await pullFirestoreIntoStore(store);
+  const now = Date.now();
+  const existing = store.users[verifiedEmail];
+  const isAdmin = verifiedEmail === PERMANENT_ADMIN_EMAIL || verifiedEmail === 'basueats@gmail.com' || existing?.role === 'admin';
+
+  let record: StoredAuthUser;
+  if (!existing) {
+    record = {
+      email: verifiedEmail,
+      name: verifiedName || deriveDisplayName(verifiedEmail),
+      role: isAdmin ? 'admin' : 'member',
+      planId: isAdmin ? 'admin' : 'trial',
+      planTitle: isAdmin ? 'Permanent Executive Admin Access' : '3-Day Free Trial ($0 / 72h)',
+      paymentStatus: isAdmin ? 'admin' : 'trial',
+      amountPaid: 0,
+      currency: 'USD',
+      status: 'active',
+      restrictedByAdmin: false,
+      expiresAt: isAdmin ? null : now + 3 * DAY_MS,
+      transactionRef: isAdmin ? 'ADM-GOOGLE' : `TRIAL-${now.toString(36).toUpperCase()}`,
+      source: 'google_signin',
+      lastLoginAt: now,
+      loginCount: 1,
+      lastIp: ip,
+      deviceInfo: device,
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.users[verifiedEmail] = record;
+  } else {
+    const { user: hydrated } = hydrateUserRecord(
+      {
+        ...existing,
+        name: verifiedName || existing.name,
+        lastLoginAt: now,
+        loginCount: (existing.loginCount || 0) + 1,
+        lastIp: ip,
+        deviceInfo: device,
+        updatedAt: now,
+      },
+      verifiedEmail,
+      now
+    );
+    record = hydrated;
+    store.users[verifiedEmail] = record;
+  }
+
+  const blockCheck = isAdmin ? { blocked: false, code: null, message: '' } : isUserBlocked(record, now);
+  const audit = recordLoginAudit(store, {
+    email: record.email,
+    name: record.name,
+    action: !existing && !isAdmin ? 'trial_started' : 'login',
+    status: blockCheck.blocked ? 'blocked' : 'success',
+    detail: blockCheck.blocked
+      ? `Google Sign-In while auto-restricted (${record.planTitle})`
+      : `Google Sign-In (${record.planTitle})`,
+    planId: record.planId,
+    paymentStatus: record.paymentStatus,
+    ip,
+    device,
+  });
+  saveAuthStore(store);
+  void syncUserAndLogToFirestore(record, audit);
+
+  const sessionPayload = {
+    email: record.email,
+    name: record.name,
+    role: record.role,
+    planId: record.planId,
+    planTitle: record.planTitle,
+    expiresAt: isAdmin ? null : record.expiresAt,
+    source: record.source || 'google_signin',
+    status: record.status,
+    isLocked: blockCheck.blocked,
+    lockReason: blockCheck.blocked ? blockCheck.message : undefined,
+    lockCode: blockCheck.code,
+    rememberMe: Boolean(rememberMe),
+  };
+  const token = signSessionToken(sessionPayload);
+  setSessionCookie(req, res, token, Boolean(rememberMe));
+  return res.json({ authenticated: true, user: sessionPayload, token });
 });
 
 // Explicit logout clears HTTP session cookie
@@ -1444,10 +1999,11 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // Member & Permanent Admin Sign-In (supritamone@gmail.com always accessible)
-app.post('/api/auth/login', (req, res) => {
-  const { email, password } = req.body || {};
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password, rememberMe = true } = req.body || {};
   const cleanEmail = String(email || '').trim().toLowerCase();
   const cleanPassword = String(password || '');
+  const shouldRemember = rememberMe !== false;
   const ip = getClientIp(req);
   const device = getDeviceSummary(req);
 
@@ -1456,13 +2012,14 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   const store = loadAuthStore();
+  await pullFirestoreIntoStore(store);
   const now = Date.now();
 
   // Rule: supritamone@gmail.com retains permanent unrestricted Master Admin access, protected by Admin password
   if (cleanEmail === PERMANENT_ADMIN_EMAIL) {
     const adminHash = store.adminSettings.passwordHash || '';
     if (!cleanPassword || !adminHash || !verifyPassword(cleanPassword, adminHash)) {
-      recordLoginAudit(store, {
+      const badLog = recordLoginAudit(store, {
         email: PERMANENT_ADMIN_EMAIL,
         name: 'Master Admin Attempt',
         action: 'blocked_bad_password',
@@ -1474,6 +2031,7 @@ app.post('/api/auth/login', (req, res) => {
         device,
       });
       saveAuthStore(store);
+      void syncUserAndLogToFirestore(null, badLog);
       return res.status(401).json({
         error: 'Incorrect password for supritamone@gmail.com. Use Forgot Password or enter your Admin password.',
       });
@@ -1485,7 +2043,7 @@ app.post('/api/auth/login', (req, res) => {
     adminUser.lastIp = ip;
     adminUser.deviceInfo = device;
     adminUser.updatedAt = now;
-    recordLoginAudit(store, {
+    const okLog = recordLoginAudit(store, {
       email: PERMANENT_ADMIN_EMAIL,
       name: adminUser.name,
       action: 'login',
@@ -1497,6 +2055,7 @@ app.post('/api/auth/login', (req, res) => {
       device,
     });
     saveAuthStore(store);
+    void syncUserAndLogToFirestore(adminUser, okLog);
 
     const sessionPayload = {
       email: PERMANENT_ADMIN_EMAIL,
@@ -1506,15 +2065,18 @@ app.post('/api/auth/login', (req, res) => {
       planTitle: 'Permanent Executive Admin Access',
       expiresAt: null,
       source: 'permanent_admin',
+      status: 'active' as UserAccountStatus,
+      isLocked: false,
+      rememberMe: shouldRemember,
     };
     const token = signSessionToken(sessionPayload);
-    setSessionCookie(req, res, token);
+    setSessionCookie(req, res, token, shouldRemember);
     return res.json({ authenticated: true, user: sessionPayload, token });
   }
 
   const record = store.users[cleanEmail];
   if (!record) {
-    recordLoginAudit(store, {
+    const badLog = recordLoginAudit(store, {
       email: cleanEmail,
       name: deriveDisplayName(cleanEmail),
       action: 'blocked_bad_password',
@@ -1524,16 +2086,17 @@ app.post('/api/auth/login', (req, res) => {
       device,
     });
     saveAuthStore(store);
+    void syncUserAndLogToFirestore(null, badLog);
     return res.status(401).json({
       error:
-        'No active membership found for this email. Redirect via https://zerowaste.supritamone.com/ or select a plan below to unlock access.',
+        'No active membership found for this email. Click "Start Free Trial" to create your account first.',
     });
   }
 
   // Validate password
   if (record.passwordHash) {
     if (!cleanPassword || !verifyPassword(cleanPassword, record.passwordHash)) {
-      recordLoginAudit(store, {
+      const badLog = recordLoginAudit(store, {
         email: cleanEmail,
         name: record.name,
         action: 'blocked_bad_password',
@@ -1545,6 +2108,7 @@ app.post('/api/auth/login', (req, res) => {
         device,
       });
       saveAuthStore(store);
+      void syncUserAndLogToFirestore(null, badLog);
       return res.status(401).json({ error: 'Incorrect password for this account. Please check your password and retry.' });
     }
   } else if (cleanPassword.length < 4) {
@@ -1553,45 +2117,30 @@ app.post('/api/auth/login', (req, res) => {
     });
   }
 
-  // Check Admin restriction / post-trial lockout
+  // Auto-restrict expired trials / plans, while STILL allowing login into the Locked/Auto-Restricted workspace!
   const blockCheck = isUserBlocked(record, now);
-  if (blockCheck.blocked) {
-    recordLoginAudit(store, {
-      email: cleanEmail,
-      name: record.name,
-      action: blockCheck.code === 'expired' ? 'blocked_expired' : 'blocked_restricted',
-      status: 'blocked',
-      detail: blockCheck.message,
-      planId: record.planId,
-      paymentStatus: record.paymentStatus,
-      ip,
-      device,
-    });
-    saveAuthStore(store);
-    return res.status(403).json({
-      restricted: blockCheck.code === 'restricted',
-      expired: blockCheck.code === 'expired',
-      error: blockCheck.message,
-    });
-  }
 
   record.lastLoginAt = now;
   record.loginCount = (record.loginCount || 0) + 1;
   record.lastIp = ip;
   record.deviceInfo = device;
   record.updatedAt = now;
-  recordLoginAudit(store, {
+
+  const loginLog = recordLoginAudit(store, {
     email: record.email,
     name: record.name,
-    action: 'login',
-    status: 'success',
-    detail: `Member login (${record.planTitle})`,
+    action: blockCheck.blocked ? (blockCheck.code === 'expired' ? 'blocked_expired' : 'blocked_restricted') : 'login',
+    status: blockCheck.blocked ? 'blocked' : 'success',
+    detail: blockCheck.blocked
+      ? `Signed in while auto-restricted (${record.planTitle} · All features locked)`
+      : `Member login (${record.planTitle})`,
     planId: record.planId,
     paymentStatus: record.paymentStatus,
     ip,
     device,
   });
   saveAuthStore(store);
+  void syncUserAndLogToFirestore(record, loginLog);
 
   const isAdmin = record.role === 'admin';
   const sessionPayload = {
@@ -1602,19 +2151,25 @@ app.post('/api/auth/login', (req, res) => {
     planTitle: record.planTitle,
     expiresAt: isAdmin ? null : record.expiresAt,
     source: record.source || 'login_credentials',
+    status: record.status,
+    isLocked: blockCheck.blocked,
+    lockReason: blockCheck.blocked ? blockCheck.message : undefined,
+    lockCode: blockCheck.code,
+    rememberMe: shouldRemember,
   };
   const token = signSessionToken(sessionPayload);
-  setSessionCookie(req, res, token);
+  setSessionCookie(req, res, token, shouldRemember);
   return res.json({ authenticated: true, user: sessionPayload, token });
 });
 
 // Activate 3-Day Free Trial OR Enroll/Purchase Plan (Individual $99, Team $79/chef, Training $1499)
-app.post('/api/auth/activate-plan', (req, res) => {
-  const { planId, email, name, password, transactionRef, chefSeats, workPlace, designation } = req.body || {};
+app.post('/api/auth/activate-plan', async (req, res) => {
+  const { planId, email, name, password, transactionRef, chefSeats, workPlace, designation, rememberMe = true } = req.body || {};
   const cleanPlan = String(planId || 'trial').trim().toLowerCase() as 'trial' | 'individual' | 'team' | 'training';
   const cleanEmail = String(email || '').trim().toLowerCase();
   const cleanPassword = String(password || '');
   const cleanName = String(name || '').trim() || deriveDisplayName(cleanEmail || 'chef');
+  const shouldRemember = rememberMe !== false;
   const ip = getClientIp(req);
   const device = getDeviceSummary(req);
 
@@ -1629,6 +2184,7 @@ app.post('/api/auth/activate-plan', (req, res) => {
   }
 
   const store = loadAuthStore();
+  await pullFirestoreIntoStore(store);
   const now = Date.now();
   const existing = store.users[cleanEmail];
 
@@ -1648,9 +2204,12 @@ app.post('/api/auth/activate-plan', (req, res) => {
       planTitle: 'Permanent Executive Admin Access',
       expiresAt: null,
       source: 'permanent_admin',
+      status: 'active' as UserAccountStatus,
+      isLocked: false,
+      rememberMe: shouldRemember,
     };
     const adminToken = signSessionToken(adminPayload);
-    setSessionCookie(req, res, adminToken);
+    setSessionCookie(req, res, adminToken, shouldRemember);
     return res.json({ authenticated: true, user: adminPayload, token: adminToken });
   }
 
@@ -1660,7 +2219,7 @@ app.post('/api/auth/activate-plan', (req, res) => {
     existing.planId === 'trial' &&
     (existing.status === 'expired' || existing.status === 'restricted' || existing.restrictedByAdmin)
   ) {
-    recordLoginAudit(store, {
+    const log = recordLoginAudit(store, {
       email: cleanEmail,
       name: cleanName,
       action: 'blocked_expired',
@@ -1672,6 +2231,7 @@ app.post('/api/auth/activate-plan', (req, res) => {
       device,
     });
     saveAuthStore(store);
+    void syncUserAndLogToFirestore(null, log);
     return res.status(403).json({
       expired: true,
       error: 'A 3-Day Free Trial was already used for this email and has ended. Please select Individual, Team, or Executive Advisory.',
@@ -1724,7 +2284,7 @@ app.post('/api/auth/activate-plan', (req, res) => {
   };
 
   store.users[cleanEmail] = updatedRecord;
-  recordLoginAudit(store, {
+  const actLog = recordLoginAudit(store, {
     email: cleanEmail,
     name: cleanName,
     action: cleanPlan === 'trial' ? 'trial_started' : 'plan_activation',
@@ -1736,6 +2296,7 @@ app.post('/api/auth/activate-plan', (req, res) => {
     device,
   });
   saveAuthStore(store);
+  void syncUserAndLogToFirestore(updatedRecord, actLog);
 
   const sessionPayload = {
     email: updatedRecord.email,
@@ -1745,10 +2306,13 @@ app.post('/api/auth/activate-plan', (req, res) => {
     planTitle: updatedRecord.planTitle,
     expiresAt: updatedRecord.expiresAt,
     source: updatedRecord.source || 'direct_plan_enrollment',
+    status: 'active' as UserAccountStatus,
+    isLocked: false,
+    rememberMe: shouldRemember,
   };
 
   const token = signSessionToken(sessionPayload);
-  setSessionCookie(req, res, token);
+  setSessionCookie(req, res, token, shouldRemember);
   return res.json({ authenticated: true, user: sessionPayload, token });
 });
 
@@ -1865,9 +2429,10 @@ app.get('/api/admin/session', (req, res) => {
 });
 
 app.post('/api/admin/login', (req, res) => {
-  const { username, password } = req.body || {};
+  const { username, password, rememberMe = true } = req.body || {};
   const cleanUser = String(username || '').trim().toLowerCase();
   const cleanPassword = String(password || '');
+  const shouldRemember = rememberMe !== false;
   const ip = getClientIp(req);
   const device = getDeviceSummary(req);
 
@@ -1882,7 +2447,7 @@ app.post('/api/admin/login', (req, res) => {
   const passwordOk = Boolean(cleanPassword && storedHash && verifyPassword(cleanPassword, storedHash));
 
   if (!passwordOk) {
-    recordLoginAudit(store, {
+    const failLog = recordLoginAudit(store, {
       email: cleanUser,
       name: 'Administrator Attempt',
       action: 'blocked_bad_password',
@@ -1892,7 +2457,18 @@ app.post('/api/admin/login', (req, res) => {
       device,
     });
     saveAuthStore(store);
+    void syncUserAndLogToFirestore(null, failLog);
     return res.status(401).json({ error: 'Invalid administrator password. Click "Forgot Password?" to reset it.' });
+  }
+
+  const now = Date.now();
+  const adminUser = store.users[PERMANENT_ADMIN_EMAIL];
+  if (adminUser) {
+    adminUser.lastLoginAt = now;
+    adminUser.loginCount = (adminUser.loginCount || 0) + 1;
+    adminUser.lastIp = ip;
+    adminUser.deviceInfo = device;
+    adminUser.updatedAt = now;
   }
 
   const adminPayload = {
@@ -1900,10 +2476,10 @@ app.post('/api/admin/login', (req, res) => {
     displayName: store.adminSettings.displayName || 'Dr. Chef Supritam Basu',
     notificationEmail: store.adminSettings.notificationEmail || FACULTY_ADMIN_EMAIL,
   };
-  const token = signAdminToken(adminPayload);
-  setAdminCookie(req, res, token);
+  const token = signAdminToken(adminPayload, shouldRemember);
+  setAdminCookie(req, res, token, shouldRemember);
 
-  recordLoginAudit(store, {
+  const okLog = recordLoginAudit(store, {
     email: cleanUser,
     name: adminPayload.displayName,
     action: 'admin_action',
@@ -1913,6 +2489,7 @@ app.post('/api/admin/login', (req, res) => {
     device,
   });
   saveAuthStore(store);
+  void syncUserAndLogToFirestore(adminUser || null, okLog);
 
   return res.json({ authenticated: true, admin: adminPayload, token });
 });
@@ -2033,8 +2610,9 @@ app.post('/api/admin/logout', (req, res) => {
   return res.json({ authenticated: false, loggedOut: true });
 });
 
-app.get('/api/admin/overview', requireAdminMiddleware, (req, res) => {
+app.get('/api/admin/overview', requireAdminMiddleware, async (req, res) => {
   const store = loadAuthStore();
+  await pullFirestoreIntoStore(store);
   const now = Date.now();
   const allUsers = Object.values(store.users).map((u) => {
     const isPermanentAdmin = u.email.toLowerCase() === PERMANENT_ADMIN_EMAIL;
@@ -2043,7 +2621,7 @@ app.get('/api/admin/overview', requireAdminMiddleware, (req, res) => {
     const msRemaining = u.expiresAt ? u.expiresAt - now : null;
     const daysLeft = msRemaining !== null ? Math.ceil(msRemaining / DAY_MS) : null;
     const hoursLeft = msRemaining !== null ? Math.max(0, Math.ceil(msRemaining / (60 * 60 * 1000))) : null;
-    const trialExpired = Boolean(u.planId === 'trial' && u.expiresAt && now > u.expiresAt);
+    const trialExpired = Boolean(!isPermanentAdmin && u.expiresAt !== null && u.expiresAt !== undefined && now > u.expiresAt);
 
     return {
       email: u.email,
@@ -2209,7 +2787,7 @@ app.post('/api/admin/users/create', requireAdminMiddleware, (req, res) => {
     updatedAt: now,
   };
 
-  recordLoginAudit(store, {
+  const adminCreateLog = recordLoginAudit(store, {
     email: cleanEmail,
     name: store.users[cleanEmail].name,
     action: 'admin_action',
@@ -2221,6 +2799,7 @@ app.post('/api/admin/users/create', requireAdminMiddleware, (req, res) => {
     device: 'Admin Portal',
   });
   saveAuthStore(store);
+  void syncUserAndLogToFirestore(store.users[cleanEmail], adminCreateLog);
 
   return res.json({ ok: true, user: store.users[cleanEmail] });
 });
@@ -2330,7 +2909,7 @@ app.post('/api/admin/users/action', requireAdminMiddleware, (req, res) => {
     case 'delete': {
       const removedName = user.name;
       delete store.users[cleanEmail];
-      recordLoginAudit(store, {
+      const delLog = recordLoginAudit(store, {
         email: cleanEmail,
         name: removedName,
         action: 'admin_action',
@@ -2340,13 +2919,14 @@ app.post('/api/admin/users/action', requireAdminMiddleware, (req, res) => {
         device: 'Admin Portal',
       });
       saveAuthStore(store);
+      void syncUserAndLogToFirestore(null, delLog);
       return res.json({ ok: true, deleted: true });
     }
     default:
       return res.status(400).json({ error: `Unsupported action: ${cleanAction}` });
   }
 
-  recordLoginAudit(store, {
+  const actionLog = recordLoginAudit(store, {
     email: user.email,
     name: user.name,
     action: 'admin_action',
@@ -2358,6 +2938,7 @@ app.post('/api/admin/users/action', requireAdminMiddleware, (req, res) => {
     device: 'Admin Portal',
   });
   saveAuthStore(store);
+  void syncUserAndLogToFirestore(user, actionLog);
 
   return res.json({ ok: true, user });
 });
@@ -2423,29 +3004,32 @@ app.post('/api/admin/enforce-expired-trials', requireAdminMiddleware, (req, res)
 
   for (const user of Object.values(store.users)) {
     if (user.email.toLowerCase() === PERMANENT_ADMIN_EMAIL || user.role === 'admin') continue;
-    const isTrialEnded =
-      user.planId === 'trial' &&
-      user.paymentStatus !== 'paid' &&
+    const isPlanEnded =
       user.expiresAt !== null &&
+      user.expiresAt !== undefined &&
       now > user.expiresAt;
-    if (isTrialEnded && (user.status !== 'restricted' || !user.restrictedByAdmin)) {
+    if (isPlanEnded && (user.status !== 'restricted' || !user.restrictedByAdmin)) {
       user.status = 'restricted';
       user.paymentStatus = 'unpaid';
       user.restrictedByAdmin = true;
-      user.restrictedReason = '3-Day Free Trial Ended — Upgrade to Paid Plan';
+      user.restrictedReason =
+        user.planId === 'trial'
+          ? '3-Day Free Trial Ended — Auto-Restricted (All features locked)'
+          : `${user.planTitle || 'Membership Plan'} Expired — Auto-Locked (All features locked)`;
       user.updatedAt = now;
       restrictedCount++;
-      recordLoginAudit(store, {
+      const log = recordLoginAudit(store, {
         email: user.email,
         name: user.name,
         action: 'blocked_expired',
         status: 'blocked',
-        detail: 'Batch enforcement locked ended 3-Day Free Trial user',
+        detail: `Batch enforcement auto-locked ended plan (${user.planTitle})`,
         planId: user.planId,
         paymentStatus: 'unpaid',
         ip: getClientIp(req),
         device: 'Admin Portal',
       });
+      void syncUserAndLogToFirestore(user, log);
     }
   }
 

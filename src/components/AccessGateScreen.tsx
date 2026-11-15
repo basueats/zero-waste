@@ -22,10 +22,13 @@ import {
 import { SupritamoneLogo } from './SupritamoneLogo';
 import { SurplusHomeView, HomePlanId } from './SurplusHomeView';
 import { apiFetchJson } from '../utils/apiClient';
+import { signInWithGoogleAndSyncFirestore } from '../services/firestoreAcademy';
 
 const AboutDrBasuModal = lazy(() =>
   import('./AboutDrBasuModal').then((m) => ({ default: m.AboutDrBasuModal }))
 );
+
+const REMEMBER_EMAIL_KEY = 'supritamone_remembered_email_v1';
 
 export interface AuthenticatedSessionUser {
   email: string;
@@ -35,6 +38,11 @@ export interface AuthenticatedSessionUser {
   planTitle: string;
   expiresAt: number | null;
   source: string;
+  status?: string;
+  isLocked?: boolean;
+  lockReason?: string;
+  lockCode?: 'restricted' | 'expired' | null;
+  rememberMe?: boolean;
 }
 
 interface AccessPlanOption {
@@ -78,7 +86,7 @@ export const ACADEMY_PLANS: AccessPlanOption[] = [
 ];
 
 interface AccessGateScreenProps {
-  onUnlocked: (user: AuthenticatedSessionUser, token: string) => void;
+  onUnlocked: (user: AuthenticatedSessionUser, token: string, rememberMe?: boolean) => void;
   onOpenAdminPortal?: () => void;
   initialNotice?: string | null;
 }
@@ -91,10 +99,21 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
   const [showSignInModal, setShowSignInModal] = useState(Boolean(initialNotice));
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
-  const [loginEmail, setLoginEmail] = useState('');
+  const [loginEmail, setLoginEmail] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return localStorage.getItem(REMEMBER_EMAIL_KEY) || '';
+      } catch {
+        return '';
+      }
+    }
+    return '';
+  });
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [loginLoading, setLoginLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(initialNotice);
   const [loginSuccess, setLoginSuccess] = useState<string | null>(null);
 
@@ -161,15 +180,62 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
         body: JSON.stringify({
           email: loginEmail.trim(),
           password: loginPassword,
+          rememberMe,
         }),
       });
       if (!res.ok || !res.data?.authenticated || !res.data.user || !res.data.token) {
         setLoginError(res.errorMessage || 'Unable to verify credentials.');
         return;
       }
-      onUnlocked(res.data.user, res.data.token);
+      onUnlocked(res.data.user, res.data.token, rememberMe);
     } finally {
       setLoginLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setLoginError(null);
+    setLoginSuccess(null);
+    setGoogleLoading(true);
+    try {
+      const synced = await signInWithGoogleAndSyncFirestore();
+      const ssoRes = await apiFetchJson<{
+        authenticated?: boolean;
+        user?: AuthenticatedSessionUser;
+        token?: string;
+      }>('/api/auth/google-sso', {
+        method: 'POST',
+        body: JSON.stringify({
+          idToken: synced.idToken,
+          email: synced.email,
+          name: synced.name,
+          rememberMe,
+        }),
+      }).catch(() => null);
+
+      const serverUser = ssoRes?.ok && ssoRes.data?.user ? ssoRes.data.user : null;
+      const mergedLocked = Boolean(synced.isLocked || serverUser?.isLocked);
+      const mergedUser: AuthenticatedSessionUser = {
+        email: serverUser?.email || synced.email,
+        name: serverUser?.name || synced.name,
+        role: serverUser?.role || synced.record.role,
+        planId: serverUser?.planId || synced.record.planId,
+        planTitle: serverUser?.planTitle || synced.record.planTitle,
+        expiresAt:
+          serverUser?.expiresAt !== undefined ? serverUser.expiresAt : synced.record.expiresAt,
+        source: serverUser?.source || 'google_signin',
+        status: mergedLocked ? 'restricted' : serverUser?.status || synced.record.status,
+        isLocked: mergedLocked,
+        lockReason: synced.lockReason || serverUser?.lockReason,
+        lockCode: synced.isLocked ? 'expired' : serverUser?.lockCode || null,
+        rememberMe,
+      };
+      onUnlocked(mergedUser, ssoRes?.data?.token || synced.idToken, rememberMe);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Google sign-in was cancelled or unavailable.';
+      setLoginError(msg);
+    } finally {
+      setGoogleLoading(false);
     }
   };
 
@@ -235,13 +301,14 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
           workPlace: signupWorkPlace.trim(),
           chefSeats: selectedPlan.id === 'team' ? Math.max(5, chefSeats) : undefined,
           transactionRef: transactionRef.trim() || undefined,
+          rememberMe,
         }),
       });
       if (!res.ok || !res.data?.authenticated || !res.data.user || !res.data.token) {
         setSignupError(res.errorMessage || 'Unable to activate plan. Please check your details.');
         return;
       }
-      onUnlocked(res.data.user, res.data.token);
+      onUnlocked(res.data.user, res.data.token, rememberMe);
     } finally {
       setSignupLoading(false);
     }
@@ -567,9 +634,21 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
                       </div>
                     </div>
 
+                    <label className="flex items-center gap-2.5 text-xs text-neutral-700 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        className="w-4 h-4 rounded border-neutral-300 accent-black cursor-pointer"
+                      />
+                      <span className="font-medium">
+                        Remember me for 30 days <span className="text-neutral-500 font-normal">(auto sign-in without password)</span>
+                      </span>
+                    </label>
+
                     <button
                       type="submit"
-                      disabled={loginLoading}
+                      disabled={loginLoading || googleLoading}
                       className="w-full py-3 rounded-xl bg-black hover:bg-neutral-800 disabled:opacity-60 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer"
                     >
                       {loginLoading ? (
@@ -582,6 +661,48 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
                       )}
                     </button>
                   </form>
+
+                  <div className="relative py-1">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-neutral-200" />
+                    </div>
+                    <div className="relative flex justify-center text-[10px] uppercase tracking-wider font-semibold">
+                      <span className="bg-white px-2.5 text-neutral-400">Or instant sign-in</span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={loginLoading || googleLoading}
+                    onClick={handleGoogleSignIn}
+                    className="w-full py-2.5 px-4 rounded-xl border border-neutral-300 hover:border-black bg-white text-neutral-900 text-xs font-bold flex items-center justify-center gap-2.5 transition-colors cursor-pointer disabled:opacity-60"
+                  >
+                    {googleLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            fill="#4285F4"
+                            d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
+                          />
+                          <path
+                            fill="#34A853"
+                            d="M12 24c3.3 0 6.08-1.09 8.1-2.96l-3.88-3.05c-1.08.72-2.46 1.15-4.22 1.15-3.24 0-5.99-2.19-6.97-5.14H1.02v3.14C3.03 21.14 7.18 24 12 24Z"
+                          />
+                          <path
+                            fill="#FBBC05"
+                            d="M5.03 14c-.25-.72-.39-1.49-.39-2.29s.14-1.57.39-2.29V6.28H1.02A11.97 11.97 0 0 0 0 11.71c0 1.93.46 3.76 1.02 5.43L5.03 14Z"
+                          />
+                          <path
+                            fill="#EA4335"
+                            d="M12 4.75c1.8 0 3.41.62 4.68 1.83l3.51-3.51C18.07 1.18 15.3 0 12 0 7.18 0 3.03 2.86 1.02 6.87l4.01 3.14C6.01 6.94 8.76 4.75 12 4.75Z"
+                          />
+                        </svg>
+                        <span>Continue with Google</span>
+                      </>
+                    )}
+                  </button>
 
                   <div className="pt-3 border-t border-neutral-100 flex items-center justify-between text-xs text-neutral-500">
                     <span>New chef or brigade?</span>
@@ -871,9 +992,21 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
               {selectedPlan.isTrial && (
                 <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>72-hour full unrestricted brigade access starts immediately. No credit card required.</span>
+                  <span>72-hour full unrestricted brigade access starts immediately. Auto-locks after 3 days until upgraded.</span>
                 </div>
               )}
+
+              <label className="flex items-center gap-2.5 text-xs text-neutral-700 cursor-pointer select-none pt-1">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 rounded border-neutral-300 accent-black cursor-pointer"
+                />
+                <span className="font-medium">
+                  Remember me for 30 days <span className="text-neutral-500 font-normal">(stay signed in automatically)</span>
+                </span>
+              </label>
 
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button

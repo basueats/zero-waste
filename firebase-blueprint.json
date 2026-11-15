@@ -1,0 +1,244 @@
+{
+  "entities": {
+    "AcademyUser": {
+      "title": "AcademyUser",
+      "description": "Registered learner, trial member, or admin user with plan status, expiry, and login telemetry.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID or deterministic email document key.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User email address.",
+          "maxLength": 200
+        },
+        "name": {
+          "type": "string",
+          "description": "Display and certificate full name.",
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "member"],
+          "description": "Access control role."
+        },
+        "planId": {
+          "type": "string",
+          "enum": ["admin", "trial", "individual", "team", "training", "partner_member"],
+          "description": "Active or expired subscription tier."
+        },
+        "planTitle": {
+          "type": "string",
+          "description": "Human-readable plan label.",
+          "maxLength": 160
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": ["paid", "unpaid", "trial", "pending_approval", "admin"],
+          "description": "Payment state."
+        },
+        "amountPaid": {
+          "type": "number",
+          "description": "Total USD paid."
+        },
+        "currency": {
+          "type": "string",
+          "description": "Currency code (USD).",
+          "maxLength": 10
+        },
+        "workPlace": {
+          "type": "string",
+          "description": "Kitchen or hotel property.",
+          "maxLength": 160
+        },
+        "designation": {
+          "type": "string",
+          "description": "Chef role or title.",
+          "maxLength": 120
+        },
+        "chefSeats": {
+          "type": "number",
+          "description": "Number of team seats."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "expired", "restricted", "pending_approval"],
+          "description": "Current access state."
+        },
+        "restrictedByAdmin": {
+          "type": "boolean",
+          "description": "Whether account is restricted by admin or auto-locked on expiry."
+        },
+        "restrictedReason": {
+          "type": "string",
+          "description": "Human-readable lock reason.",
+          "maxLength": 300
+        },
+        "expiresAt": {
+          "type": "number",
+          "description": "Epoch milliseconds when trial or membership ends (null for permanent admin)."
+        },
+        "transactionRef": {
+          "type": "string",
+          "description": "Payment or trial reference ID.",
+          "maxLength": 120
+        },
+        "source": {
+          "type": "string",
+          "description": "Auth origin source.",
+          "maxLength": 120
+        },
+        "lastLoginAt": {
+          "type": "number",
+          "description": "Last login epoch ms."
+        },
+        "loginCount": {
+          "type": "number",
+          "description": "Cumulative login count."
+        },
+        "lastIp": {
+          "type": "string",
+          "description": "Last recorded client IP or origin.",
+          "maxLength": 80
+        },
+        "deviceInfo": {
+          "type": "string",
+          "description": "Browser/OS summary.",
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp."
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "name",
+        "role",
+        "planId",
+        "planTitle",
+        "paymentStatus",
+        "amountPaid",
+        "currency",
+        "status",
+        "restrictedByAdmin",
+        "loginCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AcademyLoginLog": {
+      "title": "AcademyLoginLog",
+      "description": "Audit log entry for logins, trial activations, upgrades, and auto-lock events.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Associated user UID.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User email.",
+          "maxLength": 200
+        },
+        "name": {
+          "type": "string",
+          "description": "User display name.",
+          "maxLength": 120
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "login",
+            "partner_sso",
+            "plan_activation",
+            "trial_started",
+            "blocked_expired",
+            "blocked_restricted",
+            "blocked_bad_password",
+            "admin_action"
+          ],
+          "description": "Audit event action."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["success", "blocked", "info"],
+          "description": "Event outcome."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Event detail message.",
+          "maxLength": 400
+        },
+        "planId": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "paymentStatus": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "ip": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "device": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the event."
+        }
+      },
+      "required": ["uid", "email", "name", "action", "status", "detail", "timestamp"]
+    },
+    "AdminMarker": {
+      "title": "AdminMarker",
+      "description": "Explicit admin RBAC marker keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200
+        },
+        "grantedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["email", "grantedAt"]
+    }
+  },
+  "firestore": {
+    "/academy_users/{userId}": {
+      "schema": { "$ref": "#/entities/AcademyUser" },
+      "description": "Stores academy subscribers, trial states, expiry timestamps, and login counts."
+    },
+    "/academy_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AcademyLoginLog" },
+      "description": "Real-time audit log of logins, trial activations, upgrades, and auto-restrictions."
+    },
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminMarker" },
+      "description": "Trusted administrator UID allowlist."
+    }
+  }
+}

@@ -106,8 +106,13 @@ async function verifySecret(secret: string, storedHash?: string): Promise<boolea
   return false;
 }
 
-function encodeToken(payload: Record<string, unknown>): string {
-  const json = JSON.stringify({ ...payload, issuedAt: Date.now() });
+function encodeToken(payload: Record<string, unknown>, rememberMe = true): string {
+  const now = Date.now();
+  const sessionExpiresAt =
+    typeof payload.sessionExpiresAt === 'number'
+      ? payload.sessionExpiresAt
+      : now + (rememberMe ? 30 * DAY_MS : DAY_MS);
+  const json = JSON.stringify({ ...payload, sessionExpiresAt, rememberMe, issuedAt: now });
   const encoded = btoa(unescape(encodeURIComponent(json)));
   return `zwlocal.${encoded}`;
 }
@@ -118,7 +123,13 @@ function decodeToken(token: string): Record<string, unknown> | null {
     const raw = token.slice('zwlocal.'.length);
     const json = decodeURIComponent(escape(atob(raw)));
     const parsed = JSON.parse(json) as Record<string, unknown>;
-    if (parsed.expiresAt && Date.now() > Number(parsed.expiresAt)) {
+    const tokenExpiry =
+      typeof parsed.sessionExpiresAt === 'number'
+        ? parsed.sessionExpiresAt
+        : typeof parsed.expiresAt === 'number' && parsed.scope === 'supritamone_admin'
+          ? parsed.expiresAt
+          : null;
+    if (tokenExpiry && Date.now() > Number(tokenExpiry)) {
       return null;
     }
     return parsed;
@@ -177,22 +188,26 @@ function loadStore(): StaticAuthStore {
     };
   }
 
-  // Enforce automatic post-trial lockout for expired trials
+  // Enforce automatic lockout for ALL expired non-admin plans (3-day trials AND finished paid plans)
   let modified = false;
   for (const [key, u] of Object.entries(store.users)) {
     if (
-      u.email !== PERMANENT_ADMIN_EMAIL &&
+      u.email.toLowerCase() !== PERMANENT_ADMIN_EMAIL &&
       u.role !== 'admin' &&
-      u.planId === 'trial' &&
       u.expiresAt &&
       now > u.expiresAt &&
-      u.status !== 'restricted'
+      (u.status !== 'restricted' || !u.restrictedByAdmin)
     ) {
       store.users[key] = {
         ...u,
         status: 'restricted',
         paymentStatus: 'unpaid',
-        restrictedReason: u.restrictedReason || '3-Day Free Trial Ended — Auto-Restricted',
+        restrictedByAdmin: true,
+        restrictedReason:
+          u.restrictedReason ||
+          (u.planId === 'trial'
+            ? '3-Day Free Trial Ended — Auto-Restricted (All features locked)'
+            : `${u.planTitle || 'Membership Plan'} Expired — Auto-Locked (All features locked)`),
         updatedAt: now,
       };
       modified = true;
@@ -316,18 +331,63 @@ export async function handleStaticAuthFallback(
       return jsonResult(200, { authenticated: false });
     }
     const cleanEmail = decoded.email.toLowerCase();
-    if (cleanEmail !== PERMANENT_ADMIN_EMAIL) {
-      const check = isUserBlocked(store.users[cleanEmail], now);
-      if (check.blocked) {
-        return jsonResult(200, {
-          authenticated: false,
-          restricted: check.code === 'restricted',
-          expired: check.code === 'expired',
-          error: check.message,
+    const record = store.users[cleanEmail];
+    const check = cleanEmail === PERMANENT_ADMIN_EMAIL ? { blocked: false, code: null, message: '' } : isUserBlocked(record, now);
+
+    if (record) {
+      const recentLog = (store.loginLogs || []).find(
+        (l) => l.email.toLowerCase() === cleanEmail && now - l.timestamp < 15 * 60 * 1000
+      );
+      record.lastLoginAt = now;
+      record.updatedAt = now;
+      if (!recentLog) {
+        record.loginCount = (record.loginCount || 0) + 1;
+        recordAudit(store, {
+          email: cleanEmail,
+          name: record.name,
+          action: 'login',
+          status: check.blocked ? 'blocked' : 'success',
+          detail: check.blocked
+            ? `Session resumed while auto-restricted (${record.planTitle})`
+            : `Auto sign-in (${record.planTitle})`,
+          planId: record.planId,
+          paymentStatus: record.paymentStatus,
+          ip: 'Browser',
+          device: 'Web Browser',
         });
       }
+      saveStore(store);
     }
-    return jsonResult(200, { authenticated: true, user: decoded, token: bearerToken });
+
+    const userPayload = record
+      ? {
+          email: record.email,
+          name: record.name,
+          role: record.role,
+          planId: record.planId,
+          planTitle: record.planTitle,
+          expiresAt: record.role === 'admin' ? null : record.expiresAt,
+          source: record.source || String(decoded.source || 'session_resume'),
+          status: record.status,
+          isLocked: check.blocked,
+          lockReason: check.blocked ? check.message : undefined,
+          lockCode: check.code,
+          rememberMe: decoded.rememberMe !== false,
+        }
+      : {
+          ...decoded,
+          status: 'active',
+          isLocked: false,
+          rememberMe: decoded.rememberMe !== false,
+        };
+
+    return jsonResult(200, {
+      authenticated: true,
+      user: userPayload,
+      token: encodeToken(userPayload, decoded.rememberMe !== false),
+      restricted: check.code === 'restricted',
+      expired: check.code === 'expired',
+    });
   }
 
   if (pathname === '/api/auth/logout') {
@@ -337,6 +397,7 @@ export async function handleStaticAuthFallback(
   if (pathname === '/api/auth/login') {
     const cleanEmail = String(body.email || '').trim().toLowerCase();
     const cleanPassword = String(body.password || '');
+    const shouldRemember = body.rememberMe !== false;
     if (!cleanEmail || !cleanEmail.includes('@')) {
       return jsonResult(400, { error: 'Please enter a valid email address.' });
     }
@@ -344,6 +405,18 @@ export async function handleStaticAuthFallback(
     if (cleanEmail === PERMANENT_ADMIN_EMAIL) {
       const ok = await verifySecret(cleanPassword, store.adminSettings.passwordHash);
       if (!ok) {
+        recordAudit(store, {
+          email: PERMANENT_ADMIN_EMAIL,
+          name: 'Master Admin Attempt',
+          action: 'blocked_bad_password',
+          status: 'blocked',
+          detail: 'Incorrect password on Member Sign-In',
+          planId: 'admin',
+          paymentStatus: 'admin',
+          ip: 'Browser',
+          device: 'Web Browser',
+        });
+        saveStore(store);
         return jsonResult(401, {
           error: 'Incorrect password for supritamone@gmail.com. Use Forgot Password or enter your Admin password.',
         });
@@ -373,11 +446,14 @@ export async function handleStaticAuthFallback(
         planTitle: 'Permanent Executive Admin Access',
         expiresAt: null,
         source: 'permanent_admin',
+        status: 'active',
+        isLocked: false,
+        rememberMe: shouldRemember,
       };
       return jsonResult(200, {
         authenticated: true,
         user: sessionPayload,
-        token: encodeToken(sessionPayload),
+        token: encodeToken(sessionPayload, shouldRemember),
       });
     }
 
@@ -392,6 +468,18 @@ export async function handleStaticAuthFallback(
     if (record.passwordHash) {
       const ok = await verifySecret(cleanPassword, record.passwordHash);
       if (!ok) {
+        recordAudit(store, {
+          email: cleanEmail,
+          name: record.name,
+          action: 'blocked_bad_password',
+          status: 'blocked',
+          detail: 'Incorrect password attempt',
+          planId: record.planId,
+          paymentStatus: record.paymentStatus,
+          ip: 'Browser',
+          device: 'Web Browser',
+        });
+        saveStore(store);
         return jsonResult(401, { error: 'Incorrect password for this account. Please check your password and retry.' });
       }
     } else if (cleanPassword.length < 4) {
@@ -399,13 +487,6 @@ export async function handleStaticAuthFallback(
     }
 
     const blockCheck = isUserBlocked(record, now);
-    if (blockCheck.blocked) {
-      return jsonResult(403, {
-        restricted: blockCheck.code === 'restricted',
-        expired: blockCheck.code === 'expired',
-        error: blockCheck.message,
-      });
-    }
 
     record.lastLoginAt = now;
     record.loginCount = (record.loginCount || 0) + 1;
@@ -413,9 +494,11 @@ export async function handleStaticAuthFallback(
     recordAudit(store, {
       email: record.email,
       name: record.name,
-      action: 'login',
-      status: 'success',
-      detail: `Member login (${record.planTitle})`,
+      action: blockCheck.blocked ? (blockCheck.code === 'expired' ? 'blocked_expired' : 'blocked_restricted') : 'login',
+      status: blockCheck.blocked ? 'blocked' : 'success',
+      detail: blockCheck.blocked
+        ? `Signed in while auto-restricted (${record.planTitle} · All features locked)`
+        : `Member login (${record.planTitle})`,
       planId: record.planId,
       paymentStatus: record.paymentStatus,
       ip: 'Browser',
@@ -431,11 +514,16 @@ export async function handleStaticAuthFallback(
       planTitle: record.planTitle,
       expiresAt: record.role === 'admin' ? null : record.expiresAt,
       source: record.source || 'login_credentials',
+      status: record.status,
+      isLocked: blockCheck.blocked,
+      lockReason: blockCheck.blocked ? blockCheck.message : undefined,
+      lockCode: blockCheck.code,
+      rememberMe: shouldRemember,
     };
     return jsonResult(200, {
       authenticated: true,
       user: sessionPayload,
-      token: encodeToken(sessionPayload),
+      token: encodeToken(sessionPayload, shouldRemember),
     });
   }
 
@@ -554,6 +642,7 @@ export async function handleStaticAuthFallback(
     });
     saveStore(store);
 
+    const shouldRemember = body.rememberMe !== false;
     const sessionPayload = {
       email: updatedRecord.email,
       name: updatedRecord.name,
@@ -562,11 +651,14 @@ export async function handleStaticAuthFallback(
       planTitle: updatedRecord.planTitle,
       expiresAt: updatedRecord.expiresAt,
       source: updatedRecord.source || 'direct_plan_enrollment',
+      status: 'active',
+      isLocked: false,
+      rememberMe: shouldRemember,
     };
     return jsonResult(200, {
       authenticated: true,
       user: sessionPayload,
-      token: encodeToken(sessionPayload),
+      token: encodeToken(sessionPayload, shouldRemember),
     });
   }
 
@@ -604,19 +696,9 @@ export async function handleStaticAuthFallback(
   if (pathname === '/api/auth/verify-redirect') {
     const cleanEmail = String(body.email || '').trim().toLowerCase() || 'member@zerowaste.supritamone.com';
     const existing = store.users[cleanEmail];
-    if (existing && cleanEmail !== PERMANENT_ADMIN_EMAIL) {
-      const check = isUserBlocked(existing, now);
-      if (check.blocked) {
-        return jsonResult(403, {
-          authenticated: false,
-          restricted: check.code === 'restricted',
-          expired: check.code === 'expired',
-          error: check.message,
-        });
-      }
-    }
     const isAdmin = cleanEmail === PERMANENT_ADMIN_EMAIL;
     const resolvedName = String(body.name || '').trim() || existing?.name || deriveDisplayName(cleanEmail);
+    const check = existing && !isAdmin ? isUserBlocked(existing, now) : { blocked: false, code: null, message: '' };
     const sessionPayload = {
       email: cleanEmail,
       name: resolvedName,
@@ -625,11 +707,47 @@ export async function handleStaticAuthFallback(
       planTitle: isAdmin ? 'Permanent Executive Admin Access' : existing?.planTitle || 'Verified Member',
       expiresAt: isAdmin ? null : existing?.expiresAt ?? now + 30 * DAY_MS,
       source: 'redirect_zerowaste.supritamone.com',
+      status: check.blocked ? 'restricted' : 'active',
+      isLocked: check.blocked,
+      lockReason: check.blocked ? check.message : undefined,
+      lockCode: check.code,
+      rememberMe: true,
     };
     return jsonResult(200, {
       authenticated: true,
       user: sessionPayload,
-      token: encodeToken(sessionPayload),
+      token: encodeToken(sessionPayload, true),
+    });
+  }
+
+  if (pathname === '/api/auth/google-sso') {
+    const cleanEmail = String(body.email || '').trim().toLowerCase();
+    const shouldRemember = body.rememberMe !== false;
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      return jsonResult(400, { error: 'Valid email is required.' });
+    }
+    const existing = store.users[cleanEmail];
+    const isAdmin = cleanEmail === PERMANENT_ADMIN_EMAIL || existing?.role === 'admin';
+    const resolvedName = String(body.name || '').trim() || existing?.name || deriveDisplayName(cleanEmail);
+    const check = existing && !isAdmin ? isUserBlocked(existing, now) : { blocked: false, code: null, message: '' };
+    const sessionPayload = {
+      email: cleanEmail,
+      name: resolvedName,
+      role: isAdmin ? 'admin' : 'member',
+      planId: isAdmin ? 'admin' : existing?.planId || 'trial',
+      planTitle: isAdmin ? 'Permanent Executive Admin Access' : existing?.planTitle || '3-Day Free Trial ($0 / 72h)',
+      expiresAt: isAdmin ? null : existing?.expiresAt ?? now + 3 * DAY_MS,
+      source: 'google_signin',
+      status: check.blocked ? 'restricted' : 'active',
+      isLocked: check.blocked,
+      lockReason: check.blocked ? check.message : undefined,
+      lockCode: check.code,
+      rememberMe: shouldRemember,
+    };
+    return jsonResult(200, {
+      authenticated: true,
+      user: sessionPayload,
+      token: encodeToken(sessionPayload, shouldRemember),
     });
   }
 
@@ -658,6 +776,7 @@ export async function handleStaticAuthFallback(
   if (pathname === '/api/admin/login') {
     const cleanUser = String(body.username || '').trim().toLowerCase();
     const cleanPassword = String(body.password || '');
+    const shouldRemember = body.rememberMe !== false;
     if (cleanUser !== PERMANENT_ADMIN_EMAIL) {
       return jsonResult(401, { error: `Invalid admin username. Sign in using ${PERMANENT_ADMIN_EMAIL}.` });
     }
@@ -670,7 +789,7 @@ export async function handleStaticAuthFallback(
       displayName: store.adminSettings.displayName,
       notificationEmail: store.adminSettings.notificationEmail,
       scope: 'supritamone_admin',
-      expiresAt: now + 7 * DAY_MS,
+      sessionExpiresAt: now + (shouldRemember ? 30 * DAY_MS : DAY_MS),
     };
     recordAudit(store, {
       email: cleanUser,
@@ -689,7 +808,7 @@ export async function handleStaticAuthFallback(
         displayName: adminPayload.displayName,
         notificationEmail: adminPayload.notificationEmail,
       },
-      token: encodeToken(adminPayload),
+      token: encodeToken(adminPayload, shouldRemember),
     });
   }
 
@@ -876,7 +995,23 @@ export async function handleStaticAuthFallback(
   }
 
   if (pathname === '/api/admin/enforce-expired-trials') {
-    return jsonResult(200, { ok: true, restrictedCount: 0 });
+    let restrictedCount = 0;
+    for (const u of Object.values(store.users)) {
+      if (u.email.toLowerCase() === PERMANENT_ADMIN_EMAIL || u.role === 'admin') continue;
+      if (u.expiresAt && now > u.expiresAt && (u.status !== 'restricted' || !u.restrictedByAdmin)) {
+        u.status = 'restricted';
+        u.paymentStatus = 'unpaid';
+        u.restrictedByAdmin = true;
+        u.restrictedReason =
+          u.planId === 'trial'
+            ? '3-Day Free Trial Ended — Auto-Restricted (All features locked)'
+            : `${u.planTitle || 'Membership Plan'} Expired — Auto-Locked (All features locked)`;
+        u.updatedAt = now;
+        restrictedCount++;
+      }
+    }
+    saveStore(store);
+    return jsonResult(200, { ok: true, restrictedCount });
   }
 
   if (pathname === '/api/admin/profile') {

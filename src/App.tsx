@@ -16,7 +16,16 @@ import {
   Lock,
   Award,
   Loader2,
+  AlertTriangle,
+  ExternalLink,
+  ArrowRight,
+  LogOut,
+  Users,
+  Crown,
+  Sparkles,
+  KeyRound,
 } from 'lucide-react';
+import { SupritamoneLogo } from './components/SupritamoneLogo';
 import {
   ExamUnlockStatus,
   computeExamUnlockStatus,
@@ -67,6 +76,33 @@ const AboutDrBasuModal = lazy(() =>
 const LEARNER_STORAGE_KEY = 'supritamone_learner_account';
 const AUTH_TOKEN_STORAGE_KEY = 'supritamone_academy_session_token_v1';
 const AUTH_USER_STORAGE_KEY = 'supritamone_academy_session_user_v1';
+const AUTH_REMEMBER_UNTIL_KEY = 'supritamone_academy_remember_until_v1';
+const REMEMBER_EMAIL_KEY = 'supritamone_remembered_email_v1';
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+const RENEWAL_PLANS = [
+  {
+    id: 'individual' as const,
+    title: 'Individual Annual Plan',
+    price: '$99',
+    cadence: 'per person / year',
+    ziinaPayUrl: 'https://pay.ziina.com/topinfluencer/PXdVCwkJTu?source=app',
+  },
+  {
+    id: 'team' as const,
+    title: 'Team Brigade Plan',
+    price: '$79',
+    cadence: 'per chef / year (min 5)',
+    ziinaPayUrl: 'https://pay.ziina.com/topinfluencer/K_Yuf5UfM?source=app',
+  },
+  {
+    id: 'training' as const,
+    title: 'Executive Advisory · Training',
+    price: '$1499',
+    cadence: 'per 5 chefs / year',
+    ziinaPayUrl: 'https://pay.ziina.com/topinfluencer/V4v9zEpeg?source=app',
+  },
+];
 
 function readCachedAuthState(): { user: AuthenticatedSessionUser | null; hasOptimisticSession: boolean } {
   if (typeof window === 'undefined') {
@@ -84,8 +120,24 @@ function readCachedAuthState(): { user: AuthenticatedSessionUser | null; hasOpti
     if (hasPartnerRedirectParam) {
       return { user: null, hasOptimisticSession: false };
     }
+    const sessToken = sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+    const sessUser = sessionStorage.getItem(AUTH_USER_STORAGE_KEY);
+    if (sessToken && sessUser) {
+      const parsed = JSON.parse(sessUser) as AuthenticatedSessionUser;
+      if (parsed && parsed.email) {
+        return { user: parsed, hasOptimisticSession: true };
+      }
+    }
+
     const token = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
     const rawUser = localStorage.getItem(AUTH_USER_STORAGE_KEY);
+    const rememberUntilRaw = localStorage.getItem(AUTH_REMEMBER_UNTIL_KEY);
+    if (rememberUntilRaw && Date.now() > Number(rememberUntilRaw)) {
+      localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+      localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+      localStorage.removeItem(AUTH_REMEMBER_UNTIL_KEY);
+      return { user: null, hasOptimisticSession: false };
+    }
     if (token && rawUser) {
       const parsed = JSON.parse(rawUser) as AuthenticatedSessionUser;
       if (parsed && parsed.email) {
@@ -207,6 +259,31 @@ export default function App() {
   const [showCertLockedModal, setShowCertLockedModal] = React.useState<boolean>(false);
   const [showAboutModal, setShowAboutModal] = React.useState<boolean>(false);
 
+  // Locked Account Renewal Modal state
+  const [renewPlan, setRenewPlan] = React.useState<(typeof RENEWAL_PLANS)[number] | null>(null);
+  const [renewPassword, setRenewPassword] = React.useState('');
+  const [renewSeats, setRenewSeats] = React.useState(5);
+  const [renewTxRef, setRenewTxRef] = React.useState('');
+  const [renewLoading, setRenewLoading] = React.useState(false);
+  const [renewError, setRenewError] = React.useState<string | null>(null);
+
+  const isAccountLocked = React.useMemo(() => {
+    if (!authUser) return false;
+    if (authUser.role === 'admin' || authUser.email.toLowerCase() === 'supritamone@gmail.com') {
+      return false;
+    }
+    const expiredNow =
+      authUser.expiresAt !== null &&
+      authUser.expiresAt !== undefined &&
+      Date.now() > authUser.expiresAt;
+    return Boolean(
+      authUser.isLocked ||
+        authUser.status === 'restricted' ||
+        authUser.status === 'expired' ||
+        expiredNow
+    );
+  }, [authUser]);
+
   // Global Overall Exam Status (Certificate unlocks ONLY when all 12 section exams passed with >= 37% overall score)
   const [examStatus, setExamStatus] = React.useState<ExamUnlockStatus>(() => {
     const stored = loadStoredExamProgress();
@@ -223,8 +300,10 @@ export default function App() {
   }, [examStatus.isUnlocked]);
 
   const applyAuthenticatedSession = React.useCallback(
-    (user: AuthenticatedSessionUser, token: string, resetTab = true) => {
-      setAuthUser(user);
+    (user: AuthenticatedSessionUser, token: string, resetTab = true, rememberMe?: boolean) => {
+      const shouldRemember = rememberMe ?? user.rememberMe ?? true;
+      const hydratedUser = { ...user, rememberMe: shouldRemember };
+      setAuthUser(hydratedUser);
       setGateNotice(null);
       if (resetTab) {
         setActiveNavTab('courses');
@@ -232,15 +311,27 @@ export default function App() {
         setSelectedCourseId(null);
       }
       const updatedLearner: LearnerAccount = {
-        email: user.email,
-        chosenName: user.name || deriveNameFromEmail(user.email),
+        email: hydratedUser.email,
+        chosenName: hydratedUser.name || deriveNameFromEmail(hydratedUser.email),
       };
       setLearnerAccount(updatedLearner);
       if (typeof window !== 'undefined') {
         try {
-          localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
-          localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
           localStorage.setItem(LEARNER_STORAGE_KEY, JSON.stringify(updatedLearner));
+          localStorage.setItem(REMEMBER_EMAIL_KEY, hydratedUser.email);
+          if (shouldRemember) {
+            localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+            localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(hydratedUser));
+            localStorage.setItem(AUTH_REMEMBER_UNTIL_KEY, String(Date.now() + THIRTY_DAYS_MS));
+            sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+            sessionStorage.removeItem(AUTH_USER_STORAGE_KEY);
+          } else {
+            sessionStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+            sessionStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(hydratedUser));
+            localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+            localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+            localStorage.removeItem(AUTH_REMEMBER_UNTIL_KEY);
+          }
         } catch {
           // Ignore storage errors
         }
@@ -254,10 +345,14 @@ export default function App() {
     setSelectedCourseId(null);
     setActiveNavTab('home');
     setIsMobileDrawerOpen(false);
+    setRenewPlan(null);
     if (typeof window !== 'undefined') {
       try {
         localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
         localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+        localStorage.removeItem(AUTH_REMEMBER_UNTIL_KEY);
+        sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+        sessionStorage.removeItem(AUTH_USER_STORAGE_KEY);
       } catch {
         // Ignore storage errors
       }
@@ -342,8 +437,9 @@ export default function App() {
           }
         }
 
-        // 2. Validate server session (cookie or Bearer token)
-        const savedToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+        // 2. Validate server session (cookie or Bearer token from sessionStorage/localStorage)
+        const savedToken =
+          sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
         const res = await apiFetchJson<{
           authenticated?: boolean;
           user?: AuthenticatedSessionUser;
@@ -357,7 +453,12 @@ export default function App() {
         });
         if (res.ok && res.data?.authenticated && res.data.user) {
           if (!cancelled) {
-            applyAuthenticatedSession(res.data.user, res.data.token || savedToken || '', !initialAuthSnapshot.hasOptimisticSession);
+            applyAuthenticatedSession(
+              res.data.user,
+              res.data.token || savedToken || '',
+              !initialAuthSnapshot.hasOptimisticSession,
+              res.data.user.rememberMe
+            );
             setIsCheckingAccess(false);
           }
           return;
@@ -365,6 +466,9 @@ export default function App() {
         if (savedToken) {
           localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
           localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+          localStorage.removeItem(AUTH_REMEMBER_UNTIL_KEY);
+          sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+          sessionStorage.removeItem(AUTH_USER_STORAGE_KEY);
         }
         if (!cancelled) {
           setAuthUser(null);
@@ -475,11 +579,284 @@ export default function App() {
     return (
       <Suspense fallback={<ViewLoadingFallback label="Loading Supritamone Academy..." />}>
         <AccessGateScreen
-          onUnlocked={(user, token) => applyAuthenticatedSession(user, token, true)}
+          onUnlocked={(user, token, rememberMe) => applyAuthenticatedSession(user, token, true, rememberMe)}
           onOpenAdminPortal={() => setShowAdminPortal(true)}
           initialNotice={gateNotice}
         />
       </Suspense>
+    );
+  }
+
+  const handleRenewSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renewPlan) return;
+    setRenewError(null);
+    setRenewLoading(true);
+    try {
+      const res = await apiFetchJson<{
+        authenticated?: boolean;
+        user?: AuthenticatedSessionUser;
+        token?: string;
+        error?: string;
+      }>('/api/auth/activate-plan', {
+        method: 'POST',
+        body: JSON.stringify({
+          planId: renewPlan.id,
+          name: authUser.name,
+          email: authUser.email,
+          password: renewPassword,
+          chefSeats: renewPlan.id === 'team' ? Math.max(5, renewSeats) : undefined,
+          transactionRef: renewTxRef.trim() || undefined,
+          rememberMe: authUser.rememberMe !== false,
+        }),
+      });
+      if (!res.ok || !res.data?.authenticated || !res.data.user || !res.data.token) {
+        setRenewError(res.errorMessage || 'Unable to renew membership. Please check your details.');
+        return;
+      }
+      setRenewPlan(null);
+      setRenewPassword('');
+      setRenewTxRef('');
+      applyAuthenticatedSession(res.data.user, res.data.token, true, authUser.rememberMe !== false);
+    } finally {
+      setRenewLoading(false);
+    }
+  };
+
+  if (isAccountLocked) {
+    const expiredMessage =
+      authUser.lockReason ||
+      (authUser.planId === 'trial'
+        ? 'Your 3-Day Free Trial has ended — All Academy features are automatically locked. Upgrade to a paid plan below to restore full access.'
+        : `Your ${authUser.planTitle || 'Membership Plan'} period has finished — All Academy features are automatically locked. Renew below to restore access.`);
+
+    const lockedModules = [
+      { title: '26h Zero Waste Kitchen Course', desc: '12 modules, 24 narrated chapters & section exams' },
+      { title: '500+ Recipe & Byproduct Library', desc: 'Rind, stem, bone & peel repurposing database' },
+      { title: 'Live Kitchen Waste Calculator', desc: 'Food cost recovery & GP% impact simulator' },
+      { title: 'Executive Culinary Newsletters', desc: 'Weekly waste-reduction briefs & station playbooks' },
+      { title: 'Global Masterclass Series', desc: 'Chef-led demonstrations & yield SOPs' },
+      { title: 'Official CPD Certificate & Community', desc: 'Verified certificate & Dr. Basu advisory' },
+    ];
+
+    return (
+      <div className="min-h-screen bg-slate-50 text-neutral-900 font-sans antialiased flex flex-col">
+        <header className="sticky top-0 z-40 bg-white border-b border-neutral-200 safe-pt">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
+            <SupritamoneLogo size="md" />
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="hidden sm:block text-right">
+                <p className="text-xs font-bold text-neutral-900">{authUser.name}</p>
+                <p className="text-[11px] font-mono text-neutral-500">{authUser.email}</p>
+              </div>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-red-600 text-white text-[10px] font-extrabold uppercase tracking-wider">
+                <Lock className="w-3 h-3" />
+                <span>Auto-Restricted</span>
+              </span>
+              <button
+                onClick={handleSignOut}
+                className="px-3 py-1.5 rounded-lg border border-neutral-300 hover:border-black text-xs font-bold text-neutral-800 flex items-center gap-1.5 cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
+          <div className="bg-white border-2 border-red-200 rounded-2xl p-6 sm:p-8 shadow-sm space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <div className="space-y-1.5 flex-1">
+                <span className="inline-block text-[10px] font-extrabold uppercase tracking-widest text-red-700 bg-red-50 border border-red-200 px-2.5 py-0.5 rounded">
+                  Membership Expired · All Features Locked
+                </span>
+                <h1 className="text-xl sm:text-2xl font-extrabold font-heading text-black">
+                  Account Signed In — Academy Access Auto-Restricted
+                </h1>
+                <p className="text-xs sm:text-sm text-neutral-700 leading-relaxed">{expiredMessage}</p>
+                <p className="text-[11px] text-neutral-500 pt-1">
+                  Signed in as <strong className="text-neutral-900">{authUser.email}</strong> · Previous plan:{' '}
+                  <strong className="text-neutral-900">{authUser.planTitle}</strong>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <section className="space-y-3">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-500">
+              Locked Academy Modules (Upgrade Required)
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {lockedModules.map((mod) => (
+                <div
+                  key={mod.title}
+                  aria-disabled="true"
+                  className="bg-white/80 border border-neutral-200 rounded-2xl p-4 space-y-2 opacity-75 select-none"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-neutral-800">{mod.title}</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-neutral-900 text-white text-[10px] font-bold">
+                      <Lock className="w-3 h-3" />
+                      <span>LOCKED</span>
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-neutral-500 leading-snug">{mod.desc}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="space-y-4">
+            <div>
+              <h2 className="text-base sm:text-lg font-extrabold font-heading text-black">
+                Upgrade or Renew Paid Membership to Unlock Instantly
+              </h2>
+              <p className="text-xs text-neutral-600">
+                Choose an annual plan below to restore full unrestricted access for <strong>{authUser.email}</strong>.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {RENEWAL_PLANS.map((plan) => (
+                <div
+                  key={plan.id}
+                  className="bg-white border border-neutral-200 hover:border-black transition-colors rounded-2xl p-5 flex flex-col justify-between gap-4 shadow-2xs"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      {plan.id === 'team' ? (
+                        <Users className="w-5 h-5 text-emerald-600" />
+                      ) : plan.id === 'training' ? (
+                        <Crown className="w-5 h-5 text-amber-500" />
+                      ) : (
+                        <Sparkles className="w-5 h-5 text-emerald-600" />
+                      )}
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                        1 Year Full Access
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-extrabold text-black">{plan.title}</h3>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-2xl font-black font-heading text-black">{plan.price}</span>
+                      <span className="text-[11px] text-neutral-500">USD · {plan.cadence}</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setRenewPlan(plan);
+                      setRenewError(null);
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl bg-black hover:bg-neutral-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <span>Unlock with {plan.title.split(' ')[0]}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        </main>
+
+        {renewPlan && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white text-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 w-full max-w-md overflow-hidden">
+              <div className="px-5 py-4 bg-black text-white flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-sm">Renew · {renewPlan.title}</h3>
+                  <p className="text-[11px] text-neutral-400">
+                    {renewPlan.price} USD {renewPlan.cadence} · {authUser.email}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setRenewPlan(null)}
+                  className="p-1 text-neutral-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <form onSubmit={handleRenewSubmit} className="p-5 space-y-4 text-xs">
+                {renewError && (
+                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800">{renewError}</div>
+                )}
+
+                <div className="p-3.5 rounded-xl bg-neutral-50 border border-neutral-200 space-y-2.5">
+                  <div className="flex items-center justify-between font-bold text-neutral-900">
+                    <span>Step 1: Complete Secure Payment</span>
+                    <span>
+                      {renewPlan.id === 'team' ? `$${Math.max(5, renewSeats) * 79} USD` : `${renewPlan.price} USD`}
+                    </span>
+                  </div>
+                  <a
+                    href={renewPlan.ziinaPayUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-2.5 px-4 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold flex items-center justify-center gap-2"
+                  >
+                    <span>Proceed to Checkout ({renewPlan.price} USD)</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                  <input
+                    type="text"
+                    value={renewTxRef}
+                    onChange={(e) => setRenewTxRef(e.target.value)}
+                    placeholder="Payment Confirmation / Reference ID"
+                    className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-xs"
+                  />
+                </div>
+
+                {renewPlan.id === 'team' && (
+                  <div className="space-y-1">
+                    <label className="font-bold text-neutral-700 block">Number of Chef Seats (Min 5)</label>
+                    <input
+                      type="number"
+                      min={5}
+                      value={renewSeats}
+                      onChange={(e) => setRenewSeats(Math.max(5, Number(e.target.value) || 5))}
+                      className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-xs"
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <label className="font-bold text-neutral-700 flex items-center gap-1.5">
+                    <KeyRound className="w-3.5 h-3.5 text-neutral-500" />
+                    <span>Confirm / Set Account Password (min 4 chars)</span>
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    minLength={4}
+                    value={renewPassword}
+                    onChange={(e) => setRenewPassword(e.target.value)}
+                    placeholder="Enter password for your account"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 text-sm"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setRenewPlan(null)}
+                    className="px-4 py-2 rounded-xl border border-neutral-300 text-neutral-700 font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={renewLoading}
+                    className="px-5 py-2 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                  >
+                    {renewLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Unlock Full Access</span>}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
     );
   }
 
