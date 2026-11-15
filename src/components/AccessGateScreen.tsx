@@ -22,7 +22,7 @@ import {
 import { SupritamoneLogo } from './SupritamoneLogo';
 import { SurplusHomeView, HomePlanId } from './SurplusHomeView';
 import { apiFetchJson } from '../utils/apiClient';
-import { signInWithGoogleAndSyncFirestore } from '../services/firestoreAcademy';
+import { formatFirebaseAuthError, signInWithGoogleAndSyncFirestore } from '../services/firestoreAcademy';
 
 const AboutDrBasuModal = lazy(() =>
   import('./AboutDrBasuModal').then((m) => ({ default: m.AboutDrBasuModal }))
@@ -232,8 +232,7 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
       };
       onUnlocked(mergedUser, ssoRes?.data?.token || synced.idToken, rememberMe);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Google sign-in was cancelled or unavailable.';
-      setLoginError(msg);
+      setLoginError(formatFirebaseAuthError(err));
     } finally {
       setGoogleLoading(false);
     }

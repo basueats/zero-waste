@@ -101,6 +101,24 @@ export function sanitizeDocId(raw: string): string {
   return raw.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128) || 'user';
 }
 
+export function formatFirebaseAuthError(err: unknown): string {
+  const code =
+    err && typeof err === 'object' && 'code' in err ? String((err as { code?: unknown }).code || '') : '';
+  const message = err instanceof Error ? err.message : String(err || '');
+  const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'this domain';
+
+  if (code.includes('unauthorized-domain') || message.includes('unauthorized-domain')) {
+    return `Domain "${host}" must be added under Firebase Console (Project: magnetic-cumulus-jt8c4) -> Authentication -> Settings -> Authorized domains to enable Google Sign-In. Meanwhile, sign in above with your Email & Password.`;
+  }
+  if (code.includes('popup-blocked') || message.includes('popup-blocked')) {
+    return 'Google Sign-In popup was blocked by your browser. Please allow popups for this site or sign in with your Email & Password.';
+  }
+  if (code.includes('popup-closed-by-user') || message.includes('popup-closed-by-user')) {
+    return 'Google Sign-In window was closed before completing sign-in.';
+  }
+  return message || 'Google sign-in was cancelled or unavailable.';
+}
+
 export async function signInWithGoogleAndSyncFirestore(): Promise<{
   uid: string;
   email: string;

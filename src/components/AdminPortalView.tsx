@@ -37,6 +37,7 @@ import {
   connectAdminGoogleCloud,
   subscribeAdminFirestore,
   adminMutateFirestoreUser,
+  formatFirebaseAuthError,
   FirestoreUserRecord,
   FirestoreLogRecord,
 } from '../services/firestoreAcademy';
@@ -324,7 +325,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
       await fetchOverview();
       showToast('ok', 'Live cloud registry connected — all subscriber logins & audit logs synced.');
     } catch (err: unknown) {
-      showToast('err', err instanceof Error ? err.message : 'Could not connect cloud registry.');
+      showToast('err', formatFirebaseAuthError(err));
     } finally {
       setCloudSyncing(false);
     }
