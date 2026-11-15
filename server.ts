@@ -890,9 +890,9 @@ function releaseTtsSlot(): void {
   if (next) next();
 }
 
-const CANONICAL_CALM_VOICE = 'Zephyr';
+const CANONICAL_CALM_VOICE = 'Puck';
 const DEFAULT_CALM_STYLE =
-  'Calm, light, gentle, serene human educator speaking at a smooth, easy, unhurried studio pace with conversational clarity, zero deep bass heaviness, and crisp natural pauses between sentences';
+  'Calm, peaceful, gentle warm man speaking softly, smoothly, and clearly at an unhurried educational pace with zero deep bass heaviness and crisp natural pauses between sentences';
 
 async function generateTtsWithRetry(
   ai: GoogleGenAI,
@@ -2444,10 +2444,10 @@ app.post('/api/tts/lecture', async (req, res) => {
       return res.status(400).json({ error: 'sentences cannot be empty' });
     }
 
-    // Always lock calm voice & studio tone across every tab, browser, and mobile device
+    // Always lock calm peaceful male voice & studio tone across every tab, browser, and mobile device
     const resolvedVoice = CANONICAL_CALM_VOICE;
     const style = DEFAULT_CALM_STYLE;
-    const rawKey = `lecture_v5_${resolvedVoice}_${cleanSentences.join(' | ')}`;
+    const rawKey = `lecture_v6_${resolvedVoice}_${cleanSentences.join(' | ')}`;
 
     if (lectureTtsCache.has(rawKey)) {
       res.setHeader('Cache-Control', 'private, max-age=86400');
@@ -2537,7 +2537,7 @@ app.post('/api/tts/lecture', async (req, res) => {
   }
 });
 
-// Endpoint: Single-line TTS (disk + memory cached, shares consistent calm Zephyr voice)
+// Endpoint: Single-line TTS (disk + memory cached, shares consistent calm peaceful Puck male voice)
 app.post('/api/tts', async (req, res) => {
   try {
     const {
@@ -2550,7 +2550,7 @@ app.post('/api/tts', async (req, res) => {
     const cleanText = text.trim();
     const resolvedVoice = CANONICAL_CALM_VOICE;
     const style = DEFAULT_CALM_STYLE;
-    const cacheKey = `tts_v5_${resolvedVoice}_${cleanText}`;
+    const cacheKey = `tts_v6_${resolvedVoice}_${cleanText}`;
 
     if (ttsAudioCache.has(cacheKey)) {
       res.setHeader('Cache-Control', 'private, max-age=86400');

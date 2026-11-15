@@ -601,6 +601,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
     audioNarrator.speakLecture({
       sentences: lines.map(l => l.text),
       startTimeOffset: startOffset,
+      startSentenceIndex: index,
       rate: playbackSpeedRef.current,
       volume: volumeRef.current,
       onLoadingChange: (loading) => {
@@ -732,10 +733,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
     setCurrentSlideIdx(resolveSlideForSentence(currentLectureRef.current, targetSentenceIdx));
 
     if (forcePlay || isPlayingRef.current) {
+      manualStopRef.current = false;
       setIsPlaying(true);
       isPlayingRef.current = true;
       // If unified lecture audio is already loaded & playing, seek instantaneously inside the WAV stream
-      if (!isMutedRef.current && audioNarrator.getIsSpeaking() && audioNarrator.seekTo(clamped)) {
+      if (!isMutedRef.current && audioNarrator.getIsSpeaking() && audioNarrator.seekTo(clamped, targetSentenceIdx)) {
         if (audioNarrator.getIsPaused()) {
           audioNarrator.resume();
         }
@@ -743,6 +745,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
         playSentence(targetSentenceIdx, clamped);
       }
     } else {
+      manualStopRef.current = true;
       audioNarrator.stop();
     }
   }, [totalDurationSeconds, sentenceStartTimes, resolveSlideForSentence, playSentence]);
@@ -1376,12 +1379,42 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   </div>
 
                   {/* Slide Footer */}
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-200 pt-2 font-mono">
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 border-t border-slate-200 pt-2 font-mono">
+                    <div className="flex items-center gap-2 min-w-0">
                       <SupritamoneLogo size="sm" showSubtitle={false} />
-                      <span>· Dr. Chef Supritam Basu, PhD, CEC</span>
+                      <span className="truncate">· Dr. Chef Supritam Basu, PhD, CEC</span>
                     </div>
-                    <span>Slide {currentSlideIdx + 1} of {currentLecture.slides.length}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isPlaying && (
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                            isMuted
+                              ? 'bg-slate-100 text-slate-600 border-slate-300'
+                              : isAudioBuffering
+                                ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                : 'bg-emerald-50 text-[#14532d] border-emerald-300'
+                          }`}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              isMuted
+                                ? 'bg-slate-400'
+                                : isAudioBuffering
+                                  ? 'bg-amber-500 animate-pulse'
+                                  : 'bg-[#16a34a] animate-pulse'
+                            }`}
+                          />
+                          <span>
+                            {isMuted
+                              ? 'Visual Sync (Muted)'
+                              : isAudioBuffering
+                                ? 'Buffering Male Audio...'
+                                : 'Audio · Slide · Caption Synced'}
+                          </span>
+                        </span>
+                      )}
+                      <span>Slide {currentSlideIdx + 1} of {currentLecture.slides.length}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -1426,10 +1459,26 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   </button>
                 )}
 
-                {/* 4. LIVE-SYNCED SUBTITLES / CLOSED CAPTIONS BANNER (Word-by-word karaoke highlight) */}
+                {/* 4. LIVE-SYNCED SUBTITLES / CLOSED CAPTIONS BANNER (Word-by-word karaoke highlight + live sentence bar) */}
                 {showCaptions && currentCaption && (
                   <div className="absolute bottom-12 sm:bottom-14 left-2 right-2 sm:left-4 sm:right-4 z-20 flex justify-center pointer-events-none">
-                    <div className="bg-black/85 text-white text-[11px] sm:text-sm font-medium px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg max-w-2xl text-center shadow-2xl backdrop-blur-xs border border-white/10 leading-relaxed">
+                    <div className="relative overflow-hidden bg-black/88 text-white text-[11px] sm:text-sm font-medium px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg max-w-2xl text-center shadow-2xl backdrop-blur-xs border border-emerald-500/30 leading-relaxed">
+                      {isPlaying && (
+                        <div className="absolute top-0 left-0 right-0 h-0.5 bg-white/10">
+                          <div
+                            className="h-full bg-[#4ade80] transition-all duration-75"
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                Math.max(
+                                  0,
+                                  (sentenceElapsed / Math.max(0.4, sentenceDurations[activeSentenceIdx] || 4)) * 100
+                                )
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      )}
                       {captionTokens.map((tok, wIdx) => {
                         const isActiveWord = isPlaying && wIdx === activeWordIndex;
                         const isSpoken = isPlaying && activeWordIndex >= 0 && wIdx < activeWordIndex;
@@ -1438,7 +1487,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                             key={wIdx}
                               className={`transition-colors duration-75 ${
                                 isActiveWord
-                                  ? 'text-[#ffea79] font-bold underline decoration-[#16a34a] decoration-2 underline-offset-4'
+                                  ? 'bg-[#14532d] text-[#ffea79] font-bold px-1 rounded underline decoration-[#4ade80] decoration-2 underline-offset-4'
                                   : isSpoken
                                     ? 'text-white'
                                     : 'text-slate-200'
@@ -1452,10 +1501,10 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                     </div>
                   )}
 
-                  {/* 5. DARK GREEN TOGGLE BUTTON FOR SIDEBAR ON RIGHT EDGE */}
+                  {/* 5. DEEP GREEN TOGGLE BUTTON FOR SIDEBAR ON RIGHT EDGE */}
                   <button
                     onClick={() => setIsSidebarOpen(prev => !prev)}
-                    className="absolute right-0 top-1/2 -translate-y-1/2 z-30 w-6 h-12 bg-[#166534] hover:bg-[#14532d] text-white flex items-center justify-center rounded-l-md shadow-lg transition-transform cursor-pointer"
+                    className="absolute right-0 top-1/2 -translate-y-1/2 z-30 w-6 h-12 bg-[#0a3620] hover:bg-[#14532d] border-y border-l border-[#22c55e]/40 text-white flex items-center justify-center rounded-l-md shadow-lg transition-transform cursor-pointer"
                     title={isSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
                   >
                     {isSidebarOpen ? (
@@ -1536,10 +1585,32 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                           <RotateCw className="w-3.5 h-3.5" />
                         </button>
 
-                        {/* Time display */}
+                        {/* Time display & Sync lock badge */}
                         <span className="font-mono text-[11px] text-slate-300">
                           {formatSeconds(currentTimeSeconds)} / {formatSeconds(totalDurationSeconds)}
                         </span>
+                        {isPlaying && (
+                          <span
+                            className={`hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                              isAudioBuffering
+                                ? 'bg-amber-500/20 text-amber-300'
+                                : isMuted
+                                  ? 'bg-white/10 text-slate-300'
+                                  : 'bg-[#14532d]/80 text-[#86efac] border border-[#22c55e]/40'
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                isAudioBuffering
+                                  ? 'bg-amber-400 animate-pulse'
+                                  : isMuted
+                                    ? 'bg-slate-400'
+                                    : 'bg-[#4ade80] animate-pulse'
+                              }`}
+                            />
+                            <span>{isAudioBuffering ? 'Loading Audio...' : isMuted ? 'Visual Sync' : 'Synced'}</span>
+                          </span>
+                        )}
                       </div>
 
                       {/* Right: Volume, CC, Settings, Fullscreen */}
@@ -2550,18 +2621,18 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
           </div>
         </div>
 
-        {/* RIGHT COLUMN: COLLAPSIBLE "COURSE CONTENT" SIDEBAR (Dark Green Theme) */}
+        {/* RIGHT COLUMN: COLLAPSIBLE "COURSE CONTENT" SIDEBAR (Completely Deep Green Theme) */}
         {isSidebarOpen && (
-          <aside className="w-full lg:w-96 bg-[#1c1d1f] border-t lg:border-t-0 lg:border-l border-[#2d2f31] flex flex-col z-20 shrink-0 max-h-[70vh] lg:max-h-none lg:h-full overflow-y-auto">
+          <aside className="w-full lg:w-96 bg-[#062315] border-t lg:border-t-0 lg:border-l border-[#14532d] flex flex-col z-20 shrink-0 max-h-[70vh] lg:max-h-none lg:h-full overflow-y-auto">
             {/* Sidebar Top Header with Tabs & Close X */}
-            <div className="p-3.5 border-b border-[#2d2f31] flex items-center justify-between text-white shrink-0">
+            <div className="p-3.5 bg-[#041a0f] border-b border-[#14532d] flex items-center justify-between text-white shrink-0">
               <div className="flex items-center gap-4 text-xs font-bold">
                 <button
                   onClick={() => setSidebarTab('content')}
                   className={`pb-1 border-b-2 transition-colors cursor-pointer ${
                     sidebarTab === 'content'
-                      ? 'border-[#16a34a] text-white'
-                      : 'border-transparent text-slate-400 hover:text-white'
+                      ? 'border-[#4ade80] text-white'
+                      : 'border-transparent text-emerald-200/70 hover:text-white'
                   }`}
                 >
                   Course content
@@ -2570,11 +2641,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   onClick={() => setSidebarTab('ai')}
                   className={`pb-1 border-b-2 flex items-center gap-1 transition-colors cursor-pointer ${
                     sidebarTab === 'ai'
-                      ? 'border-[#16a34a] text-white'
-                      : 'border-transparent text-slate-400 hover:text-white'
+                      ? 'border-[#4ade80] text-white'
+                      : 'border-transparent text-emerald-200/70 hover:text-white'
                   }`}
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-[#22c55e]" />
+                  <Sparkles className="w-3.5 h-3.5 text-[#4ade80]" />
                   <span>AI Assistant</span>
                 </button>
               </div>
@@ -2582,7 +2653,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
               {/* Close Sidebar X */}
               <button
                 onClick={() => setIsSidebarOpen(false)}
-                className="text-slate-400 hover:text-white p-1 rounded"
+                className="text-emerald-200/75 hover:text-white p-1 rounded hover:bg-[#0f3d26]"
                 title="Close sidebar"
               >
                 <X className="w-4 h-4" />
@@ -2591,7 +2662,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
 
             {/* TAB CONTENT: COURSE CONTENT ACCORDION */}
             {sidebarTab === 'content' ? (
-              <div className="divide-y divide-[#2d2f31] flex-1 overflow-y-auto">
+              <div className="bg-[#062315] divide-y divide-[#14532d] flex-1 overflow-y-auto">
                 {UDEMY_ZERO_WASTE_SECTIONS.map((section, secIdx) => {
                   const isOpen = openSections[section.id] !== false;
                   const isUnlocked = isSectionUnlocked(secIdx);
@@ -2607,13 +2678,13 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       {/* Section Accordion Header */}
                       <div
                         onClick={() => toggleSectionAccordion(section.id)}
-                        className="p-3.5 bg-[#2d2f31] hover:bg-[#34373a] transition-colors cursor-pointer flex items-start justify-between gap-2"
+                        className="p-3.5 bg-[#0b3520] hover:bg-[#0f4228] transition-colors cursor-pointer flex items-start justify-between gap-2"
                       >
                         <div className="space-y-0.5 flex-1 pr-2">
                           <h3 className="text-xs sm:text-sm font-bold text-white leading-snug">
                             {section.title}
                           </h3>
-                          <div className="flex items-center gap-2 text-[11px] text-[#8a8b8c]">
+                          <div className="flex items-center gap-2 text-[11px] text-emerald-200/75">
                             <span>{sectionCompletedTotal} / {sectionTotalItems}</span>
                             <span>|</span>
                             <span>
@@ -2622,21 +2693,21 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                               )}
                             </span>
                             {!isUnlocked && (
-                              <span className="flex items-center gap-1 text-amber-400 font-mono text-[10px]">
+                              <span className="flex items-center gap-1 text-amber-300 font-mono text-[10px]">
                                 <Lock className="w-3 h-3" /> Locked
                               </span>
                             )}
                           </div>
                         </div>
 
-                        <button className="text-slate-400 mt-0.5">
+                        <button className="text-emerald-200/80 mt-0.5">
                           {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                         </button>
                       </div>
 
                       {/* Section Items (Lectures & Quiz) */}
                       {isOpen && (
-                        <div className="bg-[#1c1d1f] divide-y divide-[#2d2f31]/50">
+                        <div className="bg-[#062315] divide-y divide-[#14532d]/70">
                           {/* LECTURES (2 per section) */}
                           {section.lectures.map((lecture, lecIdx) => {
                             const isCurrent = !isQuizMode && activeSectionIdx === secIdx && activeLectureIdx === lecIdx;
@@ -2652,34 +2723,34 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                                 }}
                                 className={`p-3 transition-colors cursor-pointer flex items-start gap-3 relative ${
                                   isCurrent
-                                    ? 'bg-[#14532d]/25 border-l-4 border-[#15803d]'
-                                    : 'hover:bg-[#25272a]'
-                                } ${!isUnlocked ? 'opacity-40 pointer-events-none' : ''}`}
+                                    ? 'bg-[#14532d] border-l-4 border-[#4ade80]'
+                                    : 'bg-[#062315] hover:bg-[#0a301d]'
+                                } ${!isUnlocked ? 'opacity-45 pointer-events-none' : ''}`}
                               >
                                 {/* Checkbox */}
                                 <button
                                   onClick={(e) => toggleLectureCompletion(lecture.id, e)}
-                                  className="mt-0.5 text-slate-400 hover:text-white shrink-0"
+                                  className="mt-0.5 text-emerald-200 hover:text-white shrink-0"
                                   title={isDone ? 'Mark as incomplete' : 'Mark as complete'}
                                 >
                                   {isDone ? (
-                                    <div className="w-4 h-4 rounded bg-[#166534] text-white flex items-center justify-center">
+                                    <div className="w-4 h-4 rounded bg-[#16a34a] text-white flex items-center justify-center">
                                       <Check className="w-3 h-3 stroke-3" />
                                     </div>
                                   ) : (
-                                    <div className="w-4 h-4 rounded border-2 border-slate-500 hover:border-white" />
+                                    <div className="w-4 h-4 rounded border-2 border-emerald-300/60 hover:border-white" />
                                   )}
                                 </button>
 
                                 {/* Lecture Title & Metadata */}
                                 <div className="flex-1 space-y-1">
-                                  <h4 className={`text-xs leading-snug ${isCurrent ? 'font-bold text-white' : 'text-slate-200'}`}>
+                                  <h4 className={`text-xs leading-snug ${isCurrent ? 'font-bold text-white' : 'text-emerald-50'}`}>
                                     {lecture.title}
                                   </h4>
 
-                                  <div className="flex items-center justify-between text-[11px] text-[#8a8b8c]">
+                                  <div className="flex items-center justify-between text-[11px] text-emerald-200/75">
                                     <span className="flex items-center gap-1 font-mono">
-                                      <Play className="w-3 h-3 fill-current text-slate-400" />
+                                      <Play className="w-3 h-3 fill-current text-emerald-300" />
                                       {formatClockDuration(getExactLectureSeconds(lecture))}
                                     </span>
 
@@ -2691,7 +2762,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                                             e.stopPropagation();
                                             setOpenResourceMenuId(openResourceMenuId === lecture.id ? null : lecture.id);
                                           }}
-                                          className="flex items-center gap-1 px-2 py-0.5 rounded border border-[#15803d] bg-[#14532d]/35 text-[#86efac] hover:bg-[#166534]/50 text-[10px] font-semibold transition-colors cursor-pointer"
+                                          className="flex items-center gap-1 px-2 py-0.5 rounded border border-[#22c55e]/50 bg-[#0d3b23] text-emerald-100 hover:bg-[#166534] text-[10px] font-semibold transition-colors cursor-pointer"
                                         >
                                           <FolderOpen className="w-3 h-3 text-[#4ade80]" />
                                           <span>Resources</span>
@@ -2747,40 +2818,40 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                             }}
                             className={`p-3 transition-colors cursor-pointer flex items-start gap-3 relative ${
                               isQuizMode && activeSectionIdx === secIdx
-                                ? 'bg-[#14532d]/25 border-l-4 border-[#15803d]'
-                                : 'hover:bg-[#25272a]'
-                            } ${!isUnlocked ? 'opacity-40 pointer-events-none' : ''}`}
+                                ? 'bg-[#14532d] border-l-4 border-[#4ade80]'
+                                : 'bg-[#062315] hover:bg-[#0a301d]'
+                            } ${!isUnlocked ? 'opacity-45 pointer-events-none' : ''}`}
                           >
                             {/* Quiz Status Checkbox */}
                             <div className="mt-0.5 shrink-0">
                               {quizPassed ? (
-                                <div className="w-4 h-4 rounded bg-emerald-600 text-white flex items-center justify-center">
+                                <div className="w-4 h-4 rounded bg-[#16a34a] text-white flex items-center justify-center">
                                   <Check className="w-3 h-3 stroke-3" />
                                 </div>
                               ) : !isUnlocked ? (
-                                <Lock className="w-4 h-4 text-slate-500" />
+                                <Lock className="w-4 h-4 text-emerald-300/60" />
                               ) : (
-                                <div className="w-4 h-4 rounded border-2 border-[#16a34a]" />
+                                <div className="w-4 h-4 rounded border-2 border-[#4ade80]" />
                               )}
                             </div>
 
                             {/* Quiz Title & Passing Threshold */}
                             <div className="flex-1 space-y-1">
-                              <h4 className={`text-xs leading-snug ${isQuizMode && activeSectionIdx === secIdx ? 'font-bold text-white' : 'text-slate-200'}`}>
+                              <h4 className={`text-xs leading-snug ${isQuizMode && activeSectionIdx === secIdx ? 'font-bold text-white' : 'text-emerald-50'}`}>
                                 {section.quiz.title}
                               </h4>
 
-                              <div className="flex items-center justify-between text-[11px] text-[#8a8b8c]">
-                                <span className="text-amber-400 font-mono text-[10px] font-semibold">
+                              <div className="flex items-center justify-between text-[11px] text-emerald-200/75">
+                                <span className="text-amber-300 font-mono text-[10px] font-semibold">
                                   10 Questions · 37% Pass Mark
                                 </span>
 
                                 {quizPassed ? (
-                                  <span className="text-emerald-400 font-bold text-[10px]">
+                                  <span className="text-[#4ade80] font-bold text-[10px]">
                                     Passed ({quizScores[section.quiz.id] || 90}%)
                                   </span>
                                 ) : (
-                                  <span className="text-slate-400 text-[10px]">
+                                  <span className="text-emerald-200/75 text-[10px]">
                                     Required to advance
                                   </span>
                                 )}
@@ -2795,11 +2866,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
               </div>
             ) : (
               /* AI ASSISTANT SIDEBAR TAB */
-              <div className="p-4 space-y-4 flex-1 flex flex-col justify-between text-xs text-slate-300">
+              <div className="p-4 bg-[#062315] space-y-4 flex-1 flex flex-col justify-between text-xs text-emerald-50">
                 <div className="space-y-3 overflow-y-auto flex-1 pr-1">
-                  <div className="p-3 rounded-lg bg-[#2d2f31] border border-[#3e4143] space-y-1">
+                  <div className="p-3 rounded-lg bg-[#0b3520] border border-[#166534] space-y-1">
                     <span className="text-[#4ade80] font-bold block">Chef AI Assistant</span>
-                    <p className="text-[11px] leading-relaxed">
+                    <p className="text-[11px] leading-relaxed text-emerald-100/90">
                       Ask questions regarding <strong className="text-white">{currentLecture.title}</strong>, station tare logs, or fermentation ratios.
                     </p>
                   </div>
@@ -2809,11 +2880,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       key={mIdx}
                       className={`p-3 rounded-lg text-[11px] leading-relaxed ${
                         msg.role === 'user'
-                          ? 'bg-[#166534]/35 border border-[#15803d]/60 text-white ml-4'
-                          : 'bg-[#25272a] border border-[#3e4143] text-slate-200 mr-2'
+                          ? 'bg-[#14532d] border border-[#22c55e]/50 text-white ml-4'
+                          : 'bg-[#0b3520] border border-[#166534] text-emerald-50 mr-2'
                       }`}
                     >
-                      <span className="font-bold block mb-0.5 text-[10px] uppercase tracking-wider text-slate-400">
+                      <span className="font-bold block mb-0.5 text-[10px] uppercase tracking-wider text-emerald-300/80">
                         {msg.role === 'user' ? 'You' : 'Chef AI'}
                       </span>
                       {msg.text}
@@ -2853,19 +2924,19 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       setIsAiThinking(false);
                     }
                   }}
-                  className="space-y-2 pt-2 border-t border-[#2d2f31]"
+                  className="space-y-2 pt-2 border-t border-[#14532d]"
                 >
                   <input
                     type="text"
                     value={aiQuestion}
                     onChange={(e) => setAiQuestion(e.target.value)}
                     placeholder="Ask about this lecture..."
-                    className="w-full p-2.5 rounded bg-[#25272a] border border-[#3e4143] text-white text-xs focus:outline-none focus:border-[#16a34a]"
+                    className="w-full p-2.5 rounded bg-[#041a0f] border border-[#166534] text-white placeholder:text-emerald-300/50 text-xs focus:outline-none focus:border-[#4ade80]"
                   />
                   <button
                     type="submit"
                     disabled={!aiQuestion.trim() || isAiThinking}
-                    className="w-full py-2 bg-[#166534] hover:bg-[#14532d] disabled:opacity-40 text-white font-bold rounded text-xs transition-colors cursor-pointer"
+                    className="w-full py-2 bg-[#166534] hover:bg-[#15803d] border border-[#22c55e]/40 disabled:opacity-40 text-white font-bold rounded text-xs transition-colors cursor-pointer"
                   >
                     {isAiThinking ? 'Thinking...' : 'Submit Question'}
                   </button>

@@ -1,7 +1,7 @@
 // Audio & Voice Narration Engine for Supritamone Academy
-// Unified Calm Light Educator Voice (Zephyr neural TTS + Prioritized Calm Light Natural/Online Voices across all browsers)
+// Unified Calm Peaceful Male Educator Voice (Puck neural TTS + Prioritized Calm Male Natural/Online Voices across all browsers)
 
-export type TTSVoiceName = 'Zephyr' | 'Kore' | 'Puck' | 'Charon' | 'Fenrir';
+export type TTSVoiceName = 'Puck' | 'Charon' | 'Fenrir' | 'Zephyr' | 'Kore';
 
 export interface TTSVoiceOption {
   id: TTSVoiceName;
@@ -11,11 +11,11 @@ export interface TTSVoiceOption {
 }
 
 export const AVAILABLE_VOICES: TTSVoiceOption[] = [
-  { id: 'Zephyr', label: 'Supritamone Calm Studio Voice (Zephyr)', description: 'Calm, light, gentle conversational educator voice with unhurried cadence', gender: 'female' },
-  { id: 'Kore', label: 'Kore (Warm Hospitality Educator)', description: 'Warm, clear culinary educator', gender: 'female' },
-  { id: 'Puck', label: 'Puck (Engaging Culinary Mentor)', description: 'Expressive kitchen educator delivery', gender: 'male' },
-  { id: 'Charon', label: 'Charon (Studio Lecturer)', description: 'Steady documentary narrator', gender: 'male' },
-  { id: 'Fenrir', label: 'Fenrir (Baritone Chef)', description: 'Deep baritone chef narration', gender: 'male' },
+  { id: 'Puck', label: 'Supritamone Calm Peaceful Male Voice (Puck)', description: 'Calm, peaceful, gentle warm male instructor voice with unhurried cadence', gender: 'male' },
+  { id: 'Charon', label: 'Charon (Studio Lecturer)', description: 'Steady documentary male narrator', gender: 'male' },
+  { id: 'Fenrir', label: 'Fenrir (Baritone Chef)', description: 'Deep baritone male narration', gender: 'male' },
+  { id: 'Zephyr', label: 'Zephyr (Soft Studio)', description: 'Light conversational voice', gender: 'female' },
+  { id: 'Kore', label: 'Kore (Warm Educator)', description: 'Warm culinary educator', gender: 'female' },
 ];
 
 export interface SpeechProgressEvent {
@@ -122,6 +122,7 @@ export interface LectureProgressEvent {
 export interface LectureSpeakOptions {
   sentences: string[];
   startTimeOffset?: number;
+  startSentenceIndex?: number;
   rate?: number;
   volume?: number;
   onStart?: (timings: SentenceTiming[], duration: number) => void;
@@ -148,9 +149,9 @@ interface ResolvedChunkPlan extends LectureChunkPlan {
 
 // Canonical studio voice prompt aligned 1:1 with server.ts DEFAULT_CALM_STYLE
 const CALM_MALE_STYLE =
-  'Calm, light, gentle, serene human educator speaking at a smooth, easy, unhurried studio pace with conversational clarity, zero deep bass heaviness, and crisp natural pauses between sentences';
+  'Calm, peaceful, gentle warm man speaking softly, smoothly, and clearly at an unhurried educational pace with zero deep bass heaviness and crisp natural pauses between sentences';
 
-const AUDIO_IDB_NAME = 'supritamone_calm_audio_v5';
+const AUDIO_IDB_NAME = 'supritamone_calm_audio_v6';
 const AUDIO_IDB_STORE = 'audio_entries';
 
 class PersistentAudioCache {
@@ -232,15 +233,18 @@ class AudioNarrator {
   private serverTtsUnavailable: boolean = false;
   private serverTts404Count: number = 0;
   private durationListeners: Set<() => void> = new Set();
-  private readonly selectedVoice: TTSVoiceName = 'Zephyr';
+  private readonly selectedVoice: TTSVoiceName = 'Puck';
   private cachedBestVoice: SpeechSynthesisVoice | null = null;
   private currentSessionId: number = 0;
+  private lectureGenerationId: number = 0;
   private progressInterval: ReturnType<typeof setInterval> | null = null;
   private fallbackInterval: ReturnType<typeof setInterval> | null = null;
   private fallbackWatchdog: ReturnType<typeof setTimeout> | null = null;
   private safetyStartTimer: ReturnType<typeof setTimeout> | null = null;
+  private boundaryTimers: Set<ReturnType<typeof setTimeout>> = new Set();
   private calibratedCharsPerSec: number = 13.4;
   private activeFetchControllers: Set<AbortController> = new Set();
+  private prefetchControllers: Set<AbortController> = new Set();
   private fallbackResumeState: {
     sentences: string[];
     startIdx: number;
@@ -331,7 +335,7 @@ class AudioNarrator {
   }
 
   public setVoice(_voice: TTSVoiceName): void {
-    // Locked unconditionally to Fenrir calm human male baritone across all browsers, tablets, phones & tabs
+    // Locked unconditionally to Puck calm peaceful human male across all browsers, tablets, phones & tabs
   }
 
   public onDurationsUpdated(cb: () => void): () => void {
@@ -500,7 +504,7 @@ class AudioNarrator {
     if (this.audioDurationCache.has(cacheKey)) {
       return this.audioDurationCache.get(cacheKey)! / safeRate;
     }
-    const baseSeconds = Math.max(2.6, clean.length / 12.2);
+    const baseSeconds = Math.max(2.6, clean.length / 14.5);
     return baseSeconds / safeRate;
   }
 
@@ -644,8 +648,12 @@ class AudioNarrator {
     return path;
   }
 
-  // Synthesize & cache lecture chunk as ONE unified calm human WAV file (RAM -> IndexedDB -> Server)
-  public fetchLectureAudio(sentences: string[], sessionIdAtStart?: number): Promise<LectureAudioData | null> {
+  // Synthesize & cache lecture chunk as ONE unified calm peaceful male WAV file (RAM -> IndexedDB -> Server)
+  public fetchLectureAudio(
+    sentences: string[],
+    generationIdAtStart?: number,
+    isPrefetch: boolean = false
+  ): Promise<LectureAudioData | null> {
     const cleanSentences = sentences.map((s) => s.trim()).filter(Boolean);
     if (cleanSentences.length === 0) return Promise.resolve(null);
 
@@ -657,6 +665,10 @@ class AudioNarrator {
       return this.lectureInFlight.get(key)!;
     }
 
+    const isStaleRun = () =>
+      generationIdAtStart !== undefined &&
+      (this.lectureGenerationId !== generationIdAtStart || !this.isSpeaking || this.isPaused);
+
     const doFetch = async (): Promise<LectureAudioData | null> => {
       // 1. Check browser-persistent IndexedDB cache first (instant across tabs & reloads)
       const idbHit = await this.persistentCache.get<LectureAudioData>(`lec_${key}`);
@@ -665,21 +677,20 @@ class AudioNarrator {
         return idbHit;
       }
 
-      if (this.serverTtsUnavailable) {
-        return null;
-      }
-      if (sessionIdAtStart !== undefined && (this.currentSessionId !== sessionIdAtStart || this.isPaused)) {
+      if (this.serverTtsUnavailable || isStaleRun()) {
         return null;
       }
 
-      // 2. Fetch from canonical calm Zephyr TTS endpoint with abort support on stop/pause
+      // 2. Fetch from canonical calm peaceful male TTS endpoint with abort support on stop/pause
       const endpoint = this.resolveTtsEndpoint('/api/tts/lecture');
+      const controllerSet = isPrefetch ? this.prefetchControllers : this.activeFetchControllers;
+
       for (let attempt = 1; attempt <= 2; attempt++) {
-        if (sessionIdAtStart !== undefined && (this.currentSessionId !== sessionIdAtStart || this.isPaused)) {
+        if (isStaleRun()) {
           return null;
         }
         const controller = new AbortController();
-        this.activeFetchControllers.add(controller);
+        controllerSet.add(controller);
         const timeoutId = setTimeout(() => controller.abort(), 35000);
         try {
           const res = await fetch(endpoint, {
@@ -688,12 +699,12 @@ class AudioNarrator {
             signal: controller.signal,
             body: JSON.stringify({
               sentences: cleanSentences,
-              voice: 'Zephyr',
+              voice: 'Puck',
               style: CALM_MALE_STYLE,
             }),
           });
           clearTimeout(timeoutId);
-          this.activeFetchControllers.delete(controller);
+          controllerSet.delete(controller);
           if (res.status === 429) {
             if (attempt < 2) {
               await new Promise((r) => setTimeout(r, 1100));
@@ -729,16 +740,19 @@ class AudioNarrator {
             };
             this.cacheLecturePayload(key, cleanSentences, payload);
             this.persistentCache.set(`lec_${key}`, payload).catch(() => {});
+            // Pre-decode WAV buffer into RAM so chunk 0 -> chunk 1 transition has 0ms gap
+            this.preDecodeChunkBuffer(key, payload.audio);
             return payload;
           }
         } catch {
           clearTimeout(timeoutId);
-          this.activeFetchControllers.delete(controller);
-          if (controller.signal.aborted && sessionIdAtStart !== undefined && this.currentSessionId !== sessionIdAtStart) {
+          controllerSet.delete(controller);
+          if (controller.signal.aborted) {
+            this.lectureInFlight.delete(key);
             return null;
           }
         }
-        if (attempt < 2) {
+        if (attempt < 2 && !isStaleRun()) {
           await new Promise((r) => setTimeout(r, 500));
         }
       }
@@ -750,6 +764,31 @@ class AudioNarrator {
     });
     this.lectureInFlight.set(key, promise);
     return promise;
+  }
+
+  private preDecodeChunkBuffer(chunkKey: string, base64Audio: string): void {
+    try {
+      if (this.decodedBufferCache.has(chunkKey)) return;
+      const ctx = this.audioCtx;
+      if (!ctx) return;
+      const bytes = this.base64ToUint8Array(base64Audio);
+      const arrayBuf: ArrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      ctx.decodeAudioData(
+        arrayBuf,
+        (decoded) => {
+          if (this.decodedBufferCache.size > 40) {
+            const firstKey = this.decodedBufferCache.keys().next().value;
+            if (firstKey) this.decodedBufferCache.delete(firstKey);
+          }
+          this.decodedBufferCache.set(chunkKey, decoded);
+        },
+        () => {
+          // Ignore background decode errors
+        }
+      );
+    } catch {
+      // Ignore
+    }
   }
 
   // Hydrate silently from IndexedDB ONLY (zero background network loader before user clicks Play)
@@ -806,7 +845,7 @@ class AudioNarrator {
             signal: controller.signal,
             body: JSON.stringify({
               text: cleanText,
-              voice: 'Zephyr',
+              voice: 'Puck',
               style: CALM_MALE_STYLE,
             }),
           });
@@ -933,41 +972,48 @@ class AudioNarrator {
     const isGoogle = name.includes('google');
     const isAppleQuality = name.includes('enhanced') || name.includes('premium') || name.includes('siri');
 
-    // Tier 1: Calm, silky Online / Natural / Google / Enhanced voices across Chrome, Edge, Safari
-    if (name.includes('online') && isNaturalOrNeural) score += 1400;
-    else if (isNaturalOrNeural) score += 1050;
-    if (isGoogle) score += 920;
-    if (isOnline && !isGoogle) score += 720;
-    if (isAppleQuality) score += 680;
+    // Tier 1: Smooth Online / Natural / Google / Enhanced voices across Chrome, Edge, Safari, Brave
+    if (name.includes('online') && isNaturalOrNeural) score += 1200;
+    else if (isNaturalOrNeural) score += 950;
+    if (isGoogle) score += 800;
+    if (isOnline && !isGoogle) score += 620;
+    if (isAppleQuality) score += 650;
 
-    // Tier 2: Calm, light, easy educator voices (eliminating all heavy deep chest bass voices)
-    const calmLightVoices = [
+    // Tier 2: Calm, peaceful, gentle human MALE voices (never pick female or harsh novelty voices)
+    const calmPeacefulMaleVoices = [
+      'andrew', 'brian', 'ryan', 'william', 'liam', 'google uk english male',
+      'google us english male', 'daniel', 'oliver', 'george', 'alex', 'tom',
+      'aaron', 'nolan', 'evan', 'lee', 'steffan', 'christopher', 'eric', 'guy',
+    ];
+    const localMaleVoices = [
+      'mark', 'david', 'richard', 'sean', 'ravi', 'male',
+    ];
+    const femaleVoices = [
       'ava', 'emma', 'jenny', 'aria', 'sonia', 'libby',
-      'google us english', 'google uk english female',
-      'samantha', 'serena', 'allison', 'zoe', 'claire',
-      'karen', 'kate', 'tessa', 'moira', 'nicky',
-      'victoria', 'michelle', 'ana', 'natasha',
+      'google uk english female', 'samantha', 'serena', 'allison', 'zoe', 'claire',
+      'karen', 'kate', 'tessa', 'moira', 'nicky', 'victoria', 'michelle', 'ana',
+      'natasha', 'zira', 'hazel', 'susan', 'heera', 'eva', 'elsa', 'fiona', 'female',
     ];
-    const cleanLightLocalVoices = [
-      'zira', 'hazel', 'susan', 'heera', 'eva', 'elsa', 'fiona',
-    ];
-    const heavyOrBoomyVoices = [
-      'david', 'mark', 'george', 'guy', 'christopher', 'steffan', 'ryan',
-      'uk english male', 'us english male', 'daniel', 'arthur', 'oliver',
-      'alex', 'fred', 'ravi', 'richard', 'sean', 'aaron', 'thomas',
-      'espeak', 'festival', 'flite', 'mbrola',
+    const roboticOrNoveltyVoices = [
+      'espeak', 'festival', 'flite', 'mbrola', 'fred', 'albert', 'bad news',
+      'bahh', 'bells', 'boing', 'bubbles', 'cello', 'deranged', 'good news',
+      'hysterical', 'jester', 'organ', 'trinoids', 'whisper', 'zarvox',
     ];
 
-    if (calmLightVoices.some((tok) => name.includes(tok))) {
-      score += 460;
-    } else if (cleanLightLocalVoices.some((tok) => name.includes(tok))) {
-      // Strong boost over Windows SAPI5 David/Mark/George on Brave, Comet & Chromium
-      score += 380;
+    if (calmPeacefulMaleVoices.some((tok) => name.includes(tok))) {
+      score += 1100;
+    } else if (localMaleVoices.some((tok) => name.includes(tok))) {
+      score += 780;
     }
 
-    // Explicitly avoid heavy bass / deep / robotic male voices on ALL browsers & OSes
-    if (heavyOrBoomyVoices.some((tok) => name.includes(tok)) || /\bmale\b/.test(name)) {
-      score -= 1200;
+    // "Google US English" without "Male" is female — penalize so "Google UK English Male" or OS Male wins
+    const isPlainGoogleUsFemale = name.includes('google us english') && !name.includes('male');
+    if (femaleVoices.some((tok) => name.includes(tok)) || isPlainGoogleUsFemale) {
+      score -= 1400;
+    }
+
+    if (roboticOrNoveltyVoices.some((tok) => name.includes(tok))) {
+      score -= 2200;
     }
 
     return score;
@@ -995,7 +1041,7 @@ class AudioNarrator {
     return this.cachedBestVoice;
   }
 
-  // Calibrate rate & pitch per voice engine so every browser sounds calm, light, unhurried, and easy on the ear
+  // Calibrate rate & pitch per voice engine so every browser sounds like a calm, peaceful, warm man's voice (never heavy chest boom)
   private getBrowserAcousticProfile(
     voice: SpeechSynthesisVoice | null,
     activeRate: number
@@ -1018,11 +1064,12 @@ class AudioNarrator {
     if (isModernNeuralOrOnline) {
       return {
         rate: Math.max(0.76, Math.min(1.5, safeActive * 0.88)),
-        pitch: 1.03,
+        pitch: 0.99,
       };
     }
 
-    const isLightLocalVoice =
+    // Standard OS Male voices (e.g. George, Mark, David, Daniel): gentle lifted pitch so it sounds peaceful, warm & clear (never heavy boom)
+    const isFemale =
       name.includes('zira') ||
       name.includes('hazel') ||
       name.includes('susan') ||
@@ -1030,24 +1077,18 @@ class AudioNarrator {
       name.includes('eva') ||
       name.includes('elsa') ||
       name.includes('samantha') ||
-      name.includes('karen') ||
-      name.includes('kate') ||
-      name.includes('tessa') ||
-      name.includes('moira') ||
-      name.includes('fiona') ||
       name.includes('female');
 
-    if (isLightLocalVoice) {
+    if (isFemale) {
       return {
         rate: Math.max(0.78, Math.min(1.5, safeActive * 0.88)),
-        pitch: 1.05,
+        pitch: 0.86,
       };
     }
 
-    // Fallback bass OS voice (e.g. locked-down system with only David): lighten cleanly so it never booms
     return {
-      rate: Math.max(0.78, Math.min(1.5, safeActive * 0.90)),
-      pitch: 1.28,
+      rate: Math.max(0.78, Math.min(1.5, safeActive * 0.88)),
+      pitch: 1.08,
     };
   }
 
@@ -1225,8 +1266,8 @@ class AudioNarrator {
       if (this.currentSessionId !== sessionId || this.isPaused || !this.webAudioPlaying) return;
       this.webAudioPlaying = false;
       this.clearAllTimers();
-      this.isSpeaking = false;
       if (this.webAudioMode === 'single' && this.webAudioSingleOpts) {
+        this.isSpeaking = false;
         const sOpts = this.webAudioSingleOpts;
         const words = this.webAudioSingleTokens;
         const dur = buffer.duration || 1;
@@ -1240,6 +1281,7 @@ class AudioNarrator {
         });
         sOpts.onEnd?.();
       } else {
+        // Keep isSpeaking=true so handleChunkDone advances seamlessly from Chunk N to Chunk N+1 (fixing 0:31 stop)
         this.webAudioOpts?.onEnd?.();
       }
     };
@@ -1255,7 +1297,7 @@ class AudioNarrator {
     emitWebProgress();
   }
 
-  public seekTo(seconds: number): boolean {
+  public seekTo(seconds: number, targetSentenceIndex?: number): boolean {
     this.unlockOnUserGesture();
 
     if (!this.activeLectureOpts || this.activeLectureChunks.length === 0) {
@@ -1277,14 +1319,33 @@ class AudioNarrator {
     const clampedGlobal = Math.max(0, Math.min(totalDuration - 0.05, seconds));
 
     let targetIdx = 0;
-    for (let i = resolved.length - 1; i >= 0; i--) {
-      if (clampedGlobal >= resolved[i].resolvedStart) {
-        targetIdx = i;
-        break;
+    let localOffset = 0;
+    if (typeof targetSentenceIndex === 'number' && targetSentenceIndex >= 0) {
+      for (let i = resolved.length - 1; i >= 0; i--) {
+        if (targetSentenceIndex >= resolved[i].startSentenceIdx) {
+          targetIdx = i;
+          break;
+        }
       }
+      const chunk = resolved[targetIdx];
+      const localSIdx = Math.max(0, targetSentenceIndex - chunk.startSentenceIdx);
+      const cached = this.lectureCache.get(this.getLectureKey(chunk.sentences));
+      if (cached?.sentenceTimings?.[localSIdx]) {
+        localOffset = cached.sentenceTimings[localSIdx].start;
+      } else {
+        for (let k = 0; k < localSIdx; k++) {
+          localOffset += this.estimateDuration(chunk.sentences[k], 1.0);
+        }
+      }
+    } else {
+      for (let i = resolved.length - 1; i >= 0; i--) {
+        if (clampedGlobal >= resolved[i].resolvedStart) {
+          targetIdx = i;
+          break;
+        }
+      }
+      localOffset = Math.max(0, clampedGlobal - resolved[targetIdx].resolvedStart);
     }
-
-    const localOffset = Math.max(0, clampedGlobal - resolved[targetIdx].resolvedStart);
 
     if (targetIdx === this.activeChunkIndex && this.webAudioBuffer && (this.webAudioPlaying || this.isPaused)) {
       const localSec = Math.max(0, Math.min(this.webAudioBuffer.duration - 0.05, localOffset));
@@ -1335,6 +1396,7 @@ class AudioNarrator {
     }
 
     this.unlockOnUserGesture();
+    this.lectureGenerationId++;
     this.currentRate = Math.max(0.75, Math.min(2.0, opts.rate || this.currentRate || 1.0));
     this.currentVolume = Math.max(0, Math.min(1, opts.volume !== undefined ? opts.volume : this.currentVolume));
 
@@ -1343,18 +1405,40 @@ class AudioNarrator {
     const targetSec = Math.max(0, Math.min(totalDuration - 0.05, opts.startTimeOffset || 0));
 
     let startChunkIdx = 0;
-    for (let i = resolved.length - 1; i >= 0; i--) {
-      if (targetSec >= resolved[i].resolvedStart) {
-        startChunkIdx = i;
-        break;
+    let localOffset = 0;
+
+    if (typeof opts.startSentenceIndex === 'number' && opts.startSentenceIndex >= 0) {
+      const targetS = Math.min(cleanSentences.length - 1, opts.startSentenceIndex);
+      for (let i = resolved.length - 1; i >= 0; i--) {
+        if (targetS >= resolved[i].startSentenceIdx) {
+          startChunkIdx = i;
+          break;
+        }
       }
+      const chunk = resolved[startChunkIdx];
+      const localSIdx = Math.max(0, targetS - chunk.startSentenceIdx);
+      const cached = this.lectureCache.get(this.getLectureKey(chunk.sentences));
+      if (cached?.sentenceTimings?.[localSIdx]) {
+        localOffset = cached.sentenceTimings[localSIdx].start;
+      } else {
+        for (let k = 0; k < localSIdx; k++) {
+          localOffset += this.estimateDuration(chunk.sentences[k], 1.0);
+        }
+      }
+    } else {
+      for (let i = resolved.length - 1; i >= 0; i--) {
+        if (targetSec >= resolved[i].resolvedStart) {
+          startChunkIdx = i;
+          break;
+        }
+      }
+      localOffset = Math.max(0, targetSec - resolved[startChunkIdx].resolvedStart);
     }
 
     this.activeLectureChunks = chunks;
     this.activeLectureTotalDuration = totalDuration;
     this.activeLectureOpts = opts;
 
-    const localOffset = Math.max(0, targetSec - resolved[startChunkIdx].resolvedStart);
     this.startLectureAtChunk(startChunkIdx, localOffset, opts);
   }
 
@@ -1368,6 +1452,7 @@ class AudioNarrator {
 
     this.stop(true);
     const sessionId = ++this.currentSessionId;
+    const genId = this.lectureGenerationId;
     this.isSpeaking = true;
     this.isPaused = false;
     this.activeChunkIndex = chunkIdx;
@@ -1379,17 +1464,17 @@ class AudioNarrator {
     const chunk = chunks[chunkIdx];
     const key = this.getLectureKey(chunk.sentences);
 
-    // Pre-fetch next chunk ONLY while actively playing (never on paused/stopped state)
+    // Pre-fetch next chunk ONLY while actively playing (keeps prefetches alive across chunk advances!)
     if (chunkIdx + 1 < chunks.length) {
       setTimeout(() => {
-        if (this.currentSessionId === sessionId && this.isSpeaking && !this.isPaused) {
-          this.fetchLectureAudio(chunks[chunkIdx + 1].sentences, sessionId);
+        if (this.lectureGenerationId === genId && this.currentSessionId === sessionId && this.isSpeaking && !this.isPaused) {
+          this.fetchLectureAudio(chunks[chunkIdx + 1].sentences, genId, true);
         }
-      }, 450);
+      }, 350);
     }
 
     const handleChunkDone = () => {
-      if (this.currentSessionId !== sessionId || this.isPaused || !this.isSpeaking) return;
+      if (this.currentSessionId !== sessionId || this.lectureGenerationId !== genId || this.isPaused || !this.isSpeaking) return;
       if (chunkIdx + 1 < chunks.length) {
         this.startLectureAtChunk(chunkIdx + 1, 0, opts);
       } else {
@@ -1415,7 +1500,7 @@ class AudioNarrator {
         opts.onStart?.(mapped, this.activeLectureTotalDuration);
       },
       onProgress: (p) => {
-        if (this.currentSessionId !== sessionId || this.isPaused || !this.isSpeaking) return;
+        if (this.currentSessionId !== sessionId || this.lectureGenerationId !== genId || this.isPaused || !this.isSpeaking) return;
         opts.onProgress?.({
           currentTime: Math.min(this.activeLectureTotalDuration, this.activeChunkStartOffset + p.currentTime),
           duration: this.activeLectureTotalDuration,
@@ -1441,9 +1526,9 @@ class AudioNarrator {
     }
 
     opts.onLoadingChange?.(true);
-    this.fetchLectureAudio(chunk.sentences, sessionId).then((data) => {
+    this.fetchLectureAudio(chunk.sentences, genId, false).then((data) => {
       opts.onLoadingChange?.(false);
-      if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused) return;
+      if (this.currentSessionId !== sessionId || this.lectureGenerationId !== genId || !this.isSpeaking || this.isPaused) return;
       if (data) {
         this.playLectureWav(data, chunk.sentences, this.currentRate, this.currentVolume, sessionId, chunkOpts);
       } else {
@@ -1456,7 +1541,9 @@ class AudioNarrator {
           this.currentRate,
           this.currentVolume,
           sessionId,
-          chunkOpts
+          chunkOpts,
+          undefined,
+          true
         );
       }
     });
@@ -1652,15 +1739,15 @@ class AudioNarrator {
         if (hasEnded || this.currentSessionId !== sessionId) return;
         hasEnded = true;
         this.clearAllTimers();
-        this.isSpeaking = false;
         this.currentAudio = null;
+        // Keep isSpeaking=true so handleChunkDone advances seamlessly to Chunk N+1 (fixes 0:31 stop)
         opts.onEnd?.();
       };
 
       audio.onerror = () => {
         if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused) return;
         this.clearAllTimers();
-        this.playFallbackLectureSequence(sentences, opts.startTimeOffset || 0, rate, volume, sessionId, opts);
+        this.playFallbackLectureSequence(sentences, opts.startTimeOffset || 0, rate, volume, sessionId, opts, undefined, true);
       };
 
       this.currentAudio = audio;
@@ -1669,12 +1756,12 @@ class AudioNarrator {
       audio.play().catch(() => {
         if (this.currentSessionId === sessionId && this.isSpeaking && !this.isPaused) {
           this.clearAllTimers();
-          this.playFallbackLectureSequence(sentences, opts.startTimeOffset || 0, rate, volume, sessionId, opts);
+          this.playFallbackLectureSequence(sentences, opts.startTimeOffset || 0, rate, volume, sessionId, opts, undefined, true);
         }
       });
     } catch {
       if (this.currentSessionId === sessionId && this.isSpeaking && !this.isPaused) {
-        this.playFallbackLectureSequence(sentences, opts.startTimeOffset || 0, rate, volume, sessionId, opts);
+        this.playFallbackLectureSequence(sentences, opts.startTimeOffset || 0, rate, volume, sessionId, opts, undefined, true);
       }
     }
   }
@@ -1686,7 +1773,8 @@ class AudioNarrator {
     volume: number,
     sessionId: number,
     opts: LectureSpeakOptions,
-    resumeIndices?: { startIdx: number; startSubIdx: number }
+    resumeIndices?: { startIdx: number; startSubIdx: number },
+    fromLectureChunk: boolean = false
   ): Promise<void> {
     // Ensure async browser voice list (e.g. Brave / Comet / Chrome / Edge / Firefox) is ready before speaking
     await this.ensureVoicesLoaded(450);
@@ -1762,7 +1850,9 @@ class AudioNarrator {
       if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused) return;
       if (idx >= sentences.length) {
         this.clearAllTimers();
-        this.isSpeaking = false;
+        if (!fromLectureChunk) {
+          this.isSpeaking = false;
+        }
         this.fallbackResumeState = null;
         opts.onEnd?.();
         return;
@@ -1954,7 +2044,8 @@ class AudioNarrator {
               const progressFrac = Math.min(1, (emitGlobalIdx + 0.5) / Math.max(1, tokens.length));
               const syncedElapsed = progressFrac * estDurs[idx];
 
-              setTimeout(() => {
+              const bt = setTimeout(() => {
+                this.boundaryTimers.delete(bt);
                 if (this.currentSessionId !== sessionId || clauseDone || !this.isSpeaking || this.isPaused) return;
                 opts.onProgress?.({
                   currentTime: Math.min(totalDuration, baseStart + syncedElapsed),
@@ -1964,6 +2055,7 @@ class AudioNarrator {
                   wordIndex: emitGlobalIdx,
                 });
               }, 110);
+              this.boundaryTimers.add(bt);
             };
 
             utterance.onend = advanceClause;
@@ -2386,6 +2478,10 @@ class AudioNarrator {
       clearTimeout(this.safetyStartTimer);
       this.safetyStartTimer = null;
     }
+    if (this.boundaryTimers.size > 0) {
+      this.boundaryTimers.forEach((t) => clearTimeout(t));
+      this.boundaryTimers.clear();
+    }
   }
 
   private cancelSpeechSynthesisCleanly() {
@@ -2416,6 +2512,14 @@ class AudioNarrator {
       }
     });
     this.activeFetchControllers.clear();
+    this.prefetchControllers.forEach((ctrl) => {
+      try {
+        ctrl.abort();
+      } catch {
+        // Ignore
+      }
+    });
+    this.prefetchControllers.clear();
     if (this.webAudioPlaying && this.audioCtx && this.webAudioBuffer) {
       this.webAudioStartOffset = this.getWebAudioCurrentPos();
       this.stopWebAudioNode();
@@ -2461,7 +2565,8 @@ class AudioNarrator {
         this.currentVolume ?? st.volume,
         sessionId,
         st.opts,
-        { startIdx: this.currentFallbackIdx, startSubIdx: this.currentFallbackSubIdx }
+        { startIdx: this.currentFallbackIdx, startSubIdx: this.currentFallbackSubIdx },
+        true
       );
       return;
     }
@@ -2486,6 +2591,17 @@ class AudioNarrator {
       }
     });
     this.activeFetchControllers.clear();
+    if (!preserveChunkPlan) {
+      this.lectureGenerationId++;
+      this.prefetchControllers.forEach((ctrl) => {
+        try {
+          ctrl.abort();
+        } catch {
+          // Ignore
+        }
+      });
+      this.prefetchControllers.clear();
+    }
     this.stopWebAudioNode();
     this.webAudioBuffer = null;
     this.webAudioMode = null;
