@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import app from '../server';
 
-export default function handler(
+export default async function handler(
   req: IncomingMessage & { url?: string; body?: unknown; _body?: boolean },
   res: ServerResponse
 ) {
@@ -19,11 +19,14 @@ export default function handler(
     if (req.body !== undefined && req.body !== null && typeof req.body === 'object') {
       req._body = true;
     }
-    return app(req as any, res as any);
+    const expressHandler = app as unknown as (req: unknown, res: unknown) => unknown;
+    return await Promise.resolve(expressHandler(req, res));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Serverless function invocation failed';
-    res.statusCode = 500;
-    res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ error: message }));
+    if (!res.headersSent) {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ error: message }));
+    }
   }
 }

@@ -6,7 +6,10 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
-dotenv.config();
+const IS_VERCEL_ENV = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
+if (!IS_VERCEL_ENV) {
+  dotenv.config();
+}
 
 const __filename =
   typeof import.meta !== 'undefined' && typeof import.meta.url === 'string' && import.meta.url.startsWith('file:')
@@ -2939,7 +2942,8 @@ async function startServer() {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });
   } else {
-    const { createServer: createViteServer } = await import('vite');
+    const vitePkg = ['vi', 'te'].join('');
+    const { createServer: createViteServer } = await import(/* @vite-ignore */ vitePkg);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
