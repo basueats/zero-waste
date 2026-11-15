@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   surplusCourses,
   heroSustainableKitchenImg
 } from '../data/surplusData';
 import { COURSE_TOTAL_VIDEO_LABEL } from '../data/examStatusUtils';
+import { formatClockDuration } from '../data/udemyCourseStructure';
+import { getActiveResumeBookmark, setAutoResumePreference } from '../utils/playbackProgress';
 import {
   Play,
   Clock,
@@ -21,13 +23,18 @@ interface SurplusCoursesViewProps {
   onOpenCourse: (courseId: string) => void;
   onOpenQuizModal?: () => void;
   searchQuery: string;
+  learnerEmail?: string;
 }
 
 export const SurplusCoursesView: React.FC<SurplusCoursesViewProps> = ({
   onOpenCourse,
   searchQuery,
+  learnerEmail,
 }) => {
   const [expandedCourseId, setExpandedCourseId] = useState<string | null>('food-waste-prevention-chefs');
+  const resumeSnapshot = useMemo(() => getActiveResumeBookmark(learnerEmail), [learnerEmail]);
+  const [autoResume, setAutoResume] = useState<boolean>(resumeSnapshot.session.autoResumeEnabled);
+  const savedBookmark = resumeSnapshot.bookmark;
 
   const featuredCourse = surplusCourses.find((c) => c.isMasterCourse) || surplusCourses[0];
 
@@ -56,6 +63,45 @@ export const SurplusCoursesView: React.FC<SurplusCoursesViewProps> = ({
           </p>
         </div>
       </div>
+
+      {/* Continue Where You Left Off Card */}
+      {savedBookmark && savedBookmark.currentTimeSeconds > 1 && (
+        <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-5 border border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-emerald-400 bg-emerald-950/80 border border-emerald-500/40 px-2 py-0.5 rounded">
+                <Clock className="w-3 h-3" />
+                <span>Saved Spot · {formatClockDuration(savedBookmark.currentTimeSeconds)}</span>
+              </span>
+              <span className="text-[11px] text-slate-400 truncate">{savedBookmark.sectionTitle}</span>
+            </div>
+            <h3 className="font-bold text-sm sm:text-base text-white truncate">
+              {savedBookmark.lectureTitle}
+            </h3>
+            <label className="inline-flex items-center gap-2 pt-0.5 text-[11px] text-slate-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={autoResume}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setAutoResume(next);
+                  setAutoResumePreference(learnerEmail, next);
+                }}
+                className="accent-emerald-500 w-3.5 h-3.5 cursor-pointer"
+              />
+              <span>Automatically resume where I left off on sign-in or reopen</span>
+            </label>
+          </div>
+          <button
+            onClick={() => onOpenCourse(resumeSnapshot.session.courseId || featuredCourse.id)}
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-colors shrink-0 shadow-md cursor-pointer"
+          >
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span>Resume from {formatClockDuration(savedBookmark.currentTimeSeconds)}</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Culinary Courses Sister Platform Callout */}
       <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">

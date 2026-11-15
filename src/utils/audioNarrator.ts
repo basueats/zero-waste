@@ -286,6 +286,7 @@ class AudioNarrator {
   private activeChunkStartOffset: number = 0;
   private activeLectureTotalDuration: number = 0;
   private activeLectureOpts: LectureSpeakOptions | null = null;
+  private activeHtmlProgressSender: (() => void) | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -1357,7 +1358,7 @@ class AudioNarrator {
 
     let targetIdx = 0;
     let localOffset = 0;
-    if (typeof targetSentenceIndex === 'number' && targetSentenceIndex >= 0) {
+    if (typeof targetSentenceIndex === 'number' && targetSentenceIndex >= 0 && seconds <= 0) {
       for (let i = resolved.length - 1; i >= 0; i--) {
         if (targetSentenceIndex >= resolved[i].startSentenceIdx) {
           targetIdx = i;
@@ -1444,7 +1445,15 @@ class AudioNarrator {
     let startChunkIdx = 0;
     let localOffset = 0;
 
-    if (typeof opts.startSentenceIndex === 'number' && opts.startSentenceIndex >= 0) {
+    if (typeof opts.startTimeOffset === 'number' && opts.startTimeOffset > 0) {
+      for (let i = resolved.length - 1; i >= 0; i--) {
+        if (targetSec >= resolved[i].resolvedStart) {
+          startChunkIdx = i;
+          break;
+        }
+      }
+      localOffset = Math.max(0, targetSec - resolved[startChunkIdx].resolvedStart);
+    } else if (typeof opts.startSentenceIndex === 'number' && opts.startSentenceIndex >= 0) {
       const targetS = Math.min(cleanSentences.length - 1, opts.startSentenceIndex);
       for (let i = resolved.length - 1; i >= 0; i--) {
         if (targetS >= resolved[i].startSentenceIdx) {
@@ -1765,6 +1774,7 @@ class AudioNarrator {
         opts.onStart?.(timings, audio.duration || lectureData.duration);
       };
 
+      this.activeHtmlProgressSender = sendProgress;
       audio.ontimeupdate = sendProgress;
       this.progressInterval = setInterval(() => {
         if (this.currentSessionId === sessionId && this.isSpeaking && !this.isPaused) {
@@ -2539,6 +2549,10 @@ class AudioNarrator {
   }
 
   public pause(): void {
+    // Capture exact live Web Audio position BEFORE setting isPaused = true
+    if (this.webAudioPlaying && this.audioCtx && this.webAudioBuffer && !this.isPaused) {
+      this.webAudioStartOffset = this.getWebAudioCurrentPos();
+    }
     this.isPaused = true;
     this.clearAllTimers();
     this.activeFetchControllers.forEach((ctrl) => {
@@ -2557,8 +2571,7 @@ class AudioNarrator {
       }
     });
     this.prefetchControllers.clear();
-    if (this.webAudioPlaying && this.audioCtx && this.webAudioBuffer) {
-      this.webAudioStartOffset = this.getWebAudioCurrentPos();
+    if (this.webAudioPlaying) {
       this.stopWebAudioNode();
     }
     if (this.currentAudio && !this.currentAudio.paused) {
@@ -2586,6 +2599,16 @@ class AudioNarrator {
     }
     if (this.currentAudio && this.currentAudio.paused) {
       try {
+        this.clearAllTimers();
+        const sender = this.activeHtmlProgressSender;
+        const resumeSess = this.currentSessionId;
+        if (sender) {
+          this.progressInterval = setInterval(() => {
+            if (this.currentSessionId === resumeSess && this.isSpeaking && !this.isPaused) {
+              sender();
+            }
+          }, 50);
+        }
         this.currentAudio.play();
         return;
       } catch {
@@ -2644,6 +2667,7 @@ class AudioNarrator {
     this.webAudioMode = null;
     this.webAudioSingleOpts = null;
     this.webAudioSingleTokens = [];
+    this.activeHtmlProgressSender = null;
     this.fallbackResumeState = null;
     this.currentFallbackIdx = 0;
     this.currentFallbackSubIdx = 0;

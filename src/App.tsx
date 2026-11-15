@@ -31,6 +31,7 @@ import {
   computeExamUnlockStatus,
   loadStoredExamProgress,
 } from './data/examStatusUtils';
+import { getActiveResumeBookmark, markPlayerOpenState } from './utils/playbackProgress';
 
 // Route/Tab Code-Splitting so initial load stays tiny & instantaneous
 const AccessGateScreen = lazy(() =>
@@ -193,7 +194,14 @@ export default function App() {
     return 'courses';
   });
   const [activeSection, setActiveSection] = React.useState<string>('');
-  const [selectedCourseId, setSelectedCourseId] = React.useState<string | null>(null);
+  const [selectedCourseId, setSelectedCourseId] = React.useState<string | null>(() => {
+    if (!initialAuthSnapshot.hasOptimisticSession || !initialAuthSnapshot.user) return null;
+    const { session, bookmark } = getActiveResumeBookmark(initialAuthSnapshot.user.email);
+    if (session.autoResumeEnabled && session.wasOpenInPlayer && session.courseId && (bookmark || session.isQuizMode)) {
+      return session.courseId;
+    }
+    return null;
+  });
   const [searchQuery, setSearchQuery] = React.useState<string>('');
   const [completedLessonsCount] = React.useState<number>(2);
 
@@ -306,9 +314,15 @@ export default function App() {
       setAuthUser(hydratedUser);
       setGateNotice(null);
       if (resetTab) {
+        const { session, bookmark } = getActiveResumeBookmark(hydratedUser.email);
+        const shouldAutoResumePlayer =
+          session.autoResumeEnabled &&
+          session.wasOpenInPlayer &&
+          Boolean(session.courseId) &&
+          Boolean(bookmark || session.isQuizMode);
         setActiveNavTab('courses');
         setActiveSection('');
-        setSelectedCourseId(null);
+        setSelectedCourseId(shouldAutoResumePlayer ? session.courseId : null);
       }
       const updatedLearner: LearnerAccount = {
         email: hydratedUser.email,
@@ -869,8 +883,13 @@ export default function App() {
             <SurplusCoursePlayer
               courseId={selectedCourseId}
               learnerName={resolvedCertificateName}
-              onBackToCourses={() => setSelectedCourseId(null)}
+              learnerEmail={authUser.email}
+              onBackToCourses={() => {
+                markPlayerOpenState(authUser.email, selectedCourseId, false);
+                setSelectedCourseId(null);
+              }}
               onGoHome={() => {
+                markPlayerOpenState(authUser.email, selectedCourseId, false);
                 setSelectedCourseId(null);
                 handleSelectNavTab('home');
               }}
@@ -979,6 +998,7 @@ export default function App() {
                     <SurplusCoursesView
                       onOpenCourse={handleOpenCourse}
                       searchQuery={searchQuery}
+                      learnerEmail={authUser.email}
                     />
                   ) : activeNavTab === 'library' ? (
                     <SurplusLibraryView searchQuery={searchQuery} />

@@ -18,7 +18,10 @@ import {
   CheckCircle2,
   AlertCircle,
   Volume2,
+  Volume1,
   VolumeX,
+  Plus,
+  Minus,
   RotateCcw,
   RotateCw,
   FastForward,
@@ -73,6 +76,12 @@ import {
   computeWordProgressRanges,
   findWeightedWordIndex,
 } from '../utils/audioNarrator';
+import {
+  loadCourseResumeSession,
+  saveLectureProgress,
+  markPlayerOpenState,
+  setAutoResumePreference,
+} from '../utils/playbackProgress';
 import { SupritamoneLogo } from './SupritamoneLogo';
 import iso9001Logo from '../assets/images/iso_9001_certified.png';
 
@@ -80,6 +89,7 @@ interface SurplusCoursePlayerProps {
   courseId: string;
   initialSectionIndex?: number;
   learnerName?: string;
+  learnerEmail?: string;
   onBackToCourses: () => void;
   onGoHome?: () => void;
   onOpenCertify: () => void;
@@ -99,15 +109,54 @@ interface UserNote {
 export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   courseId,
   initialSectionIndex = 0,
+  learnerEmail,
   onBackToCourses,
   onGoHome,
   onOpenCertify,
   onExamStatusChange,
 }) => {
+  const initialResumeSnapshot = useMemo(() => {
+    const session = loadCourseResumeSession(learnerEmail);
+    const shouldResume = session.autoResumeEnabled;
+    if (!shouldResume) {
+      return {
+        autoResumeEnabled: false,
+        sectionIdx: initialSectionIndex,
+        lectureIdx: 0,
+        isQuizMode: false,
+        sentenceIdx: 0,
+        elapsedInSentence: 0,
+        currentTimeSeconds: 0,
+      };
+    }
+    const secIdx = Math.min(
+      UDEMY_ZERO_WASTE_SECTIONS.length - 1,
+      Math.max(0, typeof session.activeSectionIdx === 'number' ? session.activeSectionIdx : initialSectionIndex)
+    );
+    const sec = UDEMY_ZERO_WASTE_SECTIONS[secIdx] || UDEMY_ZERO_WASTE_SECTIONS[0];
+    const lecIdx = Math.min(
+      Math.max(0, (sec?.lectures?.length || 1) - 1),
+      Math.max(0, typeof session.activeLectureIdx === 'number' ? session.activeLectureIdx : 0)
+    );
+    const lec = sec?.lectures?.[lecIdx];
+    const lecBookmark = lec ? session.lectures[lec.id] : undefined;
+    return {
+      autoResumeEnabled: true,
+      sectionIdx: secIdx,
+      lectureIdx: lecIdx,
+      isQuizMode: Boolean(session.isQuizMode),
+      sentenceIdx: lecBookmark?.sentenceIdx || 0,
+      elapsedInSentence: lecBookmark?.elapsedInSentence || 0,
+      currentTimeSeconds: lecBookmark?.currentTimeSeconds || 0,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Navigation & Selection state
-  const [activeSectionIdx, setActiveSectionIdx] = useState<number>(initialSectionIndex);
-  const [activeLectureIdx, setActiveLectureIdx] = useState<number>(0);
-  const [isQuizMode, setIsQuizMode] = useState<boolean>(false);
+  const [activeSectionIdx, setActiveSectionIdx] = useState<number>(initialResumeSnapshot.sectionIdx);
+  const [activeLectureIdx, setActiveLectureIdx] = useState<number>(initialResumeSnapshot.lectureIdx);
+  const [isQuizMode, setIsQuizMode] = useState<boolean>(initialResumeSnapshot.isQuizMode);
+  const [autoResumeEnabled, setAutoResumeEnabled] = useState<boolean>(initialResumeSnapshot.autoResumeEnabled);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'study' | 'qa' | 'notes' | 'announcements' | 'reviews' | 'search' | 'tools'>('overview');
   const [sidebarTab, setSidebarTab] = useState<'content' | 'ai'>('content');
@@ -183,9 +232,18 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   // Video playback state (100% audio-driven live sync)
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isAudioBuffering, setIsAudioBuffering] = useState<boolean>(false);
-  const [currentSlideIdx, setCurrentSlideIdx] = useState<number>(0);
-  const [activeSentenceIdx, setActiveSentenceIdx] = useState<number>(0);
-  const [sentenceElapsed, setSentenceElapsed] = useState<number>(0);
+  const [currentSlideIdx, setCurrentSlideIdx] = useState<number>(() => {
+    const sec = UDEMY_ZERO_WASTE_SECTIONS[initialResumeSnapshot.sectionIdx] || UDEMY_ZERO_WASTE_SECTIONS[0];
+    const lec = sec?.lectures?.[initialResumeSnapshot.lectureIdx] || sec?.lectures?.[0];
+    const lines = lec?.transcript || [];
+    const line = lines[initialResumeSnapshot.sentenceIdx];
+    if (line && typeof line.slideIndex === 'number') {
+      return Math.min(Math.max(0, (lec?.slides?.length || 1) - 1), Math.max(0, line.slideIndex));
+    }
+    return 0;
+  });
+  const [activeSentenceIdx, setActiveSentenceIdx] = useState<number>(initialResumeSnapshot.sentenceIdx);
+  const [sentenceElapsed, setSentenceElapsed] = useState<number>(initialResumeSnapshot.elapsedInSentence);
   const [activeWordIndex, setActiveWordIndex] = useState<number>(-1);
   const [durationsVersion, setDurationsVersion] = useState<number>(0);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(() => {
@@ -217,7 +275,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
     }
   });
   const [showSpeedMenu, setShowSpeedMenu] = useState<boolean>(false);
+  const [showVolumeMenu, setShowVolumeMenu] = useState<boolean>(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState<boolean>(false);
+  const [clickFeedback, setClickFeedback] = useState<'play' | 'pause' | null>(null);
+  const viewportClickTimerRef = useRef<number | null>(null);
+  const clickFeedbackTimerRef = useRef<number | null>(null);
   const [autoplayNext, setAutoplayNext] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     try {
@@ -271,7 +333,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     UDEMY_ZERO_WASTE_SECTIONS.forEach((sec, idx) => {
-      initial[sec.id] = idx === (initialSectionIndex || 0);
+      initial[sec.id] = idx === initialResumeSnapshot.sectionIdx;
     });
     return initial;
   });
@@ -438,8 +500,43 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   volumeRef.current = volume;
   const currentLectureRef = useRef<CourseLectureItem>(currentLecture);
   currentLectureRef.current = currentLecture;
+  const currentSectionRef = useRef<UdemyCourseSection>(currentSection);
+  currentSectionRef.current = currentSection;
+  const activeSentenceIdxRef = useRef<number>(activeSentenceIdx);
+  activeSentenceIdxRef.current = activeSentenceIdx;
+  const sentenceElapsedRef = useRef<number>(sentenceElapsed);
+  sentenceElapsedRef.current = sentenceElapsed;
+  const currentTimeSecondsRef = useRef<number>(currentTimeSeconds);
+  currentTimeSecondsRef.current = currentTimeSeconds;
+  const totalDurationSecondsRef = useRef<number>(totalDurationSeconds);
+  totalDurationSecondsRef.current = totalDurationSeconds;
+  const isQuizModeRef = useRef<boolean>(isQuizMode);
+  isQuizModeRef.current = isQuizMode;
+  const sentenceDurationsRef = useRef<number[]>(sentenceDurations);
+  sentenceDurationsRef.current = sentenceDurations;
   const autoplayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const manualStopRef = useRef<boolean>(false);
+
+  const persistCurrentProgress = useCallback((wasOpenInPlayer: boolean = true) => {
+    const lec = currentLectureRef.current;
+    const sec = currentSectionRef.current;
+    if (!lec || !sec) return;
+    saveLectureProgress(learnerEmail, {
+      courseId,
+      wasOpenInPlayer,
+      isQuizMode: isQuizModeRef.current,
+      sectionIdx: activeSectionIdxRef.current,
+      lectureIdx: activeLectureIdxRef.current,
+      lectureId: lec.id,
+      lectureTitle: lec.title,
+      sectionTitle: sec.title,
+      sentenceIdx: activeSentenceIdxRef.current,
+      elapsedInSentence: sentenceElapsedRef.current,
+      currentTimeSeconds: currentTimeSecondsRef.current,
+      totalDurationSeconds: totalDurationSecondsRef.current,
+      updatedAt: Date.now(),
+    });
+  }, [learnerEmail, courseId]);
 
   const clearAutoplayTimer = useCallback(() => {
     if (autoplayTimerRef.current) {
@@ -447,6 +544,38 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
       autoplayTimerRef.current = null;
     }
   }, []);
+
+  // Mark player active on mount & persist progress whenever tab minimizes, closes, or unmounts
+  useEffect(() => {
+    markPlayerOpenState(learnerEmail, courseId, true);
+    const handleBackgroundSave = () => {
+      persistCurrentProgress(true);
+    };
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        persistCurrentProgress(true);
+      }
+    };
+    window.addEventListener('pagehide', handleBackgroundSave);
+    window.addEventListener('beforeunload', handleBackgroundSave);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      persistCurrentProgress(true);
+      window.removeEventListener('pagehide', handleBackgroundSave);
+      window.removeEventListener('beforeunload', handleBackgroundSave);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [learnerEmail, courseId, persistCurrentProgress]);
+
+  // Periodically save playback timestamp while playing (and immediately whenever paused/stopped)
+  useEffect(() => {
+    persistCurrentProgress(true);
+    if (!isPlaying) return;
+    const saveTimer = window.setInterval(() => {
+      persistCurrentProgress(true);
+    }, 1200);
+    return () => window.clearInterval(saveTimer);
+  }, [isPlaying, activeSectionIdx, activeLectureIdx, isQuizMode, persistCurrentProgress]);
 
   // Hydrate from local IndexedDB cache only (no automatic network loader on load)
   useEffect(() => {
@@ -499,7 +628,8 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   const handleToggleFullscreen = async () => {
     audioNarrator.playSound('click');
     const el = videoContainerRef.current;
-    if (!isFullscreen) {
+    const currentlyFullscreen = isFullscreen || Boolean(document.fullscreenElement);
+    if (!currentlyFullscreen) {
       try {
         if (el && el.requestFullscreen) {
           await el.requestFullscreen();
@@ -520,6 +650,64 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
       }
       setIsFullscreen(false);
     }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (viewportClickTimerRef.current) window.clearTimeout(viewportClickTimerRef.current);
+      if (clickFeedbackTimerRef.current) window.clearTimeout(clickFeedbackTimerRef.current);
+    };
+  }, []);
+
+  const triggerPlayPauseFeedback = (nextState: 'play' | 'pause') => {
+    setClickFeedback(nextState);
+    if (clickFeedbackTimerRef.current) window.clearTimeout(clickFeedbackTimerRef.current);
+    clickFeedbackTimerRef.current = window.setTimeout(() => {
+      setClickFeedback(null);
+    }, 550);
+  };
+
+  const handleVolumeChange = (nextRaw: number) => {
+    audioNarrator.unlockOnUserGesture();
+    const clamped = Math.round(Math.max(0, Math.min(1, nextRaw)) * 100) / 100;
+    setVolume(clamped);
+    volumeRef.current = clamped;
+    audioNarrator.setVolume(clamped);
+    if (clamped > 0 && isMutedRef.current) {
+      setIsMuted(false);
+      isMutedRef.current = false;
+      if (isPlayingRef.current) {
+        playSentence(activeSentenceIdxRef.current, currentTimeSecondsRef.current);
+      }
+    } else if (clamped === 0 && !isMutedRef.current) {
+      setIsMuted(true);
+      isMutedRef.current = true;
+      audioNarrator.stop();
+      persistCurrentProgress(true);
+    }
+  };
+
+  const handleViewportClick = () => {
+    setShowVolumeMenu(false);
+    setShowSettingsMenu(false);
+    setShowSpeedMenu(false);
+    if (viewportClickTimerRef.current) {
+      window.clearTimeout(viewportClickTimerRef.current);
+    }
+    viewportClickTimerRef.current = window.setTimeout(() => {
+      viewportClickTimerRef.current = null;
+      const nextFeedback = isPlayingRef.current ? 'pause' : 'play';
+      triggerPlayPauseFeedback(nextFeedback);
+      handleTogglePlay();
+    }, 200);
+  };
+
+  const handleViewportDoubleClick = () => {
+    if (viewportClickTimerRef.current) {
+      window.clearTimeout(viewportClickTimerRef.current);
+      viewportClickTimerRef.current = null;
+    }
+    void handleToggleFullscreen();
   };
 
   // Resolve exact slide index for a given sentence
@@ -583,9 +771,17 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
     }
 
     manualStopRef.current = false;
+    const segStart = sentenceStartTimesRef.current[index] || 0;
+    const segDur = Math.max(0.3, sentenceDurationsRef.current[index] || 5);
+    const preservedElapsed =
+      explicitStartSeconds !== undefined
+        ? Math.max(0, Math.min(segDur - 0.05, explicitStartSeconds - segStart))
+        : 0;
     setActiveSentenceIdx(index);
-    setSentenceElapsed(0);
-    setActiveWordIndex(-1);
+    setSentenceElapsed(preservedElapsed);
+    if (preservedElapsed <= 0.1) {
+      setActiveWordIndex(-1);
+    }
     setCurrentSlideIdx(resolveSlideForSentence(lecture, index));
 
     if (isMutedRef.current) {
@@ -650,18 +846,18 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
     });
   }, [resolveSlideForSentence, clearAutoplayTimer]);
 
-  // Play / Pause handler (clean immediate halt on pause/stop, exact resume without auto-restarting)
+  // Play / Pause handler (clean immediate halt on pause/stop, exact resume from stopped timestamp)
   const handleTogglePlay = () => {
     audioNarrator.unlockOnUserGesture();
 
-    if (!isPlaying) {
+    if (!isPlayingRef.current) {
       manualStopRef.current = false;
       setIsPlaying(true);
       isPlayingRef.current = true;
-      if (!isMuted && audioNarrator.getIsSpeaking() && audioNarrator.getIsPaused()) {
+      if (!isMutedRef.current && audioNarrator.getIsSpeaking() && audioNarrator.getIsPaused()) {
         audioNarrator.resume();
       } else {
-        playSentence(activeSentenceIdx, currentTimeSeconds);
+        playSentence(activeSentenceIdxRef.current, currentTimeSecondsRef.current);
       }
     } else {
       manualStopRef.current = true;
@@ -675,6 +871,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
       } else {
         audioNarrator.pause();
       }
+      persistCurrentProgress(true);
     }
   };
 
@@ -737,7 +934,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
       setIsPlaying(true);
       isPlayingRef.current = true;
       // If unified lecture audio is already loaded & playing, seek instantaneously inside the WAV stream
-      if (!isMutedRef.current && audioNarrator.getIsSpeaking() && audioNarrator.seekTo(clamped, targetSentenceIdx)) {
+      if (!isMutedRef.current && audioNarrator.getIsSpeaking() && audioNarrator.seekTo(clamped)) {
         if (audioNarrator.getIsPaused()) {
           audioNarrator.resume();
         }
@@ -746,9 +943,27 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
       }
     } else {
       manualStopRef.current = true;
-      audioNarrator.stop();
+      if (audioNarrator.getIsSpeaking()) {
+        audioNarrator.seekTo(clamped);
+        audioNarrator.pause();
+      }
     }
-  }, [totalDurationSeconds, sentenceStartTimes, resolveSlideForSentence, playSentence]);
+    saveLectureProgress(learnerEmail, {
+      courseId,
+      wasOpenInPlayer: true,
+      isQuizMode: false,
+      sectionIdx: activeSectionIdxRef.current,
+      lectureIdx: activeLectureIdxRef.current,
+      lectureId: currentLectureRef.current.id,
+      lectureTitle: currentLectureRef.current.title,
+      sectionTitle: currentSectionRef.current.title,
+      sentenceIdx: targetSentenceIdx,
+      elapsedInSentence: offsetInSentence,
+      currentTimeSeconds: clamped,
+      totalDurationSeconds: totalDurationSecondsRef.current,
+      updatedAt: Date.now(),
+    });
+  }, [totalDurationSeconds, sentenceStartTimes, resolveSlideForSentence, playSentence, learnerEmail, courseId]);
 
   // Handle Seeker Click
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -791,8 +1006,9 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
     });
   };
 
-  // Select a lecture
+  // Select a lecture (saves current lecture spot & restores incoming lecture spot if auto-resume enabled)
   const handleSelectLecture = (secIdx: number, lecIdx: number) => {
+    persistCurrentProgress(true);
     manualStopRef.current = true;
     clearAutoplayTimer();
     audioNarrator.stop();
@@ -802,9 +1018,23 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
     setIsQuizMode(false);
     setActiveSectionIdx(secIdx);
     setActiveLectureIdx(lecIdx);
-    setCurrentSlideIdx(0);
-    setActiveSentenceIdx(0);
-    setSentenceElapsed(0);
+
+    const targetSec = UDEMY_ZERO_WASTE_SECTIONS[secIdx];
+    const targetLec = targetSec?.lectures?.[lecIdx];
+    const session = loadCourseResumeSession(learnerEmail);
+    const savedBookmark = autoResumeEnabled && targetLec ? session.lectures[targetLec.id] : undefined;
+    const canResume =
+      savedBookmark &&
+      savedBookmark.currentTimeSeconds > 2 &&
+      savedBookmark.currentTimeSeconds < Math.max(5, (targetLec?.durationSeconds || 60) - 3);
+
+    const nextSentenceIdx = canResume ? savedBookmark.sentenceIdx : 0;
+    const nextElapsed = canResume ? savedBookmark.elapsedInSentence : 0;
+    const nextSlide = targetLec ? resolveSlideForSentence(targetLec, nextSentenceIdx) : 0;
+
+    setCurrentSlideIdx(nextSlide);
+    setActiveSentenceIdx(nextSentenceIdx);
+    setSentenceElapsed(nextElapsed);
     setActiveWordIndex(-1);
     setOpenResourceMenuId(null);
   };
@@ -1005,7 +1235,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           {/* Zero Waste by Supritamone Official Logo (Navigates to Home Page) */}
           <button
-            onClick={() => (onGoHome ? onGoHome() : onBackToCourses())}
+            onClick={() => {
+              persistCurrentProgress(false);
+              if (onGoHome) onGoHome();
+              else onBackToCourses();
+            }}
             className="flex items-center gap-2 group hover:opacity-95 transition-opacity cursor-pointer shrink-0"
             title="Go to Zero Waste Academy Home"
           >
@@ -1096,7 +1330,10 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
 
           {/* More options menu */}
           <button
-            onClick={onBackToCourses}
+            onClick={() => {
+              persistCurrentProgress(false);
+              onBackToCourses();
+            }}
             className="p-1.5 rounded-md hover:bg-[#2d2f31] text-slate-300 hover:text-white"
             title="Exit player"
           >
@@ -1316,7 +1553,20 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
               </div>
             ) : (
               /* --- VIDEO LECTURE PLAYER WITH REAL SLIDE PRESENTATION VISUALS --- */
-              <div className="relative min-h-[420px] sm:min-h-0 sm:aspect-video w-full flex items-center justify-center overflow-hidden group">
+              <div
+                onClick={handleViewportClick}
+                onDoubleClick={handleViewportDoubleClick}
+                title={
+                  isFullscreen
+                    ? 'Click anywhere to Play / Pause · Double-click to exit fullscreen'
+                    : 'Click anywhere to Play / Pause · Double-click for fullscreen'
+                }
+                className={`relative w-full flex items-center justify-center overflow-hidden group cursor-pointer ${
+                  isFullscreen
+                    ? 'h-full max-h-screen'
+                    : 'min-h-[420px] sm:min-h-0 sm:aspect-video'
+                }`}
+              >
                 {/* 1. REAL SLIDE CANVAS */}
                 <div className="absolute inset-0 bg-[#f7f9fa] text-slate-900 p-4 sm:p-8 lg:p-10 flex flex-col justify-between overflow-y-auto sm:overflow-hidden pb-20 sm:pb-14">
                   {/* Slide Header: Course program & Title (padded right to never touch top-right PiP card) */}
@@ -1448,15 +1698,50 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   </div>
                 </div>
 
-                {/* 3. CENTER BIG PLAY BUTTON (Matching Image 1) */}
+                {/* 3. CENTER BIG PLAY BUTTON OR TRANSIENT CLICK FEEDBACK */}
                 {!isPlaying && (
-                  <button
-                    onClick={handleTogglePlay}
-                    className="w-18 h-18 sm:w-20 sm:h-20 rounded-full bg-black/80 hover:bg-black text-white flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all z-20 cursor-pointer border border-white/20"
-                    aria-label="Play video"
-                  >
-                    <Play className="w-9 h-9 fill-white ml-1 text-white" />
-                  </button>
+                  <div className="z-20 flex flex-col items-center gap-2.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        triggerPlayPauseFeedback('play');
+                        handleTogglePlay();
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        handleViewportDoubleClick();
+                      }}
+                      className="w-18 h-18 sm:w-20 sm:h-20 rounded-full bg-black/80 hover:bg-black text-white flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all cursor-pointer border border-white/20"
+                      aria-label="Play video"
+                    >
+                      <Play className="w-9 h-9 fill-white ml-1 text-white" />
+                    </button>
+                    {currentTimeSeconds > 2 && (
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          triggerPlayPauseFeedback('play');
+                          handleTogglePlay();
+                        }}
+                        className="px-3 py-1 rounded-full bg-black/80 text-white text-[11px] font-semibold border border-white/20 shadow-lg flex items-center gap-1.5 backdrop-blur-xs cursor-pointer hover:bg-black"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#4ade80]" />
+                        <span>Resume from {formatSeconds(currentTimeSeconds)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {isPlaying && clickFeedback && (
+                  <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+                    <div className="w-16 h-16 rounded-full bg-black/70 text-white flex items-center justify-center shadow-2xl border border-white/20 animate-in fade-in zoom-in-95 duration-150">
+                      {clickFeedback === 'pause' ? (
+                        <Pause className="w-7 h-7" />
+                      ) : (
+                        <Play className="w-7 h-7 fill-white ml-0.5" />
+                      )}
+                    </div>
+                  </div>
                 )}
 
                 {/* 4. LIVE-SYNCED SUBTITLES / CLOSED CAPTIONS BANNER (Word-by-word karaoke highlight + live sentence bar) */}
@@ -1503,7 +1788,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
 
                   {/* 5. DEEP GREEN TOGGLE BUTTON FOR SIDEBAR ON RIGHT EDGE */}
                   <button
-                    onClick={() => setIsSidebarOpen(prev => !prev)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsSidebarOpen(prev => !prev);
+                    }}
+                    onDoubleClick={(e) => e.stopPropagation()}
                     className="absolute right-0 top-1/2 -translate-y-1/2 z-30 w-6 h-12 bg-[#0a3620] hover:bg-[#14532d] border-y border-l border-[#22c55e]/40 text-white flex items-center justify-center rounded-l-md shadow-lg transition-transform cursor-pointer"
                     title={isSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
                   >
@@ -1515,7 +1804,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   </button>
 
                   {/* 6. BOTTOM CUSTOM VIDEO CONTROLS BAR */}
-                  <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/90 to-transparent p-2 pt-6 z-20 flex flex-col gap-1.5 opacity-90 hover:opacity-100 transition-opacity">
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/90 to-transparent p-2 pt-6 z-20 flex flex-col gap-1.5 opacity-95 hover:opacity-100 transition-opacity cursor-default"
+                  >
                     {/* Dark green scrubber bar */}
                     <div
                       onClick={handleSeek}
@@ -1615,27 +1908,114 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
 
                       {/* Right: Volume, CC, Settings, Fullscreen */}
                       <div className="flex items-center gap-2 sm:gap-3">
-                        {/* Audio mute */}
-                        <button
-                          onClick={() => {
-                            audioNarrator.unlockOnUserGesture();
-                            const nextMuted = !isMuted;
-                            setIsMuted(nextMuted);
-                            isMutedRef.current = nextMuted;
-                            if (nextMuted) {
-                              audioNarrator.stop();
-                            } else {
-                              audioNarrator.playSound('click');
-                              if (isPlayingRef.current) {
-                                playSentence(activeSentenceIdx, currentTimeSeconds);
-                              }
-                            }
-                          }}
-                          className="hover:text-white text-slate-300 transition-colors cursor-pointer"
-                          title={isMuted ? 'Unmute' : 'Mute'}
-                        >
-                          {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
-                        </button>
+                        {/* Interactive Volume Button & Control Popover */}
+                        <div className="relative flex items-center">
+                          <button
+                            onClick={() => {
+                              audioNarrator.unlockOnUserGesture();
+                              setShowVolumeMenu(prev => !prev);
+                              setShowSettingsMenu(false);
+                              setShowSpeedMenu(false);
+                            }}
+                            className={`hover:text-white transition-colors cursor-pointer p-1 rounded flex items-center gap-1 ${
+                              showVolumeMenu ? 'text-[#4ade80] bg-white/10' : 'text-slate-300'
+                            }`}
+                            title="Volume Controls (Increase / Decrease / Mute)"
+                            aria-label="Volume controls"
+                          >
+                            {isMuted || volume === 0 ? (
+                              <VolumeX className="w-4 h-4 text-red-400" />
+                            ) : volume < 0.5 ? (
+                              <Volume1 className="w-4 h-4 text-[#4ade80]" />
+                            ) : (
+                              <Volume2 className="w-4 h-4" />
+                            )}
+                          </button>
+
+                          {showVolumeMenu && (
+                            <div className="absolute bottom-full right-0 mb-2 w-56 bg-[#1c1d1f] border border-[#3e4143] rounded-xl shadow-2xl p-3 z-50 text-xs text-white space-y-2.5">
+                              <div className="flex items-center justify-between border-b border-[#2d2f31] pb-1.5">
+                                <span className="font-bold text-white">Audio Volume</span>
+                                <span className="font-mono text-[11px] font-bold text-[#4ade80]">
+                                  {isMuted ? 'Muted' : `${Math.round(volume * 100)}%`}
+                                </span>
+                              </div>
+
+                              {/* Decrease / Slider / Increase */}
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleVolumeChange((isMuted ? 0 : volume) - 0.1)}
+                                  className="w-7 h-7 rounded-md bg-[#2d2f31] hover:bg-[#3e4143] text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                                  title="Decrease volume (-10%)"
+                                  aria-label="Decrease volume"
+                                >
+                                  <Minus className="w-3.5 h-3.5" />
+                                </button>
+                                <input
+                                  type="range"
+                                  min={0}
+                                  max={100}
+                                  value={isMuted ? 0 : Math.round(volume * 100)}
+                                  onChange={(e) => handleVolumeChange(parseInt(e.target.value, 10) / 100)}
+                                  className="w-full accent-[#16a34a] cursor-pointer"
+                                  aria-label="Volume level slider"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleVolumeChange((isMuted ? 0 : volume) + 0.1)}
+                                  className="w-7 h-7 rounded-md bg-[#2d2f31] hover:bg-[#3e4143] text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                                  title="Increase volume (+10%)"
+                                  aria-label="Increase volume"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+
+                              {/* Quick Mute/Unmute & Preset Strip */}
+                              <div className="flex items-center justify-between gap-1.5 pt-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    audioNarrator.unlockOnUserGesture();
+                                    const nextMuted = !isMutedRef.current;
+                                    setIsMuted(nextMuted);
+                                    isMutedRef.current = nextMuted;
+                                    if (nextMuted) {
+                                      audioNarrator.stop();
+                                      persistCurrentProgress(true);
+                                    } else {
+                                      if (volumeRef.current === 0) handleVolumeChange(0.8);
+                                      else if (isPlayingRef.current) {
+                                        playSentence(activeSentenceIdxRef.current, currentTimeSecondsRef.current);
+                                      }
+                                    }
+                                  }}
+                                  className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
+                                    isMuted
+                                      ? 'bg-[#166534] hover:bg-[#14532d] text-white'
+                                      : 'bg-[#2d2f31] hover:bg-[#3e4143] text-slate-200'
+                                  }`}
+                                >
+                                  {isMuted ? <Volume2 className="w-3 h-3" /> : <VolumeX className="w-3 h-3 text-red-400" />}
+                                  <span>{isMuted ? 'Unmute' : 'Mute'}</span>
+                                </button>
+                                <div className="flex items-center gap-1">
+                                  {[0.5, 1].map((preset) => (
+                                    <button
+                                      key={preset}
+                                      type="button"
+                                      onClick={() => handleVolumeChange(preset)}
+                                      className="px-2 py-1 rounded bg-[#2d2f31] hover:bg-[#3e4143] text-[10px] font-mono text-slate-300 cursor-pointer"
+                                    >
+                                      {preset * 100}%
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
 
                         {/* Closed Captions CC */}
                         <button
@@ -1654,6 +2034,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                             onClick={() => {
                               setShowSettingsMenu(prev => !prev);
                               setShowSpeedMenu(false);
+                              setShowVolumeMenu(false);
                             }}
                             className={`hover:text-white transition-colors cursor-pointer p-1 rounded ${
                               showSettingsMenu ? 'text-[#4ade80]' : 'text-slate-300'
@@ -1693,15 +2074,17 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                                     setVolume(nextVol);
                                     volumeRef.current = nextVol;
                                     audioNarrator.setVolume(nextVol);
-                                    if (nextVol > 0 && isMuted) {
+                                    if (nextVol > 0 && isMutedRef.current) {
                                       setIsMuted(false);
                                       isMutedRef.current = false;
                                       if (isPlayingRef.current) {
-                                        playSentence(activeSentenceIdx, currentTimeSeconds);
+                                        playSentence(activeSentenceIdxRef.current, currentTimeSecondsRef.current);
                                       }
-                                    } else if (nextVol === 0 && !isMuted) {
+                                    } else if (nextVol === 0 && !isMutedRef.current) {
                                       setIsMuted(true);
                                       isMutedRef.current = true;
+                                      audioNarrator.stop();
+                                      persistCurrentProgress(true);
                                     }
                                   }}
                                   className="w-full accent-[#166534] cursor-pointer"
@@ -1753,6 +2136,34 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                                   className="accent-[#166534] w-3.5 h-3.5 cursor-pointer"
                                 />
                               </label>
+
+                              {/* Auto-Resume Where Left Off Toggle */}
+                              <label className="flex items-center justify-between cursor-pointer">
+                                <span className="text-[11px] text-slate-300">Resume where I left off</span>
+                                <input
+                                  type="checkbox"
+                                  checked={autoResumeEnabled}
+                                  onChange={(e) => {
+                                    const next = e.target.checked;
+                                    setAutoResumeEnabled(next);
+                                    setAutoResumePreference(learnerEmail, next);
+                                  }}
+                                  className="accent-[#166534] w-3.5 h-3.5 cursor-pointer"
+                                />
+                              </label>
+
+                              {/* Restart Current Lecture Button */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  seekToTime(0, isPlayingRef.current);
+                                  setShowSettingsMenu(false);
+                                }}
+                                className="w-full mt-1 py-1.5 px-2.5 rounded-lg bg-[#2d2f31] hover:bg-[#3e4143] text-[11px] font-semibold text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                <span>Restart Lecture from 0:00</span>
+                              </button>
                             </div>
                           )}
                         </div>
