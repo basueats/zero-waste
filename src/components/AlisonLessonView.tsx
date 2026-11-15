@@ -57,17 +57,14 @@ export const AlisonLessonView: React.FC<AlisonLessonViewProps> = ({
     [lesson.title, lesson.sections]
   );
 
-  // Reset quick check & prefetch unified Fenrir audio when lesson changes
+  // Reset quick check & halt audio cleanly when lesson changes
   React.useEffect(() => {
     setSelectedQuickAnswer(null);
     setQuickSubmitted(false);
     audioNarrator.stop();
     setIsPlayingAudio(false);
     setActiveReadingSection(null);
-    if (lectureAudioSentences.length > 0) {
-      audioNarrator.prefetchLecture(lectureAudioSentences);
-    }
-  }, [lesson.id, lectureAudioSentences]);
+  }, [lesson.id]);
 
   const toggleSpeech = () => {
     audioNarrator.unlockOnUserGesture();

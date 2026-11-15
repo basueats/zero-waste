@@ -101,12 +101,7 @@ export const InteractiveVideoPlayer: React.FC<InteractiveVideoPlayerProps> = ({
   volumeRef.current = volume;
   const lastSentenceIdxRef = useRef<number>(0);
 
-  // Prefetch unified Fenrir lecture WAV
-  useEffect(() => {
-    if (transcript.length > 0) {
-      audioNarrator.prefetchLecture(transcript.map((t) => t.text));
-    }
-  }, [transcript]);
+  // Clean stop on unmount without auto-launching background loaders on mount
 
   // Clean stop on unmount
   useEffect(() => {

@@ -219,12 +219,12 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   const [showSpeedMenu, setShowSpeedMenu] = useState<boolean>(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState<boolean>(false);
   const [autoplayNext, setAutoplayNext] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true;
+    if (typeof window === 'undefined') return false;
     try {
       const saved = JSON.parse(localStorage.getItem('supritamone_player_prefs_v1') || '{}');
-      return typeof saved.autoplayNext === 'boolean' ? saved.autoplayNext : true;
+      return typeof saved.autoplayNext === 'boolean' ? saved.autoplayNext : false;
     } catch {
-      return true;
+      return false;
     }
   });
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
@@ -438,8 +438,17 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   volumeRef.current = volume;
   const currentLectureRef = useRef<CourseLectureItem>(currentLecture);
   currentLectureRef.current = currentLecture;
+  const autoplayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const manualStopRef = useRef<boolean>(false);
 
-  // Pre-synthesize & cache Chunk 0 of the active lecture on idle load
+  const clearAutoplayTimer = useCallback(() => {
+    if (autoplayTimerRef.current) {
+      clearTimeout(autoplayTimerRef.current);
+      autoplayTimerRef.current = null;
+    }
+  }, []);
+
+  // Hydrate from local IndexedDB cache only (no automatic network loader on load)
   useEffect(() => {
     if (!isQuizMode && currentTranscript.length > 0) {
       audioNarrator.prefetchLecture(currentTranscript.map(t => t.text));
@@ -449,9 +458,10 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   // Clean stop on unmount
   useEffect(() => {
     return () => {
+      clearAutoplayTimer();
       audioNarrator.stop();
     };
-  }, []);
+  }, [clearAutoplayTimer]);
 
   // Toggle Section in accordion
   const toggleSectionAccordion = (secId: string) => {
@@ -547,13 +557,16 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
       audioNarrator.playSound('correct');
       setCompletedLectures(old => new Set([...old, lecture.id]));
 
-      // Autoplay next lecture within the same section if enabled
-      if (autoplayNextRef.current) {
+      // Autoplay next lecture within the same section ONLY if enabled and user hasn't stopped
+      if (autoplayNextRef.current && !manualStopRef.current) {
         const sec = UDEMY_ZERO_WASTE_SECTIONS[activeSectionIdxRef.current];
         const nextLecIdx = activeLectureIdxRef.current + 1;
         if (sec && nextLecIdx < sec.lectures.length) {
           const nextLecture = sec.lectures[nextLecIdx];
-          setTimeout(() => {
+          clearAutoplayTimer();
+          autoplayTimerRef.current = setTimeout(() => {
+            autoplayTimerRef.current = null;
+            if (manualStopRef.current || !autoplayNextRef.current) return;
             currentLectureRef.current = nextLecture;
             setActiveLectureIdx(nextLecIdx);
             setCurrentSlideIdx(0);
@@ -569,6 +582,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
       return;
     }
 
+    manualStopRef.current = false;
     setActiveSentenceIdx(index);
     setSentenceElapsed(0);
     setActiveWordIndex(-1);
@@ -590,12 +604,12 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
       rate: playbackSpeedRef.current,
       volume: volumeRef.current,
       onLoadingChange: (loading) => {
-        if (currentLectureRef.current.id === lecture.id) {
+        if (currentLectureRef.current.id === lecture.id && !manualStopRef.current) {
           setIsAudioBuffering(loading);
         }
       },
       onProgress: (p) => {
-        if (!isPlayingRef.current || currentLectureRef.current.id !== lecture.id) return;
+        if (!isPlayingRef.current || manualStopRef.current || currentLectureRef.current.id !== lecture.id) return;
         setActiveSentenceIdx(p.sentenceIndex);
         setSentenceElapsed(p.sentenceElapsed);
         setActiveWordIndex(p.wordIndex);
@@ -610,12 +624,15 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
         audioNarrator.playSound('correct');
         setCompletedLectures(old => new Set([...old, lecture.id]));
 
-        if (autoplayNextRef.current) {
+        if (autoplayNextRef.current && !manualStopRef.current) {
           const sec = UDEMY_ZERO_WASTE_SECTIONS[activeSectionIdxRef.current];
           const nextLecIdx = activeLectureIdxRef.current + 1;
           if (sec && nextLecIdx < sec.lectures.length) {
             const nextLecture = sec.lectures[nextLecIdx];
-            setTimeout(() => {
+            clearAutoplayTimer();
+            autoplayTimerRef.current = setTimeout(() => {
+              autoplayTimerRef.current = null;
+              if (manualStopRef.current || !autoplayNextRef.current) return;
               currentLectureRef.current = nextLecture;
               setActiveLectureIdx(nextLecIdx);
               setCurrentSlideIdx(0);
@@ -630,13 +647,14 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
         }
       },
     });
-  }, [resolveSlideForSentence]);
+  }, [resolveSlideForSentence, clearAutoplayTimer]);
 
-  // Play / Pause handler (supports exact pause/resume without restarting sentence)
+  // Play / Pause handler (clean immediate halt on pause/stop, exact resume without auto-restarting)
   const handleTogglePlay = () => {
     audioNarrator.unlockOnUserGesture();
 
     if (!isPlaying) {
+      manualStopRef.current = false;
       setIsPlaying(true);
       isPlayingRef.current = true;
       if (!isMuted && audioNarrator.getIsSpeaking() && audioNarrator.getIsPaused()) {
@@ -645,13 +663,16 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
         playSentence(activeSentenceIdx, currentTimeSeconds);
       }
     } else {
+      manualStopRef.current = true;
+      clearAutoplayTimer();
       setIsPlaying(false);
       isPlayingRef.current = false;
+      const wasBuffering = isAudioBuffering;
       setIsAudioBuffering(false);
-      if (audioNarrator.getIsSpeaking()) {
-        audioNarrator.pause();
-      } else {
+      if (wasBuffering || !audioNarrator.getIsSpeaking()) {
         audioNarrator.stop();
+      } else {
+        audioNarrator.pause();
       }
     }
   };
@@ -769,7 +790,10 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
 
   // Select a lecture
   const handleSelectLecture = (secIdx: number, lecIdx: number) => {
+    manualStopRef.current = true;
+    clearAutoplayTimer();
     audioNarrator.stop();
+    setIsAudioBuffering(false);
     setIsPlaying(false);
     isPlayingRef.current = false;
     setIsQuizMode(false);
@@ -784,7 +808,10 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
 
   // Select Quiz for a section
   const handleSelectQuiz = (secIdx: number) => {
+    manualStopRef.current = true;
+    clearAutoplayTimer();
     audioNarrator.stop();
+    setIsAudioBuffering(false);
     setIsPlaying(false);
     isPlayingRef.current = false;
     setActiveSectionIdx(secIdx);
@@ -969,8 +996,8 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-[#1c1d1f] text-white flex flex-col font-sans selection:bg-[#a435f0] selection:text-white">
-      {/* 1. TOP NAVBAR: EXACT UDEMY BAR (Matches Image 1) */}
+    <div className="min-h-screen bg-[#1c1d1f] text-white flex flex-col font-sans selection:bg-[#166534] selection:text-white">
+      {/* 1. TOP NAVBAR: ZERO WASTE ACADEMY BAR */}
       <header className="h-14 bg-[#1c1d1f] border-b border-[#2d2f31] px-2.5 sm:px-4 flex items-center justify-between gap-2 z-30 shrink-0 safe-pt">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           {/* Zero Waste by Supritamone Official Logo (Navigates to Home Page) */}
@@ -1002,7 +1029,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
             >
               <Award className="w-4 h-4 text-[#e59819]" />
               <span className="hidden md:inline">Your progress</span>
-              <span className="text-[#c0c4fc] font-mono text-[11px]">{progressPercentage}%</span>
+              <span className="text-[#86efac] font-mono text-[11px]">{progressPercentage}%</span>
               <ChevronDown className="w-3.5 h-3.5 text-[#8a8b8c]" />
             </button>
 
@@ -1012,11 +1039,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
             }`}>
               <div className="flex items-center justify-between text-xs mb-1.5">
                 <span className="font-bold text-white">Course Completion</span>
-                <span className="font-mono text-[#a435f0] font-bold">{progressPercentage}%</span>
+                <span className="font-mono text-[#4ade80] font-bold">{progressPercentage}%</span>
               </div>
               <div className="w-full bg-[#3e4143] h-2 rounded-full overflow-hidden mb-3">
                 <div 
-                  className="bg-[#a435f0] h-full rounded-full transition-all duration-300"
+                  className="bg-[#166534] h-full rounded-full transition-all duration-300"
                   style={{ width: `${progressPercentage}%` }}
                 />
               </div>
@@ -1030,7 +1057,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                 }}
                 className={`w-full py-2 text-xs font-bold rounded transition-colors text-center cursor-pointer flex items-center justify-center gap-1.5 ${
                   examStatus.isUnlocked
-                    ? 'bg-[#a435f0] hover:bg-[#8710d8] text-white'
+                    ? 'bg-[#166534] hover:bg-[#14532d] text-white'
                     : 'bg-[#2d2f31] hover:bg-[#3e4143] text-slate-300 border border-[#3e4143]'
                 }`}
               >
@@ -1077,7 +1104,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
 
       {/* Share Toast Notification */}
       {showShareToast && (
-        <div className="fixed top-16 right-6 z-50 bg-[#2d2f31] border border-[#a435f0] text-white text-xs px-4 py-2.5 rounded-lg shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+        <div className="fixed top-16 right-6 z-50 bg-[#2d2f31] border border-[#15803d] text-white text-xs px-4 py-2.5 rounded-lg shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           <span>Course link copied to clipboard!</span>
         </div>
@@ -1102,7 +1129,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                 {/* Quiz Header */}
                 <div className="border-b border-[#3e4143] pb-4 mb-6">
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                    <span className="text-[11px] font-mono uppercase tracking-wider text-[#c0c4fc] bg-[#2d2f31] px-2.5 py-0.5 rounded border border-[#3e4143]">
+                    <span className="text-[11px] font-mono uppercase tracking-wider text-[#86efac] bg-[#2d2f31] px-2.5 py-0.5 rounded border border-[#3e4143]">
                       Section {currentSection.sectionNumber} Assessment · Passing Standard: 37%
                     </span>
                     <span className="text-xs text-[#8a8b8c] font-mono">
@@ -1116,7 +1143,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   {/* Progress Line */}
                   <div className="w-full bg-[#3e4143] h-1.5 rounded-full overflow-hidden mt-3">
                     <div 
-                      className="bg-[#a435f0] h-full transition-all duration-200"
+                      className="bg-[#166534] h-full transition-all duration-200"
                       style={{ width: `${((currentQuizQuestionIdx + 1) / currentQuiz.questions.length) * 100}%` }}
                     />
                   </div>
@@ -1133,7 +1160,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       <p className="text-xs text-[#8a8b8c] mt-1">Select the single best answer below.</p>
                     </div>
 
-                    {/* Options (Radio style matching Udemy practice test) */}
+                    {/* Options (Radio style) */}
                     <div className="space-y-3">
                       {currentQuiz.questions[currentQuizQuestionIdx].options.map((opt, optIdx) => {
                         const isSelected = selectedAnswers[currentQuizQuestionIdx] === optIdx;
@@ -1143,12 +1170,12 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                             onClick={() => handleSelectQuizOption(currentQuizQuestionIdx, optIdx)}
                             className={`p-3.5 sm:p-4 rounded-xl border text-sm sm:text-base cursor-pointer transition-all flex items-start gap-3 ${
                               isSelected
-                                ? 'border-[#a435f0] bg-[#2d2f31] text-white shadow-md'
+                                ? 'border-[#16a34a] bg-[#14532d]/30 text-white shadow-md'
                                 : 'border-[#3e4143] bg-[#242629] text-slate-300 hover:border-[#6a6f73] hover:bg-[#2d2f31]'
                             }`}
                           >
                             <div className={`w-5 h-5 rounded-full border-2 mt-0.5 flex items-center justify-center shrink-0 ${
-                              isSelected ? 'border-[#a435f0] bg-[#a435f0]' : 'border-[#6a6f73]'
+                              isSelected ? 'border-[#16a34a] bg-[#166534]' : 'border-[#6a6f73]'
                             }`}>
                               {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
                             </div>
@@ -1194,7 +1221,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                           <button
                             onClick={handleProceedToNextChapter}
                             disabled={activeSectionIdx === UDEMY_ZERO_WASTE_SECTIONS.length - 1 && !examStatus.isUnlocked}
-                            className="w-full sm:w-auto px-8 py-3.5 bg-[#a435f0] hover:bg-[#8710d8] disabled:opacity-50 text-white font-bold text-sm rounded-lg shadow-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+                            className="w-full sm:w-auto px-8 py-3.5 bg-[#166534] hover:bg-[#14532d] disabled:opacity-50 text-white font-bold text-sm rounded-lg shadow-xl transition-all cursor-pointer flex items-center justify-center gap-2"
                           >
                             {activeSectionIdx < UDEMY_ZERO_WASTE_SECTIONS.length - 1 ? (
                               <>
@@ -1268,7 +1295,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                     {currentQuizQuestionIdx < currentQuiz.questions.length - 1 ? (
                       <button
                         onClick={() => setCurrentQuizQuestionIdx(prev => prev + 1)}
-                        className="px-6 py-2 rounded text-xs font-bold text-white bg-[#a435f0] hover:bg-[#8710d8] transition-colors"
+                        className="px-6 py-2 rounded text-xs font-bold text-white bg-[#166534] hover:bg-[#14532d] transition-colors"
                       >
                         Next Question
                       </button>
@@ -1292,7 +1319,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   {/* Slide Header: Course program & Title (padded right to never touch top-right PiP card) */}
                   <div className="flex items-start justify-between border-b-2 border-slate-200 pb-2 sm:pb-3 pr-28 sm:pr-48">
                     <div>
-                      <span className="text-[10px] sm:text-[11px] uppercase tracking-wider font-extrabold text-[#5624d0] block">
+                      <span className="text-[10px] sm:text-[11px] uppercase tracking-wider font-extrabold text-[#166534] block">
                         {currentSlide.conceptTag}
                       </span>
                       <h2 className="text-base sm:text-2xl md:text-3xl font-black text-slate-900 tracking-tight mt-0.5 leading-snug">
@@ -1409,285 +1436,285 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                         return (
                           <span
                             key={wIdx}
-                            className={`transition-colors duration-75 ${
-                              isActiveWord
-                                ? 'text-[#ffea79] font-bold underline decoration-[#a435f0] decoration-2 underline-offset-4'
-                                : isSpoken
-                                  ? 'text-white'
-                                  : 'text-slate-200'
-                            }`}
-                          >
-                            {tok.word}{wIdx < captionTokens.length - 1 ? ' ' : ''}
-                          </span>
-                        );
-                      })}
+                              className={`transition-colors duration-75 ${
+                                isActiveWord
+                                  ? 'text-[#ffea79] font-bold underline decoration-[#16a34a] decoration-2 underline-offset-4'
+                                  : isSpoken
+                                    ? 'text-white'
+                                    : 'text-slate-200'
+                              }`}
+                            >
+                              {tok.word}{wIdx < captionTokens.length - 1 ? ' ' : ''}
+                            </span>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                )}
-
-                {/* 5. PURPLE TOGGLE BUTTON FOR SIDEBAR ON RIGHT EDGE (Matches Image 1 & 5 `<` / `>`) */}
-                <button
-                  onClick={() => setIsSidebarOpen(prev => !prev)}
-                  className="absolute right-0 top-1/2 -translate-y-1/2 z-30 w-6 h-12 bg-[#a435f0] hover:bg-[#8710d8] text-white flex items-center justify-center rounded-l-md shadow-lg transition-transform cursor-pointer"
-                  title={isSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-                >
-                  {isSidebarOpen ? (
-                    <ChevronRight className="w-4 h-4" />
-                  ) : (
-                    <ChevronLeft className="w-4 h-4" />
                   )}
-                </button>
 
-                {/* 6. BOTTOM CUSTOM VIDEO CONTROLS BAR (Exact Udemy layout from Image 1) */}
-                <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/90 to-transparent p-2 pt-6 z-20 flex flex-col gap-1.5 opacity-90 hover:opacity-100 transition-opacity">
-                  {/* Purple scrubber bar */}
-                  <div
-                    onClick={handleSeek}
-                    className="w-full bg-white/20 hover:bg-white/30 h-1 hover:h-1.5 rounded-full overflow-hidden cursor-pointer transition-all relative"
+                  {/* 5. DARK GREEN TOGGLE BUTTON FOR SIDEBAR ON RIGHT EDGE */}
+                  <button
+                    onClick={() => setIsSidebarOpen(prev => !prev)}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 z-30 w-6 h-12 bg-[#166534] hover:bg-[#14532d] text-white flex items-center justify-center rounded-l-md shadow-lg transition-transform cursor-pointer"
+                    title={isSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
                   >
-                    <div 
-                      className="bg-[#a435f0] h-full rounded-full transition-all duration-100"
-                      style={{ width: `${(currentTimeSeconds / totalDurationSeconds) * 100}%` }}
-                    />
-                  </div>
+                    {isSidebarOpen ? (
+                      <ChevronRight className="w-4 h-4" />
+                    ) : (
+                      <ChevronLeft className="w-4 h-4" />
+                    )}
+                  </button>
 
-                  {/* Buttons Row */}
-                  <div className="flex items-center justify-between text-white text-xs px-0.5 sm:px-1">
-                    {/* Left: Play/Pause, Rewind 5s, Speed, Forward 5s, Time */}
-                    <div className="flex items-center gap-2 sm:gap-3">
-                      <button
-                        onClick={handleTogglePlay}
-                        className="hover:text-[#a435f0] transition-colors cursor-pointer"
-                        title={isPlaying ? 'Pause' : 'Play'}
-                      >
-                        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
-                      </button>
+                  {/* 6. BOTTOM CUSTOM VIDEO CONTROLS BAR */}
+                  <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/90 to-transparent p-2 pt-6 z-20 flex flex-col gap-1.5 opacity-90 hover:opacity-100 transition-opacity">
+                    {/* Dark green scrubber bar */}
+                    <div
+                      onClick={handleSeek}
+                      className="w-full bg-white/20 hover:bg-white/30 h-1 hover:h-1.5 rounded-full overflow-hidden cursor-pointer transition-all relative"
+                    >
+                      <div 
+                        className="bg-[#16a34a] h-full rounded-full transition-all duration-100"
+                        style={{ width: `${(currentTimeSeconds / totalDurationSeconds) * 100}%` }}
+                      />
+                    </div>
 
-                      {/* Rewind 5s */}
-                      <button
-                        onClick={handleRewind5s}
-                        className="hover:text-slate-200 transition-colors cursor-pointer"
-                        title="Rewind 5 seconds"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                      </button>
-
-                      {/* Playback Speed selector */}
-                      <div className="relative">
+                    {/* Buttons Row */}
+                    <div className="flex items-center justify-between text-white text-xs px-0.5 sm:px-1">
+                      {/* Left: Play/Pause, Rewind 5s, Speed, Forward 5s, Time */}
+                      <div className="flex items-center gap-2 sm:gap-3">
                         <button
-                          onClick={() => setShowSpeedMenu(prev => !prev)}
-                          className="font-bold text-[11px] px-1.5 py-0.5 rounded hover:bg-white/10 cursor-pointer"
+                          onClick={handleTogglePlay}
+                          className="hover:text-[#4ade80] transition-colors cursor-pointer"
+                          title={isPlaying ? 'Pause' : 'Play'}
                         >
-                          {playbackSpeed}x
+                          {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
                         </button>
-                        {showSpeedMenu && (
-                          <div className="absolute bottom-full left-0 mb-2 bg-[#1c1d1f] border border-[#3e4143] rounded-lg shadow-xl py-1 z-50 text-xs w-20">
-                            {[0.75, 1, 1.25, 1.5, 2].map(speed => (
-                              <button
-                                key={speed}
-                                onClick={() => {
-                                  setPlaybackSpeed(speed);
-                                  playbackSpeedRef.current = speed;
-                                  audioNarrator.setRate(speed);
-                                  setShowSpeedMenu(false);
-                                }}
-                                className={`w-full px-3 py-1 text-left hover:bg-[#2d2f31] ${playbackSpeed === speed ? 'text-[#a435f0] font-bold' : 'text-white'}`}
-                              >
-                                {speed}x
-                              </button>
-                            ))}
-                          </div>
-                        )}
+
+                        {/* Rewind 5s */}
+                        <button
+                          onClick={handleRewind5s}
+                          className="hover:text-slate-200 transition-colors cursor-pointer"
+                          title="Rewind 5 seconds"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Playback Speed selector */}
+                        <div className="relative">
+                          <button
+                            onClick={() => setShowSpeedMenu(prev => !prev)}
+                            className="font-bold text-[11px] px-1.5 py-0.5 rounded hover:bg-white/10 cursor-pointer"
+                          >
+                            {playbackSpeed}x
+                          </button>
+                          {showSpeedMenu && (
+                            <div className="absolute bottom-full left-0 mb-2 bg-[#1c1d1f] border border-[#3e4143] rounded-lg shadow-xl py-1 z-50 text-xs w-20">
+                              {[0.75, 1, 1.25, 1.5, 2].map(speed => (
+                                <button
+                                  key={speed}
+                                  onClick={() => {
+                                    setPlaybackSpeed(speed);
+                                    playbackSpeedRef.current = speed;
+                                    audioNarrator.setRate(speed);
+                                    setShowSpeedMenu(false);
+                                  }}
+                                  className={`w-full px-3 py-1 text-left hover:bg-[#2d2f31] ${playbackSpeed === speed ? 'text-[#4ade80] font-bold' : 'text-white'}`}
+                                >
+                                  {speed}x
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Forward 5s */}
+                        <button
+                          onClick={handleForward5s}
+                          className="hover:text-slate-200 transition-colors cursor-pointer"
+                          title="Forward 5 seconds"
+                        >
+                          <RotateCw className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Time display */}
+                        <span className="font-mono text-[11px] text-slate-300">
+                          {formatSeconds(currentTimeSeconds)} / {formatSeconds(totalDurationSeconds)}
+                        </span>
                       </div>
 
-                      {/* Forward 5s */}
-                      <button
-                        onClick={handleForward5s}
-                        className="hover:text-slate-200 transition-colors cursor-pointer"
-                        title="Forward 5 seconds"
-                      >
-                        <RotateCw className="w-3.5 h-3.5" />
-                      </button>
-
-                      {/* Time display */}
-                      <span className="font-mono text-[11px] text-slate-300">
-                        {formatSeconds(currentTimeSeconds)} / {formatSeconds(totalDurationSeconds)}
-                      </span>
-                    </div>
-
-                    {/* Right: Volume, CC, Settings, Fullscreen */}
-                    <div className="flex items-center gap-2 sm:gap-3">
-                      {/* Audio mute */}
-                      <button
-                        onClick={() => {
-                          audioNarrator.unlockOnUserGesture();
-                          const nextMuted = !isMuted;
-                          setIsMuted(nextMuted);
-                          isMutedRef.current = nextMuted;
-                          if (nextMuted) {
-                            audioNarrator.stop();
-                          } else {
-                            audioNarrator.playSound('click');
-                            if (isPlayingRef.current) {
-                              playSentence(activeSentenceIdx, currentTimeSeconds);
-                            }
-                          }
-                        }}
-                        className="hover:text-white text-slate-300 transition-colors cursor-pointer"
-                        title={isMuted ? 'Unmute' : 'Mute'}
-                      >
-                        {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
-                      </button>
-
-                      {/* Closed Captions CC */}
-                      <button
-                        onClick={() => setShowCaptions(prev => !prev)}
-                        className={`font-mono text-[11px] font-bold px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
-                          showCaptions ? 'text-white border-b-2 border-[#a435f0]' : 'text-slate-400 hover:text-white'
-                        }`}
-                        title="Toggle subtitles (CC)"
-                      >
-                        CC
-                      </button>
-
-                      {/* Settings Popover */}
-                      <div className="relative">
+                      {/* Right: Volume, CC, Settings, Fullscreen */}
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        {/* Audio mute */}
                         <button
                           onClick={() => {
-                            setShowSettingsMenu(prev => !prev);
-                            setShowSpeedMenu(false);
+                            audioNarrator.unlockOnUserGesture();
+                            const nextMuted = !isMuted;
+                            setIsMuted(nextMuted);
+                            isMutedRef.current = nextMuted;
+                            if (nextMuted) {
+                              audioNarrator.stop();
+                            } else {
+                              audioNarrator.playSound('click');
+                              if (isPlayingRef.current) {
+                                playSentence(activeSentenceIdx, currentTimeSeconds);
+                              }
+                            }
                           }}
-                          className={`hover:text-white transition-colors cursor-pointer p-1 rounded ${
-                            showSettingsMenu ? 'text-[#a435f0]' : 'text-slate-300'
-                          }`}
-                          title="Settings"
-                          aria-label="Player Settings"
+                          className="hover:text-white text-slate-300 transition-colors cursor-pointer"
+                          title={isMuted ? 'Unmute' : 'Mute'}
                         >
-                          <Settings className="w-3.5 h-3.5" />
+                          {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
                         </button>
 
-                        {showSettingsMenu && (
-                          <div className="absolute bottom-full right-0 mb-2 w-60 sm:w-64 max-w-[calc(100vw-2rem)] bg-[#1c1d1f] border border-[#3e4143] rounded-xl shadow-2xl p-3 z-50 text-xs text-white space-y-3">
-                            <div className="flex items-center justify-between border-b border-[#2d2f31] pb-2">
-                              <span className="font-bold text-white">Player Settings</span>
-                              <button
-                                onClick={() => setShowSettingsMenu(false)}
-                                className="text-slate-400 hover:text-white cursor-pointer"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                        {/* Closed Captions CC */}
+                        <button
+                          onClick={() => setShowCaptions(prev => !prev)}
+                          className={`font-mono text-[11px] font-bold px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
+                            showCaptions ? 'text-white border-b-2 border-[#16a34a]' : 'text-slate-400 hover:text-white'
+                          }`}
+                          title="Toggle subtitles (CC)"
+                        >
+                          CC
+                        </button>
 
-                            {/* Volume Slider */}
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between text-[11px] text-slate-300">
-                                <span>Voice Volume</span>
-                                <span className="font-mono">{isMuted ? '0%' : `${Math.round(volume * 100)}%`}</span>
+                        {/* Settings Popover */}
+                        <div className="relative">
+                          <button
+                            onClick={() => {
+                              setShowSettingsMenu(prev => !prev);
+                              setShowSpeedMenu(false);
+                            }}
+                            className={`hover:text-white transition-colors cursor-pointer p-1 rounded ${
+                              showSettingsMenu ? 'text-[#4ade80]' : 'text-slate-300'
+                            }`}
+                            title="Settings"
+                            aria-label="Player Settings"
+                          >
+                            <Settings className="w-3.5 h-3.5" />
+                          </button>
+
+                          {showSettingsMenu && (
+                            <div className="absolute bottom-full right-0 mb-2 w-60 sm:w-64 max-w-[calc(100vw-2rem)] bg-[#1c1d1f] border border-[#3e4143] rounded-xl shadow-2xl p-3 z-50 text-xs text-white space-y-3">
+                              <div className="flex items-center justify-between border-b border-[#2d2f31] pb-2">
+                                <span className="font-bold text-white">Player Settings</span>
+                                <button
+                                  onClick={() => setShowSettingsMenu(false)}
+                                  className="text-slate-400 hover:text-white cursor-pointer"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
                               </div>
-                              <input
-                                type="range"
-                                min={0}
-                                max={100}
-                                value={isMuted ? 0 : Math.round(volume * 100)}
-                                onChange={(e) => {
-                                  audioNarrator.unlockOnUserGesture();
-                                  const nextVol = parseInt(e.target.value, 10) / 100;
-                                  setVolume(nextVol);
-                                  volumeRef.current = nextVol;
-                                  audioNarrator.setVolume(nextVol);
-                                  if (nextVol > 0 && isMuted) {
-                                    setIsMuted(false);
-                                    isMutedRef.current = false;
-                                    if (isPlayingRef.current) {
-                                      playSentence(activeSentenceIdx, currentTimeSeconds);
+
+                              {/* Volume Slider */}
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-[11px] text-slate-300">
+                                  <span>Voice Volume</span>
+                                  <span className="font-mono">{isMuted ? '0%' : `${Math.round(volume * 100)}%`}</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={0}
+                                  max={100}
+                                  value={isMuted ? 0 : Math.round(volume * 100)}
+                                  onChange={(e) => {
+                                    audioNarrator.unlockOnUserGesture();
+                                    const nextVol = parseInt(e.target.value, 10) / 100;
+                                    setVolume(nextVol);
+                                    volumeRef.current = nextVol;
+                                    audioNarrator.setVolume(nextVol);
+                                    if (nextVol > 0 && isMuted) {
+                                      setIsMuted(false);
+                                      isMutedRef.current = false;
+                                      if (isPlayingRef.current) {
+                                        playSentence(activeSentenceIdx, currentTimeSeconds);
+                                      }
+                                    } else if (nextVol === 0 && !isMuted) {
+                                      setIsMuted(true);
+                                      isMutedRef.current = true;
                                     }
-                                  } else if (nextVol === 0 && !isMuted) {
-                                    setIsMuted(true);
-                                    isMutedRef.current = true;
-                                  }
-                                }}
-                                className="w-full accent-[#a435f0] cursor-pointer"
-                              />
-                            </div>
-
-                            {/* Playback Speed */}
-                            <div className="space-y-1">
-                              <span className="text-[11px] text-slate-300 block">Playback Speed</span>
-                              <div className="grid grid-cols-5 gap-1">
-                                {[0.75, 1, 1.25, 1.5, 2].map(spd => (
-                                  <button
-                                    key={spd}
-                                    onClick={() => {
-                                      setPlaybackSpeed(spd);
-                                      playbackSpeedRef.current = spd;
-                                      audioNarrator.setRate(spd);
-                                    }}
-                                    className={`py-1 rounded text-[10px] font-bold cursor-pointer ${
-                                      playbackSpeed === spd
-                                        ? 'bg-[#a435f0] text-white'
-                                        : 'bg-[#2d2f31] text-slate-300 hover:bg-[#3e4143]'
-                                    }`}
-                                  >
-                                    {spd}x
-                                  </button>
-                                ))}
+                                  }}
+                                  className="w-full accent-[#166534] cursor-pointer"
+                                />
                               </div>
+
+                              {/* Playback Speed */}
+                              <div className="space-y-1">
+                                <span className="text-[11px] text-slate-300 block">Playback Speed</span>
+                                <div className="grid grid-cols-5 gap-1">
+                                  {[0.75, 1, 1.25, 1.5, 2].map(spd => (
+                                    <button
+                                      key={spd}
+                                      onClick={() => {
+                                        setPlaybackSpeed(spd);
+                                        playbackSpeedRef.current = spd;
+                                        audioNarrator.setRate(spd);
+                                      }}
+                                      className={`py-1 rounded text-[10px] font-bold cursor-pointer ${
+                                        playbackSpeed === spd
+                                          ? 'bg-[#166534] text-white'
+                                          : 'bg-[#2d2f31] text-slate-300 hover:bg-[#3e4143]'
+                                      }`}
+                                    >
+                                      {spd}x
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Autoplay Toggle */}
+                              <label className="flex items-center justify-between cursor-pointer pt-1">
+                                <span className="text-[11px] text-slate-300">Autoplay next lecture</span>
+                                <input
+                                  type="checkbox"
+                                  checked={autoplayNext}
+                                  onChange={(e) => setAutoplayNext(e.target.checked)}
+                                  className="accent-[#166534] w-3.5 h-3.5 cursor-pointer"
+                                />
+                              </label>
+
+                              {/* Subtitles Toggle */}
+                              <label className="flex items-center justify-between cursor-pointer">
+                                <span className="text-[11px] text-slate-300">Show Closed Captions (CC)</span>
+                                <input
+                                  type="checkbox"
+                                  checked={showCaptions}
+                                  onChange={(e) => setShowCaptions(e.target.checked)}
+                                  className="accent-[#166534] w-3.5 h-3.5 cursor-pointer"
+                                />
+                              </label>
                             </div>
+                          )}
+                        </div>
 
-                            {/* Autoplay Toggle */}
-                            <label className="flex items-center justify-between cursor-pointer pt-1">
-                              <span className="text-[11px] text-slate-300">Autoplay next lecture</span>
-                              <input
-                                type="checkbox"
-                                checked={autoplayNext}
-                                onChange={(e) => setAutoplayNext(e.target.checked)}
-                                className="accent-[#a435f0] w-3.5 h-3.5 cursor-pointer"
-                              />
-                            </label>
-
-                            {/* Subtitles Toggle */}
-                            <label className="flex items-center justify-between cursor-pointer">
-                              <span className="text-[11px] text-slate-300">Show Closed Captions (CC)</span>
-                              <input
-                                type="checkbox"
-                                checked={showCaptions}
-                                onChange={(e) => setShowCaptions(e.target.checked)}
-                                className="accent-[#a435f0] w-3.5 h-3.5 cursor-pointer"
-                              />
-                            </label>
-                          </div>
-                        )}
+                        {/* Fullscreen */}
+                        <button
+                          onClick={handleToggleFullscreen}
+                          className="hover:text-white text-slate-300 transition-colors cursor-pointer p-1 rounded"
+                          title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                          aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                        >
+                          {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-[#4ade80]" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                        </button>
                       </div>
-
-                      {/* Fullscreen */}
-                      <button
-                        onClick={handleToggleFullscreen}
-                        className="hover:text-white text-slate-300 transition-colors cursor-pointer p-1 rounded"
-                        title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                        aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                      >
-                        {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-[#a435f0]" /> : <Maximize2 className="w-3.5 h-3.5" />}
-                      </button>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
 
-          {/* BELOW VIDEO TABS BAR (Matching Image 1, 6, 7) */}
-          <div className="border-b border-slate-200 bg-white px-3 sm:px-6 flex items-center gap-4 sm:gap-6 overflow-x-auto shrink-0 select-none">
-            {/* Search Icon */}
-            <button
-              onClick={() => setActiveTab('search')}
-              className={`py-3.5 transition-colors cursor-pointer ${
-                activeTab === 'search' ? 'text-[#a435f0] border-b-2 border-[#a435f0]' : 'text-slate-500 hover:text-slate-900'
-              }`}
-              title="Search course content"
-              aria-label="Search course content"
-            >
-              <Search className="w-4 h-4" />
-            </button>
+            {/* BELOW VIDEO TABS BAR */}
+            <div className="border-b border-slate-200 bg-white px-3 sm:px-6 flex items-center gap-4 sm:gap-6 overflow-x-auto shrink-0 select-none">
+              {/* Search Icon */}
+              <button
+                onClick={() => setActiveTab('search')}
+                className={`py-3.5 transition-colors cursor-pointer ${
+                  activeTab === 'search' ? 'text-[#166534] border-b-2 border-[#166534]' : 'text-slate-500 hover:text-slate-900'
+                }`}
+                title="Search course content"
+                aria-label="Search course content"
+              >
+                <Search className="w-4 h-4" />
+              </button>
 
             {/* Tab Links */}
             {([
@@ -1815,7 +1842,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                                 setScheduleSavedToast(true);
                                 audioNarrator.playSound('correct');
                               }}
-                              className="px-3.5 py-1.5 bg-[#a435f0] hover:bg-[#8710d8] text-white text-xs font-bold rounded cursor-pointer"
+                              className="px-3.5 py-1.5 bg-[#166534] hover:bg-[#14532d] text-white text-xs font-bold rounded cursor-pointer"
                             >
                               Save schedule
                             </button>
@@ -1831,7 +1858,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                         <div className="flex items-center gap-3 pt-1">
                           <button
                             onClick={() => setIsConfiguringSchedule(true)}
-                            className="px-3.5 py-1.5 bg-[#a435f0] hover:bg-[#8710d8] text-white text-xs font-bold rounded transition-colors cursor-pointer"
+                            className="px-3.5 py-1.5 bg-[#166534] hover:bg-[#14532d] text-white text-xs font-bold rounded transition-colors cursor-pointer"
                           >
                             Get started
                           </button>
@@ -1847,7 +1874,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   </div>
                 )}
 
-                {/* By the numbers grid (Exact Image 7) */}
+                {/* By the numbers grid */}
                 <div className="border-t border-slate-200 pt-6">
                   <h3 className="text-sm font-bold text-slate-900 mb-4">By the numbers</h3>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
@@ -1907,7 +1934,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                     onClick={onOpenCertify}
                     className={`px-4 py-2 text-xs font-bold rounded transition-colors cursor-pointer inline-flex items-center gap-2 ${
                       examStatus.isUnlocked
-                        ? 'border border-[#a435f0] text-[#a435f0] hover:bg-[#a435f0]/5'
+                        ? 'border border-[#166534] text-[#166534] hover:bg-[#166534]/5'
                         : 'border border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200'
                     }`}
                   >
@@ -1925,17 +1952,17 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   </p>
                 </div>
 
-                {/* Instructor Profile (Exact Image 8) */}
+                {/* Instructor Profile */}
                 <div className="border-t border-slate-200 pt-6 space-y-4">
                   <h3 className="text-sm font-bold text-slate-900">Instructor</h3>
                   <div className="flex items-start gap-4">
                     <img
                       src="/assets/aistudio/Untitled_design_0fea8cc4.png"
                       alt="Dr. Chef Supritam Basu, PhD, CEC"
-                      className="w-16 h-16 rounded-full object-cover object-top border-2 border-[#a435f0] shadow-md shrink-0 bg-[#0b193d]"
+                      className="w-16 h-16 rounded-full object-cover object-top border-2 border-[#166534] shadow-md shrink-0 bg-[#0b193d]"
                     />
                     <div className="space-y-1">
-                      <h4 className="text-base font-bold text-[#a435f0] hover:underline cursor-pointer">
+                      <h4 className="text-base font-bold text-[#166534] hover:underline cursor-pointer">
                         Dr. Chef Supritam Basu, PhD, CEC
                       </h4>
                       <p className="text-xs text-slate-600 font-medium">
@@ -1962,13 +1989,13 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
             {activeTab === 'study' && currentLecture.studyMaterial && (
               <div className="space-y-8 max-w-5xl">
                 {/* Chapter Study Header */}
-                <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 text-white shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950 text-white shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="space-y-1.5">
                     <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
-                      <span className="bg-[#a435f0] text-white px-2.5 py-0.5 rounded font-bold uppercase">
+                      <span className="bg-[#166534] text-white px-2.5 py-0.5 rounded font-bold uppercase">
                         Chapter {currentLecture.globalChapterNumber} Study Manual
                       </span>
-                      <span className="bg-white/10 text-indigo-200 px-2.5 py-0.5 rounded border border-white/15">
+                      <span className="bg-white/10 text-emerald-200 px-2.5 py-0.5 rounded border border-white/15">
                         {currentLecture.studyMaterial.issueCoverage}
                       </span>
                       <span className="text-slate-300">
@@ -1993,7 +2020,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                     }
                     className="shrink-0 px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs rounded-xl shadow flex items-center gap-2 transition-colors cursor-pointer self-start md:self-center"
                   >
-                    <Download className="w-4 h-4 text-[#a435f0]" />
+                    <Download className="w-4 h-4 text-[#166534]" />
                     <span>Download Chapter Study Manual</span>
                   </button>
                 </div>
@@ -2001,7 +2028,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                 {/* Learning Objectives */}
                 <div className="p-5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
                   <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-800 flex items-center gap-2">
-                    <GraduationCap className="w-4 h-4 text-[#a435f0]" />
+                    <GraduationCap className="w-4 h-4 text-[#166534]" />
                     <span>Chapter Learning Objectives</span>
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
@@ -2017,7 +2044,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                 {/* Deep Biochemical & Operational Theory Modules */}
                 <div className="space-y-4">
                   <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-800 flex items-center gap-2">
-                    <FlaskConical className="w-4 h-4 text-indigo-600" />
+                    <FlaskConical className="w-4 h-4 text-[#166534]" />
                     <span>Biochemical & Operational Science Modules</span>
                   </h3>
                   <div className="space-y-4">
@@ -2072,7 +2099,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                         {currentLecture.studyMaterial.controlMatrix.map((row, rIdx) => (
                           <tr key={rIdx} className="hover:bg-slate-50">
                             <td className="p-3 font-bold text-slate-900">{row.parameter}</td>
-                            <td className="p-3 font-mono font-bold text-[#a435f0] whitespace-nowrap">{row.targetRange}</td>
+                            <td className="p-3 font-mono font-bold text-[#166534] whitespace-nowrap">{row.targetRange}</td>
                             <td className="p-3 text-slate-700">{row.measurementTool}</td>
                             <td className="p-3 text-slate-600 leading-relaxed">{row.correctiveAction}</td>
                           </tr>
@@ -2139,7 +2166,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                           />
                           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
                           <div className="absolute bottom-3 left-3 right-3 text-white">
-                            <span className="text-[10px] font-mono uppercase tracking-wider bg-[#a435f0] px-2 py-0.5 rounded font-bold">
+                            <span className="text-[10px] font-mono uppercase tracking-wider bg-[#166534] px-2 py-0.5 rounded font-bold">
                               Yield: {form.yieldAmount}
                             </span>
                             <h4 className="font-bold text-sm mt-1 leading-snug">{form.title}</h4>
@@ -2149,7 +2176,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                           <p className="text-slate-600">
                             <strong className="text-slate-900">Byproduct Stream:</strong> {form.mainByproduct}
                           </p>
-                          <p className="text-indigo-950 bg-indigo-50/70 p-2 rounded border border-indigo-100">
+                          <p className="text-emerald-950 bg-emerald-50/70 p-2 rounded border border-emerald-200">
                             <strong>Science:</strong> {form.scientificMechanism}
                           </p>
                           <div className="space-y-1">
@@ -2171,10 +2198,10 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
               </div>
             )}
 
-            {/* TAB 2: NOTES (Exact Image 6) */}
+            {/* TAB 2: NOTES */}
             {activeTab === 'notes' && (
               <div className="space-y-6 max-w-3xl">
-                {/* Note creation box (Image 6) */}
+                {/* Note creation box */}
                 <div className="flex items-start gap-3">
                   {/* Timestamp pill */}
                   <span className="font-mono font-bold text-xs bg-slate-900 text-white px-2.5 py-1 rounded-full shrink-0 mt-1">
@@ -2182,7 +2209,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   </span>
 
                   {/* WYSIWYG note card */}
-                  <div className="flex-1 border-2 border-slate-300 focus-within:border-[#a435f0] rounded-xl p-3 bg-white shadow-2xs space-y-3">
+                  <div className="flex-1 border-2 border-slate-300 focus-within:border-[#166534] rounded-xl p-3 bg-white shadow-2xs space-y-3">
                     {/* Toolbar */}
                     <div className="flex items-center justify-between border-b border-slate-200 pb-2 text-xs text-slate-600">
                       <div className="flex items-center gap-2">
@@ -2252,7 +2279,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       <button
                         onClick={handleSaveNote}
                         disabled={!newNoteContent.trim()}
-                        className="px-4 py-1.5 bg-[#a435f0] hover:bg-[#8710d8] disabled:opacity-40 text-white text-xs font-bold rounded transition-colors cursor-pointer"
+                        className="px-4 py-1.5 bg-[#166534] hover:bg-[#14532d] disabled:opacity-40 text-white text-xs font-bold rounded transition-colors cursor-pointer"
                       >
                         Save note
                       </button>
@@ -2271,7 +2298,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       <div className="flex items-center justify-between">
                         <button
                           onClick={() => handleJumpToNote(note.timestampSeconds)}
-                          className="flex items-center gap-1.5 bg-slate-900 hover:bg-[#a435f0] text-white text-xs font-mono font-bold px-2.5 py-0.5 rounded-full transition-colors cursor-pointer"
+                          className="flex items-center gap-1.5 bg-slate-900 hover:bg-[#166534] text-white text-xs font-mono font-bold px-2.5 py-0.5 rounded-full transition-colors cursor-pointer"
                         >
                           <Play className="w-2.5 h-2.5 fill-current" />
                           <span>{note.timestampFormatted}</span>
@@ -2310,7 +2337,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       value={qaSearchQuery}
                       onChange={(e) => setQaSearchQuery(e.target.value)}
                       placeholder="Search all course questions..."
-                      className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-[#a435f0]"
+                      className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-[#166534]"
                     />
                   </div>
                   <button
@@ -2322,13 +2349,13 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                 </div>
 
                 {isComposingQa && (
-                  <div className="p-4 rounded-xl border border-[#a435f0]/40 bg-purple-50/30 space-y-3">
+                  <div className="p-4 rounded-xl border border-[#166534]/40 bg-emerald-50/40 space-y-3">
                     <textarea
                       rows={3}
                       value={newQaQuestion}
                       onChange={(e) => setNewQaQuestion(e.target.value)}
                       placeholder="Ask a question about this lecture, yield formula, or waste audit..."
-                      className="w-full p-2.5 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-[#a435f0]"
+                      className="w-full p-2.5 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-[#166534]"
                     />
                     <div className="flex justify-end gap-2">
                       <button
@@ -2358,7 +2385,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                           setIsComposingQa(false);
                           audioNarrator.playSound('correct');
                         }}
-                        className="px-4 py-1.5 bg-[#a435f0] hover:bg-[#8710d8] disabled:opacity-40 text-white text-xs font-bold rounded-lg cursor-pointer"
+                        className="px-4 py-1.5 bg-[#166534] hover:bg-[#14532d] disabled:opacity-40 text-white text-xs font-bold rounded-lg cursor-pointer"
                       >
                         Publish Question
                       </button>
@@ -2379,7 +2406,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                           {item.question}
                         </h5>
                         <p className="text-xs text-slate-600">
-                          Answered by <strong className="text-[#a435f0]">{item.author}</strong>: {item.answer}
+                          Answered by <strong className="text-[#166534]">{item.author}</strong>: {item.answer}
                         </p>
                       </div>
                     ))}
@@ -2431,7 +2458,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                     value={courseSearchQuery}
                     onChange={(e) => setCourseSearchQuery(e.target.value)}
                     placeholder={`Search across all ${COURSE_TOTAL_CHAPTERS} chapters, study guides, and transcripts...`}
-                    className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-[#a435f0]"
+                    className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-[#166534]"
                   />
                 </div>
                 <div className="space-y-2">
@@ -2457,10 +2484,10 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                               setActiveTab('overview');
                             }
                           }}
-                          className="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-[#a435f0] hover:bg-purple-50/30 disabled:opacity-45 flex items-center justify-between gap-3 transition-colors cursor-pointer"
+                          className="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-[#166534] hover:bg-emerald-50/40 disabled:opacity-45 flex items-center justify-between gap-3 transition-colors cursor-pointer"
                         >
                           <div>
-                            <span className="text-[10px] font-bold uppercase text-[#a435f0] block">
+                            <span className="text-[10px] font-bold uppercase text-[#166534] block">
                               Section {sec.sectionNumber}
                             </span>
                             <span className="text-xs sm:text-sm font-bold text-slate-900">{lec.title}</span>
@@ -2499,7 +2526,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       onClick={onOpenCertify}
                       className={`px-4 py-2 text-xs font-bold rounded-lg cursor-pointer inline-flex items-center gap-1.5 ${
                         examStatus.isUnlocked
-                          ? 'bg-[#a435f0] hover:bg-[#8710d8] text-white'
+                          ? 'bg-[#166534] hover:bg-[#14532d] text-white'
                           : 'bg-slate-200 hover:bg-slate-300 text-slate-700'
                       }`}
                     >
@@ -2523,17 +2550,17 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
           </div>
         </div>
 
-        {/* RIGHT COLUMN: COLLAPSIBLE "COURSE CONTENT" SIDEBAR (Exact Udemy layout from Images 2, 3, 4) */}
+        {/* RIGHT COLUMN: COLLAPSIBLE "COURSE CONTENT" SIDEBAR (Dark Green Theme) */}
         {isSidebarOpen && (
           <aside className="w-full lg:w-96 bg-[#1c1d1f] border-t lg:border-t-0 lg:border-l border-[#2d2f31] flex flex-col z-20 shrink-0 max-h-[70vh] lg:max-h-none lg:h-full overflow-y-auto">
-            {/* Sidebar Top Header with Tabs & Close X (Image 2) */}
+            {/* Sidebar Top Header with Tabs & Close X */}
             <div className="p-3.5 border-b border-[#2d2f31] flex items-center justify-between text-white shrink-0">
               <div className="flex items-center gap-4 text-xs font-bold">
                 <button
                   onClick={() => setSidebarTab('content')}
                   className={`pb-1 border-b-2 transition-colors cursor-pointer ${
                     sidebarTab === 'content'
-                      ? 'border-[#a435f0] text-white'
+                      ? 'border-[#16a34a] text-white'
                       : 'border-transparent text-slate-400 hover:text-white'
                   }`}
                 >
@@ -2543,11 +2570,11 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   onClick={() => setSidebarTab('ai')}
                   className={`pb-1 border-b-2 flex items-center gap-1 transition-colors cursor-pointer ${
                     sidebarTab === 'ai'
-                      ? 'border-[#a435f0] text-white'
+                      ? 'border-[#16a34a] text-white'
                       : 'border-transparent text-slate-400 hover:text-white'
                   }`}
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-[#a435f0]" />
+                  <Sparkles className="w-3.5 h-3.5 text-[#22c55e]" />
                   <span>AI Assistant</span>
                 </button>
               </div>
@@ -2577,7 +2604,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
 
                   return (
                     <div key={section.id} className="text-white">
-                      {/* Section Accordion Header (Matches Image 2 & 3) */}
+                      {/* Section Accordion Header */}
                       <div
                         onClick={() => toggleSectionAccordion(section.id)}
                         className="p-3.5 bg-[#2d2f31] hover:bg-[#34373a] transition-colors cursor-pointer flex items-start justify-between gap-2"
@@ -2625,18 +2652,18 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                                 }}
                                 className={`p-3 transition-colors cursor-pointer flex items-start gap-3 relative ${
                                   isCurrent
-                                    ? 'bg-[#2b2d30] border-l-4 border-[#a435f0]'
+                                    ? 'bg-[#14532d]/25 border-l-4 border-[#15803d]'
                                     : 'hover:bg-[#25272a]'
                                 } ${!isUnlocked ? 'opacity-40 pointer-events-none' : ''}`}
                               >
-                                {/* Checkbox (Image 2) */}
+                                {/* Checkbox */}
                                 <button
                                   onClick={(e) => toggleLectureCompletion(lecture.id, e)}
                                   className="mt-0.5 text-slate-400 hover:text-white shrink-0"
                                   title={isDone ? 'Mark as incomplete' : 'Mark as complete'}
                                 >
                                   {isDone ? (
-                                    <div className="w-4 h-4 rounded bg-[#a435f0] text-white flex items-center justify-center">
+                                    <div className="w-4 h-4 rounded bg-[#166534] text-white flex items-center justify-center">
                                       <Check className="w-3 h-3 stroke-3" />
                                     </div>
                                   ) : (
@@ -2656,7 +2683,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                                       {formatClockDuration(getExactLectureSeconds(lecture))}
                                     </span>
 
-                                    {/* Resources Pill Button (Exact Image 3 & 4) */}
+                                    {/* Resources Button */}
                                     {lecture.resources.length > 0 && (
                                       <div className="relative">
                                         <button
@@ -2664,14 +2691,14 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                                             e.stopPropagation();
                                             setOpenResourceMenuId(openResourceMenuId === lecture.id ? null : lecture.id);
                                           }}
-                                          className="flex items-center gap-1 px-2 py-0.5 rounded border border-[#a435f0] text-[#c0c4fc] hover:bg-[#a435f0]/20 text-[10px] font-semibold transition-colors cursor-pointer"
+                                          className="flex items-center gap-1 px-2 py-0.5 rounded border border-[#15803d] bg-[#14532d]/35 text-[#86efac] hover:bg-[#166534]/50 text-[10px] font-semibold transition-colors cursor-pointer"
                                         >
-                                          <FolderOpen className="w-3 h-3 text-[#a435f0]" />
+                                          <FolderOpen className="w-3 h-3 text-[#4ade80]" />
                                           <span>Resources</span>
                                           <ChevronDown className="w-2.5 h-2.5" />
                                         </button>
 
-                                        {/* Dropdown Menu (Matches Image 3 & 4) */}
+                                        {/* Dropdown Menu */}
                                         {openResourceMenuId === lecture.id && (
                                           <div 
                                             onClick={(e) => e.stopPropagation()}
@@ -2720,7 +2747,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                             }}
                             className={`p-3 transition-colors cursor-pointer flex items-start gap-3 relative ${
                               isQuizMode && activeSectionIdx === secIdx
-                                ? 'bg-[#2b2d30] border-l-4 border-[#a435f0]'
+                                ? 'bg-[#14532d]/25 border-l-4 border-[#15803d]'
                                 : 'hover:bg-[#25272a]'
                             } ${!isUnlocked ? 'opacity-40 pointer-events-none' : ''}`}
                           >
@@ -2733,7 +2760,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                               ) : !isUnlocked ? (
                                 <Lock className="w-4 h-4 text-slate-500" />
                               ) : (
-                                <div className="w-4 h-4 rounded border-2 border-[#a435f0]" />
+                                <div className="w-4 h-4 rounded border-2 border-[#16a34a]" />
                               )}
                             </div>
 
@@ -2771,7 +2798,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
               <div className="p-4 space-y-4 flex-1 flex flex-col justify-between text-xs text-slate-300">
                 <div className="space-y-3 overflow-y-auto flex-1 pr-1">
                   <div className="p-3 rounded-lg bg-[#2d2f31] border border-[#3e4143] space-y-1">
-                    <span className="text-[#a435f0] font-bold block">Chef AI Assistant</span>
+                    <span className="text-[#4ade80] font-bold block">Chef AI Assistant</span>
                     <p className="text-[11px] leading-relaxed">
                       Ask questions regarding <strong className="text-white">{currentLecture.title}</strong>, station tare logs, or fermentation ratios.
                     </p>
@@ -2782,7 +2809,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       key={mIdx}
                       className={`p-3 rounded-lg text-[11px] leading-relaxed ${
                         msg.role === 'user'
-                          ? 'bg-[#a435f0]/20 border border-[#a435f0]/40 text-white ml-4'
+                          ? 'bg-[#166534]/35 border border-[#15803d]/60 text-white ml-4'
                           : 'bg-[#25272a] border border-[#3e4143] text-slate-200 mr-2'
                       }`}
                     >
@@ -2833,12 +2860,12 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                     value={aiQuestion}
                     onChange={(e) => setAiQuestion(e.target.value)}
                     placeholder="Ask about this lecture..."
-                    className="w-full p-2.5 rounded bg-[#25272a] border border-[#3e4143] text-white text-xs focus:outline-none focus:border-[#a435f0]"
+                    className="w-full p-2.5 rounded bg-[#25272a] border border-[#3e4143] text-white text-xs focus:outline-none focus:border-[#16a34a]"
                   />
                   <button
                     type="submit"
                     disabled={!aiQuestion.trim() || isAiThinking}
-                    className="w-full py-2 bg-[#a435f0] hover:bg-[#8710d8] disabled:opacity-40 text-white font-bold rounded text-xs transition-colors cursor-pointer"
+                    className="w-full py-2 bg-[#166534] hover:bg-[#14532d] disabled:opacity-40 text-white font-bold rounded text-xs transition-colors cursor-pointer"
                   >
                     {isAiThinking ? 'Thinking...' : 'Submit Question'}
                   </button>

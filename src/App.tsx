@@ -848,7 +848,7 @@ export default function App() {
                     setShowCertLockedModal(false);
                     setSelectedCourseId('food-waste-prevention-chefs');
                   }}
-                  className="px-5 py-2 rounded-lg bg-[#a435f0] hover:bg-[#8710d8] text-white font-bold flex items-center gap-1.5 cursor-pointer"
+                  className="px-5 py-2 rounded-lg bg-[#166534] hover:bg-[#14532d] text-white font-bold flex items-center gap-1.5 cursor-pointer"
                 >
                   <Award className="w-3.5 h-3.5" />
                   <span>Open Course Exams</span>

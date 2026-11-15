@@ -1,7 +1,7 @@
 // Audio & Voice Narration Engine for Supritamone Academy
-// Unified Calm Educator Voice (Charon neural TTS + Prioritized Calm Natural/Online Voices across all browsers)
+// Unified Calm Light Educator Voice (Zephyr neural TTS + Prioritized Calm Light Natural/Online Voices across all browsers)
 
-export type TTSVoiceName = 'Charon' | 'Fenrir' | 'Puck' | 'Kore' | 'Zephyr';
+export type TTSVoiceName = 'Zephyr' | 'Kore' | 'Puck' | 'Charon' | 'Fenrir';
 
 export interface TTSVoiceOption {
   id: TTSVoiceName;
@@ -11,11 +11,11 @@ export interface TTSVoiceOption {
 }
 
 export const AVAILABLE_VOICES: TTSVoiceOption[] = [
-  { id: 'Charon', label: 'Dr. Chef Basu (Calm Natural Educator)', description: 'Calm, gentle, serene conversational human educator voice with unhurried cadence', gender: 'male' },
-  { id: 'Fenrir', label: 'Dr. Chef Basu (Deep Baritone Chef)', description: 'Warm baritone chef narration', gender: 'male' },
-  { id: 'Puck', label: 'Puck (Engaging Culinary Mentor)', description: 'Expressive kitchen educator delivery', gender: 'male' },
+  { id: 'Zephyr', label: 'Supritamone Calm Studio Voice (Zephyr)', description: 'Calm, light, gentle conversational educator voice with unhurried cadence', gender: 'female' },
   { id: 'Kore', label: 'Kore (Warm Hospitality Educator)', description: 'Warm, clear culinary educator', gender: 'female' },
-  { id: 'Zephyr', label: 'Zephyr (Serene Kitchen Voice)', description: 'Calm, gentle, relaxed pacing', gender: 'female' },
+  { id: 'Puck', label: 'Puck (Engaging Culinary Mentor)', description: 'Expressive kitchen educator delivery', gender: 'male' },
+  { id: 'Charon', label: 'Charon (Studio Lecturer)', description: 'Steady documentary narrator', gender: 'male' },
+  { id: 'Fenrir', label: 'Fenrir (Baritone Chef)', description: 'Deep baritone chef narration', gender: 'male' },
 ];
 
 export interface SpeechProgressEvent {
@@ -69,11 +69,13 @@ export function computeWordProgressRanges(tokens: SpokenWordToken[]): WordTiming
   if (tokens.length === 0) return [];
   const weights = tokens.map((tok) => {
     const clean = tok.word;
-    const base = Math.max(2, clean.replace(/[^a-zA-Z0-9]/g, '').length);
-    const hasDigit = /\d/.test(clean) ? 3 : 0;
-    const minorPunct = /[,;:—–-]$/.test(clean) ? 3.5 : 0;
-    const majorPunct = /[.!?]$/.test(clean) ? 4.5 : 0;
-    return base + hasDigit + minorPunct + majorPunct;
+    const alnum = clean.replace(/[^a-zA-Z0-9]/g, '');
+    const syllables = Math.max(1, alnum.toLowerCase().match(/[aeiouy]+/g)?.length || 1);
+    const charWeight = Math.max(2, alnum.length * 0.6 + syllables * 1.9);
+    const hasDigit = /\d/.test(clean) ? 2.5 : 0;
+    const minorPunct = /[,;:—–-]$/.test(clean) ? 2.2 : 0;
+    const majorPunct = /[.!?]$/.test(clean) ? 3.2 : 0;
+    return charWeight + hasDigit + minorPunct + majorPunct;
   });
   const total = weights.reduce((a, b) => a + b, 0) || 1;
   let acc = 0;
@@ -146,9 +148,9 @@ interface ResolvedChunkPlan extends LectureChunkPlan {
 
 // Canonical studio voice prompt aligned 1:1 with server.ts DEFAULT_CALM_STYLE
 const CALM_MALE_STYLE =
-  'Calm, gentle, serene, unhurried male educator speaking smoothly at a slow, relaxed studio pace with light natural conversational warmth and soft pauses between sentences';
+  'Calm, light, gentle, serene human educator speaking at a smooth, easy, unhurried studio pace with conversational clarity, zero deep bass heaviness, and crisp natural pauses between sentences';
 
-const AUDIO_IDB_NAME = 'supritamone_calm_audio_v4';
+const AUDIO_IDB_NAME = 'supritamone_calm_audio_v5';
 const AUDIO_IDB_STORE = 'audio_entries';
 
 class PersistentAudioCache {
@@ -228,14 +230,27 @@ class AudioNarrator {
   private lectureInFlight: Map<string, Promise<LectureAudioData | null>> = new Map();
   private lectureQuotaHit: boolean = false;
   private serverTtsUnavailable: boolean = false;
+  private serverTts404Count: number = 0;
   private durationListeners: Set<() => void> = new Set();
-  private readonly selectedVoice: TTSVoiceName = 'Charon';
+  private readonly selectedVoice: TTSVoiceName = 'Zephyr';
   private cachedBestVoice: SpeechSynthesisVoice | null = null;
   private currentSessionId: number = 0;
   private progressInterval: ReturnType<typeof setInterval> | null = null;
   private fallbackInterval: ReturnType<typeof setInterval> | null = null;
   private fallbackWatchdog: ReturnType<typeof setTimeout> | null = null;
-  private calibratedBrowserWps: number = 2.45;
+  private safetyStartTimer: ReturnType<typeof setTimeout> | null = null;
+  private calibratedCharsPerSec: number = 13.4;
+  private activeFetchControllers: Set<AbortController> = new Set();
+  private fallbackResumeState: {
+    sentences: string[];
+    startIdx: number;
+    startSubIdx: number;
+    rate: number;
+    volume: number;
+    opts: LectureSpeakOptions;
+  } | null = null;
+  private currentFallbackIdx: number = 0;
+  private currentFallbackSubIdx: number = 0;
 
   private activeGainNode: GainNode | null = null;
   private activeSourceNode: AudioBufferSourceNode | null = null;
@@ -485,8 +500,7 @@ class AudioNarrator {
     if (this.audioDurationCache.has(cacheKey)) {
       return this.audioDurationCache.get(cacheKey)! / safeRate;
     }
-    const words = clean.split(/\s+/).filter(Boolean).length;
-    const baseSeconds = Math.max(3.0, words / 2.15);
+    const baseSeconds = Math.max(2.6, clean.length / 12.2);
     return baseSeconds / safeRate;
   }
 
@@ -504,7 +518,7 @@ class AudioNarrator {
     if (clean.length === 0) return [];
 
     const chunks: LectureChunkPlan[] = [];
-    const TARGET_WORDS_PER_CHUNK = 125;
+    const TARGET_WORDS_PER_CHUNK = 85;
     let curSentences: string[] = [];
     let curWords = 0;
     let chunkStartIdx = 0;
@@ -631,7 +645,7 @@ class AudioNarrator {
   }
 
   // Synthesize & cache lecture chunk as ONE unified calm human WAV file (RAM -> IndexedDB -> Server)
-  public fetchLectureAudio(sentences: string[]): Promise<LectureAudioData | null> {
+  public fetchLectureAudio(sentences: string[], sessionIdAtStart?: number): Promise<LectureAudioData | null> {
     const cleanSentences = sentences.map((s) => s.trim()).filter(Boolean);
     if (cleanSentences.length === 0) return Promise.resolve(null);
 
@@ -654,12 +668,19 @@ class AudioNarrator {
       if (this.serverTtsUnavailable) {
         return null;
       }
+      if (sessionIdAtStart !== undefined && (this.currentSessionId !== sessionIdAtStart || this.isPaused)) {
+        return null;
+      }
 
-      // 2. Fetch from canonical calm Charon TTS endpoint with patient mobile/cross-browser retry backoff
+      // 2. Fetch from canonical calm Zephyr TTS endpoint with abort support on stop/pause
       const endpoint = this.resolveTtsEndpoint('/api/tts/lecture');
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        if (sessionIdAtStart !== undefined && (this.currentSessionId !== sessionIdAtStart || this.isPaused)) {
+          return null;
+        }
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 55000);
+        this.activeFetchControllers.add(controller);
+        const timeoutId = setTimeout(() => controller.abort(), 35000);
         try {
           const res = await fetch(endpoint, {
             method: 'POST',
@@ -667,33 +688,38 @@ class AudioNarrator {
             signal: controller.signal,
             body: JSON.stringify({
               sentences: cleanSentences,
-              voice: 'Charon',
+              voice: 'Zephyr',
               style: CALM_MALE_STYLE,
             }),
           });
           clearTimeout(timeoutId);
+          this.activeFetchControllers.delete(controller);
           if (res.status === 429) {
-            if (attempt < 3) {
-              await new Promise((r) => setTimeout(r, 1200 * attempt));
+            if (attempt < 2) {
+              await new Promise((r) => setTimeout(r, 1100));
               continue;
             }
             this.lectureQuotaHit = true;
             return null;
           }
           if (res.status === 503 || res.status >= 500) {
-            if (attempt < 3) {
-              await new Promise((r) => setTimeout(r, 900 * attempt));
+            if (attempt < 2) {
+              await new Promise((r) => setTimeout(r, 700));
               continue;
             }
             return null;
           }
           if (res.status === 404 || res.status === 405) {
-            this.serverTtsUnavailable = true;
+            this.serverTts404Count++;
+            if (this.serverTts404Count >= 2) {
+              this.serverTtsUnavailable = true;
+            }
             return null;
           }
           if (!res.ok) {
             throw new Error('Lecture TTS returned ' + res.status);
           }
+          this.serverTts404Count = 0;
           const data = await res.json();
           if (data?.audio && Array.isArray(data?.sentenceTimings)) {
             const payload: LectureAudioData = {
@@ -707,9 +733,13 @@ class AudioNarrator {
           }
         } catch {
           clearTimeout(timeoutId);
+          this.activeFetchControllers.delete(controller);
+          if (controller.signal.aborted && sessionIdAtStart !== undefined && this.currentSessionId !== sessionIdAtStart) {
+            return null;
+          }
         }
-        if (attempt < 3) {
-          await new Promise((r) => setTimeout(r, 700 * attempt));
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 500));
         }
       }
       return null;
@@ -722,15 +752,22 @@ class AudioNarrator {
     return promise;
   }
 
+  // Hydrate silently from IndexedDB ONLY (zero background network loader before user clicks Play)
   public async prefetchLecture(sentences: string[]): Promise<void> {
     if (typeof window === 'undefined' || sentences.length === 0) return;
     const chunks = this.splitLectureIntoChunks(sentences);
-    if (chunks.length > 0) {
-      await this.fetchLectureAudio(chunks[0].sentences);
+    for (const ch of chunks) {
+      const clean = ch.sentences.map((s) => s.trim()).filter(Boolean);
+      const key = this.getLectureKey(clean);
+      if (this.lectureCache.has(key)) continue;
+      const idbHit = await this.persistentCache.get<LectureAudioData>(`lec_${key}`);
+      if (idbHit?.audio && Array.isArray(idbHit.sentenceTimings)) {
+        this.cacheLecturePayload(key, clean, idbHit);
+      }
     }
   }
 
-  private fetchTtsAudio(cleanText: string): Promise<string | null> {
+  private fetchTtsAudio(cleanText: string, sessionIdAtStart?: number): Promise<string | null> {
     const cacheKey = `${this.selectedVoice}_${cleanText}`;
     if (this.audioCache.has(cacheKey)) {
       return Promise.resolve(this.audioCache.get(cacheKey)!);
@@ -750,11 +787,18 @@ class AudioNarrator {
       if (this.serverTtsUnavailable) {
         return null;
       }
+      if (sessionIdAtStart !== undefined && (this.currentSessionId !== sessionIdAtStart || this.isPaused)) {
+        return null;
+      }
 
       const endpoint = this.resolveTtsEndpoint('/api/tts');
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        if (sessionIdAtStart !== undefined && (this.currentSessionId !== sessionIdAtStart || this.isPaused)) {
+          return null;
+        }
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 45000);
+        this.activeFetchControllers.add(controller);
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
         try {
           const res = await fetch(endpoint, {
             method: 'POST',
@@ -762,25 +806,30 @@ class AudioNarrator {
             signal: controller.signal,
             body: JSON.stringify({
               text: cleanText,
-              voice: 'Charon',
+              voice: 'Zephyr',
               style: CALM_MALE_STYLE,
             }),
           });
           clearTimeout(timeoutId);
+          this.activeFetchControllers.delete(controller);
           if (res.status === 429 || res.status === 503 || res.status >= 500) {
-            if (attempt < 3) {
-              await new Promise((r) => setTimeout(r, 900 * attempt));
+            if (attempt < 2) {
+              await new Promise((r) => setTimeout(r, 800));
               continue;
             }
             return null;
           }
           if (res.status === 404 || res.status === 405) {
-            this.serverTtsUnavailable = true;
+            this.serverTts404Count++;
+            if (this.serverTts404Count >= 2) {
+              this.serverTtsUnavailable = true;
+            }
             return null;
           }
           if (!res.ok) {
             throw new Error('TTS server returned ' + res.status);
           }
+          this.serverTts404Count = 0;
           const data = await res.json();
           if (data?.audio) {
             this.audioCache.set(cacheKey, data.audio);
@@ -790,9 +839,13 @@ class AudioNarrator {
           }
         } catch {
           clearTimeout(timeoutId);
+          this.activeFetchControllers.delete(controller);
+          if (controller.signal.aborted && sessionIdAtStart !== undefined && this.currentSessionId !== sessionIdAtStart) {
+            return null;
+          }
         }
-        if (attempt < 3) {
-          await new Promise((r) => setTimeout(r, 600 * attempt));
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 500));
         }
       }
       return null;
@@ -809,13 +862,11 @@ class AudioNarrator {
   public async prefetch(texts: string[]): Promise<void> {
     if (typeof window === 'undefined' || texts.length === 0) return;
     if (texts.length > 1) {
-      await this.fetchLectureAudio(texts);
-      return;
+      await this.prefetchLecture(texts);
     }
-    await this.fetchTtsAudio(texts[0].trim());
   }
 
-  // Wait cleanly for asynchronous getVoices() (critical on Brave, Chromium, Firefox & mobile first play)
+  // Wait cleanly for asynchronous getVoices() (critical on Brave, Comet, Chrome, Edge, Firefox & mobile)
   private ensureVoicesLoaded(timeoutMs: number = 500): Promise<SpeechSynthesisVoice[]> {
     if (typeof window === 'undefined' || !window.speechSynthesis) {
       return Promise.resolve([]);
@@ -867,7 +918,7 @@ class AudioNarrator {
     let score = 0;
 
     if (!lang.startsWith('en')) {
-      return -2000;
+      return -3000;
     }
     if (lang.startsWith('en-us') || lang.startsWith('en-gb')) score += 45;
     else if (lang.startsWith('en-ca') || lang.startsWith('en-au') || lang.startsWith('en-in')) score += 25;
@@ -882,37 +933,41 @@ class AudioNarrator {
     const isGoogle = name.includes('google');
     const isAppleQuality = name.includes('enhanced') || name.includes('premium') || name.includes('siri');
 
-    // Tier 1: Modern Natural / Online / Neural / Google / Enhanced voices ALWAYS outrank legacy OS voices
+    // Tier 1: Calm, silky Online / Natural / Google / Enhanced voices across Chrome, Edge, Safari
     if (name.includes('online') && isNaturalOrNeural) score += 1400;
     else if (isNaturalOrNeural) score += 1050;
-    if (isGoogle) score += 880;
+    if (isGoogle) score += 920;
     if (isOnline && !isGoogle) score += 720;
-    if (isAppleQuality) score += 660;
+    if (isAppleQuality) score += 680;
 
-    // Tier 2: Calm, warm educator voice personas (prioritizing natural clarity across all browsers)
-    const calmMalePersonas = [
-      'andrew', 'brian', 'christopher', 'steffan', 'ryan', 'guy',
-      'george', 'arthur', 'oliver', 'daniel', 'uk english male', 'aaron', 'thomas',
+    // Tier 2: Calm, light, easy educator voices (eliminating all heavy deep chest bass voices)
+    const calmLightVoices = [
+      'ava', 'emma', 'jenny', 'aria', 'sonia', 'libby',
+      'google us english', 'google uk english female',
+      'samantha', 'serena', 'allison', 'zoe', 'claire',
+      'karen', 'kate', 'tessa', 'moira', 'nicky',
+      'victoria', 'michelle', 'ana', 'natasha',
     ];
-    const calmFemalePersonas = [
-      'ava', 'emma', 'jenny', 'aria', 'libby', 'sonia', 'samantha',
-      'serena', 'karen', 'kate', 'uk english female', 'us english', 'nicky', 'allison',
+    const cleanLightLocalVoices = [
+      'zira', 'hazel', 'susan', 'heera', 'eva', 'elsa', 'fiona',
+    ];
+    const heavyOrBoomyVoices = [
+      'david', 'mark', 'george', 'guy', 'christopher', 'steffan', 'ryan',
+      'uk english male', 'us english male', 'daniel', 'arthur', 'oliver',
+      'alex', 'fred', 'ravi', 'richard', 'sean', 'aaron', 'thomas',
+      'espeak', 'festival', 'flite', 'mbrola',
     ];
 
-    if (calmMalePersonas.some((tok) => name.includes(tok))) {
-      score += 240;
-    } else if (calmFemalePersonas.some((tok) => name.includes(tok))) {
-      score += 190;
+    if (calmLightVoices.some((tok) => name.includes(tok))) {
+      score += 460;
+    } else if (cleanLightLocalVoices.some((tok) => name.includes(tok))) {
+      // Strong boost over Windows SAPI5 David/Mark/George on Brave, Comet & Chromium
+      score += 380;
     }
 
-    // Penalize legacy heavy/monotone offline robotic synthesizers so Natural/Online always win if present
-    if (name.includes('espeak') || name.includes('festival') || name.includes('flite') || name.includes('mbrola')) {
-      score -= 900;
-    }
-    if (!isNaturalOrNeural && !isOnline) {
-      if (name.includes('microsoft david') || name === 'david' || name.includes('david desktop')) score -= 500;
-      if (name.includes('microsoft mark') || name === 'mark' || name.includes('mark desktop')) score -= 420;
-      if (name.includes('microsoft zira') || name === 'zira' || name.includes('zira desktop')) score -= 340;
+    // Explicitly avoid heavy bass / deep / robotic male voices on ALL browsers & OSes
+    if (heavyOrBoomyVoices.some((tok) => name.includes(tok)) || /\bmale\b/.test(name)) {
+      score -= 1200;
     }
 
     return score;
@@ -940,7 +995,7 @@ class AudioNarrator {
     return this.cachedBestVoice;
   }
 
-  // Calibrate rate & pitch per voice engine so Brave/legacy local voices never sound heavy, booming, or muddy
+  // Calibrate rate & pitch per voice engine so every browser sounds calm, light, unhurried, and easy on the ear
   private getBrowserAcousticProfile(
     voice: SpeechSynthesisVoice | null,
     activeRate: number
@@ -962,33 +1017,37 @@ class AudioNarrator {
 
     if (isModernNeuralOrOnline) {
       return {
-        rate: Math.max(0.72, Math.min(1.45, safeActive * 0.84)),
-        pitch: 1.0,
+        rate: Math.max(0.76, Math.min(1.5, safeActive * 0.88)),
+        pitch: 1.03,
       };
     }
 
-    const isLegacyLightVoice =
+    const isLightLocalVoice =
       name.includes('zira') ||
       name.includes('hazel') ||
       name.includes('susan') ||
       name.includes('heera') ||
+      name.includes('eva') ||
+      name.includes('elsa') ||
       name.includes('samantha') ||
       name.includes('karen') ||
+      name.includes('kate') ||
+      name.includes('tessa') ||
+      name.includes('moira') ||
       name.includes('fiona') ||
       name.includes('female');
 
-    if (isLegacyLightVoice) {
+    if (isLightLocalVoice) {
       return {
-        rate: Math.max(0.74, Math.min(1.45, safeActive * 0.82)),
-        pitch: 0.93,
+        rate: Math.max(0.78, Math.min(1.5, safeActive * 0.88)),
+        pitch: 1.05,
       };
     }
 
-    // Legacy bass OS voices on Brave (e.g. Windows SAPI5 David / Mark / eSpeak / unset default):
-    // Lift pitch to clear heavy chest boom while keeping speech calm, smooth, and unhurried.
+    // Fallback bass OS voice (e.g. locked-down system with only David): lighten cleanly so it never booms
     return {
-      rate: Math.max(0.75, Math.min(1.45, safeActive * 0.85)),
-      pitch: 1.16,
+      rate: Math.max(0.78, Math.min(1.5, safeActive * 0.90)),
+      pitch: 1.28,
     };
   }
 
@@ -1049,7 +1108,9 @@ class AudioNarrator {
   private getWebAudioCurrentPos(): number {
     if (!this.webAudioBuffer) return 0;
     if (this.isPaused || !this.audioCtx) return this.webAudioStartOffset;
-    const elapsed = Math.max(0, this.audioCtx.currentTime - this.webAudioStartCtxTime);
+    const rawOutLatency = (this.audioCtx as AudioContext & { outputLatency?: number }).outputLatency || this.audioCtx.baseLatency || 0;
+    const outputLatencyComp = Math.min(0.18, Math.max(0, rawOutLatency));
+    const elapsed = Math.max(0, this.audioCtx.currentTime - this.webAudioStartCtxTime - outputLatencyComp);
     return Math.min(this.webAudioBuffer.duration, this.webAudioStartOffset + elapsed * this.webAudioRate);
   }
 
@@ -1318,23 +1379,24 @@ class AudioNarrator {
     const chunk = chunks[chunkIdx];
     const key = this.getLectureKey(chunk.sentences);
 
-    // Pre-fetch next chunk proactively during playback
+    // Pre-fetch next chunk ONLY while actively playing (never on paused/stopped state)
     if (chunkIdx + 1 < chunks.length) {
       setTimeout(() => {
-        if (this.currentSessionId === sessionId) {
-          this.fetchLectureAudio(chunks[chunkIdx + 1].sentences);
+        if (this.currentSessionId === sessionId && this.isSpeaking && !this.isPaused) {
+          this.fetchLectureAudio(chunks[chunkIdx + 1].sentences, sessionId);
         }
-      }, 350);
+      }, 450);
     }
 
     const handleChunkDone = () => {
-      if (this.currentSessionId !== sessionId) return;
+      if (this.currentSessionId !== sessionId || this.isPaused || !this.isSpeaking) return;
       if (chunkIdx + 1 < chunks.length) {
         this.startLectureAtChunk(chunkIdx + 1, 0, opts);
       } else {
         this.clearAllTimers();
         this.isSpeaking = false;
         this.currentAudio = null;
+        this.fallbackResumeState = null;
         opts.onEnd?.();
       }
     };
@@ -1353,6 +1415,7 @@ class AudioNarrator {
         opts.onStart?.(mapped, this.activeLectureTotalDuration);
       },
       onProgress: (p) => {
+        if (this.currentSessionId !== sessionId || this.isPaused || !this.isSpeaking) return;
         opts.onProgress?.({
           currentTime: Math.min(this.activeLectureTotalDuration, this.activeChunkStartOffset + p.currentTime),
           duration: this.activeLectureTotalDuration,
@@ -1378,9 +1441,9 @@ class AudioNarrator {
     }
 
     opts.onLoadingChange?.(true);
-    this.fetchLectureAudio(chunk.sentences).then((data) => {
-      if (this.currentSessionId !== sessionId) return;
+    this.fetchLectureAudio(chunk.sentences, sessionId).then((data) => {
       opts.onLoadingChange?.(false);
+      if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused) return;
       if (data) {
         this.playLectureWav(data, chunk.sentences, this.currentRate, this.currentVolume, sessionId, chunkOpts);
       } else {
@@ -1595,22 +1658,24 @@ class AudioNarrator {
       };
 
       audio.onerror = () => {
-        if (this.currentSessionId !== sessionId) return;
+        if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused) return;
         this.clearAllTimers();
         this.playFallbackLectureSequence(sentences, opts.startTimeOffset || 0, rate, volume, sessionId, opts);
       };
 
       this.currentAudio = audio;
       applyStartOffset();
-      if (this.isPaused) return;
+      if (this.isPaused || !this.isSpeaking) return;
       audio.play().catch(() => {
-        if (this.currentSessionId === sessionId) {
+        if (this.currentSessionId === sessionId && this.isSpeaking && !this.isPaused) {
           this.clearAllTimers();
           this.playFallbackLectureSequence(sentences, opts.startTimeOffset || 0, rate, volume, sessionId, opts);
         }
       });
     } catch {
-      this.playFallbackLectureSequence(sentences, opts.startTimeOffset || 0, rate, volume, sessionId, opts);
+      if (this.currentSessionId === sessionId && this.isSpeaking && !this.isPaused) {
+        this.playFallbackLectureSequence(sentences, opts.startTimeOffset || 0, rate, volume, sessionId, opts);
+      }
     }
   }
 
@@ -1620,11 +1685,12 @@ class AudioNarrator {
     rate: number,
     volume: number,
     sessionId: number,
-    opts: LectureSpeakOptions
+    opts: LectureSpeakOptions,
+    resumeIndices?: { startIdx: number; startSubIdx: number }
   ): Promise<void> {
-    // Ensure async browser voice list (e.g. Brave / Chromium / Firefox) is ready before speaking
+    // Ensure async browser voice list (e.g. Brave / Comet / Chrome / Edge / Firefox) is ready before speaking
     await this.ensureVoicesLoaded(450);
-    if (this.currentSessionId !== sessionId) return;
+    if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused) return;
 
     const estDurs = sentences.map((s) => this.estimateDuration(s, 1.0));
     const timings: SentenceTiming[] = [];
@@ -1634,36 +1700,40 @@ class AudioNarrator {
       acc += d;
     }
     const totalDuration = Math.max(1, acc);
-    opts.onStart?.(timings, totalDuration);
+    if (!resumeIndices) {
+      opts.onStart?.(timings, totalDuration);
+    }
 
-    let startIdx = 0;
-    for (let i = 0; i < timings.length; i++) {
-      if (startOffsetSec < timings[i].end || i === timings.length - 1) {
-        startIdx = i;
-        break;
+    let startIdx = resumeIndices ? resumeIndices.startIdx : 0;
+    if (!resumeIndices) {
+      for (let i = 0; i < timings.length; i++) {
+        if (startOffsetSec < timings[i].end || i === timings.length - 1) {
+          startIdx = i;
+          break;
+        }
       }
     }
 
-    // Split long multi-sentence paragraphs (and >24-word sentences at commas) without isolating tiny <6-word fragments
+    // Split into tight 5-12 word natural breathing clauses at punctuation so onstart/onend prevent any multi-second drift
     const splitSubClauses = (line: string): Array<{ text: string; charStart: number; wordOffset: number }> => {
       const sentenceParts = line.match(/[^.!?]+(?:[.!?]+|$)/g) || [line];
       const fineParts: string[] = [];
       for (const sp of sentenceParts) {
         const trimmed = sp.trim();
         if (!trimmed) continue;
-        if (tokenizeTextIntoWords(trimmed).length > 24) {
-          const rawSub = trimmed.match(/[^,;—–]+(?:[,;—–]+|$)/g) || [trimmed];
+        if (tokenizeTextIntoWords(trimmed).length > 12) {
+          const rawSub = trimmed.match(/[^,;:—–]+(?:[,;:—–]+|$)/g) || [trimmed];
           const mergedSub: string[] = [];
           for (const piece of rawSub) {
             const p = piece.trim();
             if (!p) continue;
-            if (mergedSub.length > 0 && tokenizeTextIntoWords(mergedSub[mergedSub.length - 1]).length < 6) {
+            if (mergedSub.length > 0 && tokenizeTextIntoWords(mergedSub[mergedSub.length - 1]).length < 4) {
               mergedSub[mergedSub.length - 1] = `${mergedSub[mergedSub.length - 1]} ${p}`;
             } else {
               mergedSub.push(p);
             }
           }
-          if (mergedSub.length > 1 && tokenizeTextIntoWords(mergedSub[mergedSub.length - 1]).length < 5) {
+          if (mergedSub.length > 1 && tokenizeTextIntoWords(mergedSub[mergedSub.length - 1]).length < 4) {
             const tail = mergedSub.pop()!;
             mergedSub[mergedSub.length - 1] = `${mergedSub[mergedSub.length - 1]} ${tail}`;
           }
@@ -1688,14 +1758,16 @@ class AudioNarrator {
       return parts.length > 0 ? parts : [{ text: line, charStart: 0, wordOffset: 0 }];
     };
 
-    const speakFrom = (idx: number) => {
-      if (this.currentSessionId !== sessionId) return;
+    const speakFrom = (idx: number, forcedSubIdx?: number) => {
+      if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused) return;
       if (idx >= sentences.length) {
         this.clearAllTimers();
         this.isSpeaking = false;
+        this.fallbackResumeState = null;
         opts.onEnd?.();
         return;
       }
+      this.currentFallbackIdx = idx;
       const line = sentences[idx];
       const baseStart = timings[idx].start;
       const tokens = tokenizeTextIntoWords(line);
@@ -1703,53 +1775,89 @@ class AudioNarrator {
       const activeRate = Math.max(0.75, Math.min(2.0, this.currentRate || rate));
 
       const speakSubClause = (subIdx: number) => {
-        if (this.currentSessionId !== sessionId) return;
+        if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused) return;
         if (subIdx >= subClauses.length) {
           this.fallbackWatchdog = setTimeout(() => {
-            if (this.currentSessionId === sessionId) {
+            if (this.currentSessionId === sessionId && this.isSpeaking && !this.isPaused) {
               speakFrom(idx + 1);
             }
-          }, 140);
+          }, 160);
           return;
         }
+
+        this.currentFallbackIdx = idx;
+        this.currentFallbackSubIdx = subIdx;
+        this.fallbackResumeState = {
+          sentences,
+          startIdx: idx,
+          startSubIdx: subIdx,
+          rate: activeRate,
+          volume,
+          opts,
+        };
 
         const clause = subClauses[subIdx];
         const subTokens = tokenizeTextIntoWords(clause.text);
         const subRanges = computeWordProgressRanges(subTokens);
+        const clauseEffectiveChars = Math.max(8, clause.text.length + (clause.text.match(/[,;:—–.!?]/g)?.length || 0) * 3);
         const selectedVoice = this.getBestBrowserVoice();
         const acousticForClause = this.getBrowserAcousticProfile(selectedVoice, activeRate);
         const effectiveRateFactor = Math.max(0.65, acousticForClause.rate);
-        const liveWps = Math.max(1.5, Math.min(3.8, this.calibratedBrowserWps));
-        const estSubDur = Math.max(0.75, (subTokens.length / liveWps) / effectiveRateFactor);
+        const liveCps = Math.max(9.0, Math.min(20.0, this.calibratedCharsPerSec));
+        const estSubDur = Math.max(0.8, (clauseEffectiveChars / liveCps) / effectiveRateFactor);
 
         let speechStarted = false;
         let speechStartMs = Date.now();
         let anchorTimeMs = speechStartMs;
         let anchorFrac = 0;
         let lastBoundaryEventMs = 0;
+        let boundaryCount = 0;
+        let lastEmittedLocalIdx = 0;
 
         this.clearAllTimers();
         const startHighlightLoop = () => {
-          if (this.currentSessionId !== sessionId) return;
+          if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused) return;
           this.fallbackInterval = setInterval(() => {
             if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused || !speechStarted) {
               return;
             }
             const now = Date.now();
-            // If exact onboundary fired < 260ms ago, let it hold cleanly without jitter; otherwise interpolate smoothly from last anchor
-            if (lastBoundaryEventMs > 0 && now - lastBoundaryEventMs < 260) {
+            // When real browser word boundary callbacks are firing (Windows SAPI5 / Edge / macOS / Brave),
+            // let real speech events drive word selection so highlight NEVER jumps 2-3s ahead on long pauses!
+            if (boundaryCount >= 2) {
+              if (now - lastBoundaryEventMs < 1200) {
+                return;
+              }
+              // Gentle +1 safety nudge only if synthesizer held silent > 1.2s without firing next boundary
+              lastBoundaryEventMs = now;
+              const nextW = Math.min(Math.max(0, subTokens.length - 1), lastEmittedLocalIdx + 1);
+              if (nextW === lastEmittedLocalIdx) return;
+              lastEmittedLocalIdx = nextW;
+              const globalWIdx = Math.min(Math.max(0, tokens.length - 1), clause.wordOffset + nextW);
+              const lineFrac = (globalWIdx + 0.5) / Math.max(1, tokens.length);
+              const syncedElapsed = lineFrac * estDurs[idx];
+              opts.onProgress?.({
+                currentTime: Math.min(totalDuration, baseStart + syncedElapsed),
+                duration: totalDuration,
+                sentenceIndex: idx,
+                sentenceElapsed: syncedElapsed,
+                wordIndex: globalWIdx,
+              });
               return;
             }
+
+            // Engines that omit onboundary (e.g. Chrome Google US English): character & syllable-calibrated pacing
             const curRate = Math.max(0.75, Math.min(2.0, this.currentRate || activeRate));
             const curAcoustic = this.getBrowserAcousticProfile(selectedVoice, curRate);
             const curEffectiveRate = Math.max(0.65, curAcoustic.rate);
-            const curEstDur = Math.max(0.75, (subTokens.length / Math.max(1.5, Math.min(3.8, this.calibratedBrowserWps))) / curEffectiveRate);
+            const curEstDur = Math.max(0.8, (clauseEffectiveChars / Math.max(9.0, Math.min(20.0, this.calibratedCharsPerSec))) / curEffectiveRate);
             const elapsedSinceAnchor = Math.max(0, (now - anchorTimeMs) / 1000);
-            const frac = Math.min(0.985, anchorFrac + elapsedSinceAnchor / curEstDur);
+            const frac = Math.min(0.96, anchorFrac + elapsedSinceAnchor / curEstDur);
             const localWIdx =
               subRanges.length > 0
                 ? findWeightedWordIndex(subRanges, frac)
                 : Math.min(Math.max(0, subTokens.length - 1), Math.floor(frac * subTokens.length));
+            lastEmittedLocalIdx = localWIdx;
             const globalWIdx = Math.min(Math.max(0, tokens.length - 1), clause.wordOffset + localWIdx);
             const lineFrac = (globalWIdx + 0.5) / Math.max(1, tokens.length);
             const syncedElapsed = lineFrac * estDurs[idx];
@@ -1761,19 +1869,19 @@ class AudioNarrator {
               sentenceElapsed: syncedElapsed,
               wordIndex: globalWIdx,
             });
-          }, 40);
+          }, 45);
         };
 
         let clauseDone = false;
         const advanceClause = () => {
-          if (clauseDone || this.currentSessionId !== sessionId) return;
+          if (clauseDone || this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused) return;
           clauseDone = true;
           this.clearAllTimers();
-          if (speechStarted && subTokens.length >= 6) {
-            const actualSec = Math.max(0.6, (Date.now() - speechStartMs) / 1000);
-            const measuredWps = (subTokens.length / actualSec) / effectiveRateFactor;
-            if (measuredWps >= 1.4 && measuredWps <= 4.2) {
-              this.calibratedBrowserWps = this.calibratedBrowserWps * 0.45 + measuredWps * 0.55;
+          if (speechStarted && clauseEffectiveChars >= 24) {
+            const actualSec = Math.max(0.7, (Date.now() - speechStartMs) / 1000);
+            const measuredCps = (clauseEffectiveChars / actualSec) / effectiveRateFactor;
+            if (measuredCps >= 8.5 && measuredCps <= 22.0) {
+              this.calibratedCharsPerSec = this.calibratedCharsPerSec * 0.45 + measuredCps * 0.55;
             }
           }
           speakSubClause(subIdx + 1);
@@ -1781,6 +1889,12 @@ class AudioNarrator {
 
         if (typeof window !== 'undefined' && window.speechSynthesis && volume > 0) {
           try {
+            if (this.currentUtterance) {
+              this.currentUtterance.onstart = null;
+              this.currentUtterance.onboundary = null;
+              this.currentUtterance.onend = null;
+              this.currentUtterance.onerror = null;
+            }
             window.speechSynthesis.cancel();
             const utterance = new SpeechSynthesisUtterance(clause.text);
             if (selectedVoice) utterance.voice = selectedVoice;
@@ -1789,12 +1903,14 @@ class AudioNarrator {
             utterance.volume = Math.max(0, Math.min(1, this.currentVolume ?? volume));
 
             utterance.onstart = () => {
-              if (this.currentSessionId !== sessionId || clauseDone) return;
+              if (this.currentSessionId !== sessionId || clauseDone || !this.isSpeaking || this.isPaused) return;
               speechStarted = true;
               speechStartMs = Date.now();
               anchorTimeMs = speechStartMs;
               anchorFrac = 0;
               lastBoundaryEventMs = 0;
+              boundaryCount = 0;
+              lastEmittedLocalIdx = 0;
               const globalWIdx = Math.min(Math.max(0, tokens.length - 1), clause.wordOffset);
               const syncedElapsed = (globalWIdx / Math.max(1, tokens.length)) * estDurs[idx];
               opts.onProgress?.({
@@ -1808,12 +1924,14 @@ class AudioNarrator {
             };
 
             utterance.onboundary = (e) => {
-              if (this.currentSessionId !== sessionId || clauseDone) return;
+              if (this.currentSessionId !== sessionId || clauseDone || !this.isSpeaking || this.isPaused) return;
               const now = Date.now();
               if (!speechStarted) {
                 speechStarted = true;
                 speechStartMs = now;
+                startHighlightLoop();
               }
+              boundaryCount++;
               const charIdx = Math.max(0, e.charIndex || 0);
               let localWIdx = Math.max(0, subTokens.length - 1);
               for (let i = 0; i < subTokens.length; i++) {
@@ -1825,37 +1943,35 @@ class AudioNarrator {
                   break;
                 }
               }
+              lastEmittedLocalIdx = localWIdx;
               anchorFrac = subRanges[localWIdx]?.startFrac ?? (localWIdx / Math.max(1, subTokens.length));
               anchorTimeMs = now;
               lastBoundaryEventMs = now;
 
-              // Dynamically tune live WPS mid-clause when word boundaries advance smoothly
-              const elapsedSec = (now - speechStartMs) / 1000;
-              if (localWIdx >= 3 && elapsedSec > 0.7 && anchorFrac > 0.12) {
-                const liveMeasuredWps = ((localWIdx + 0.5) / elapsedSec) / effectiveRateFactor;
-                if (liveMeasuredWps >= 1.5 && liveMeasuredWps <= 4.2) {
-                  this.calibratedBrowserWps = this.calibratedBrowserWps * 0.7 + liveMeasuredWps * 0.3;
-                }
-              }
-
-              const globalWIdx = Math.min(Math.max(0, tokens.length - 1), clause.wordOffset + localWIdx);
-              const progressFrac = Math.min(1, (globalWIdx + 0.5) / Math.max(1, tokens.length));
+              // Gently compensate ~140ms audio output pipeline lead so eyes never jump ahead of ear
+              const emitIdx = localWIdx;
+              const emitGlobalIdx = Math.min(Math.max(0, tokens.length - 1), clause.wordOffset + emitIdx);
+              const progressFrac = Math.min(1, (emitGlobalIdx + 0.5) / Math.max(1, tokens.length));
               const syncedElapsed = progressFrac * estDurs[idx];
-              opts.onProgress?.({
-                currentTime: Math.min(totalDuration, baseStart + syncedElapsed),
-                duration: totalDuration,
-                sentenceIndex: idx,
-                sentenceElapsed: syncedElapsed,
-                wordIndex: globalWIdx,
-              });
+
+              setTimeout(() => {
+                if (this.currentSessionId !== sessionId || clauseDone || !this.isSpeaking || this.isPaused) return;
+                opts.onProgress?.({
+                  currentTime: Math.min(totalDuration, baseStart + syncedElapsed),
+                  duration: totalDuration,
+                  sentenceIndex: idx,
+                  sentenceElapsed: syncedElapsed,
+                  wordIndex: emitGlobalIdx,
+                });
+              }, 110);
             };
 
             utterance.onend = advanceClause;
             utterance.onerror = advanceClause;
 
-            // Safety start trigger if browser omits onstart
-            setTimeout(() => {
-              if (this.currentSessionId === sessionId && !clauseDone && !speechStarted) {
+            // Tracked safety start trigger if browser omits onstart
+            this.safetyStartTimer = setTimeout(() => {
+              if (this.currentSessionId === sessionId && !clauseDone && !speechStarted && this.isSpeaking && !this.isPaused) {
                 speechStarted = true;
                 speechStartMs = Date.now();
                 anchorTimeMs = speechStartMs;
@@ -1863,7 +1979,7 @@ class AudioNarrator {
               }
             }, 350);
 
-            this.fallbackWatchdog = setTimeout(advanceClause, Math.max(4.0, estSubDur * 1.55 + 3.0) * 1000);
+            this.fallbackWatchdog = setTimeout(advanceClause, Math.max(4.5, estSubDur * 1.65 + 3.2) * 1000);
             this.currentUtterance = utterance;
             window.speechSynthesis.speak(utterance);
             return;
@@ -1871,6 +1987,7 @@ class AudioNarrator {
             // Fall through to silent synced advance
           }
         }
+        if (this.isPaused || !this.isSpeaking) return;
         speechStarted = true;
         speechStartMs = Date.now();
         anchorTimeMs = speechStartMs;
@@ -1879,14 +1996,15 @@ class AudioNarrator {
       };
 
       const lineOffset = idx === startIdx ? Math.max(0, startOffsetSec - baseStart) : 0;
-      const startSubIdx =
-        lineOffset > 0.8 && subClauses.length > 1
+      const startSubIdx = forcedSubIdx !== undefined
+        ? Math.max(0, Math.min(subClauses.length - 1, forcedSubIdx))
+        : (lineOffset > 0.8 && subClauses.length > 1
           ? Math.min(subClauses.length - 1, Math.floor((lineOffset / Math.max(1, estDurs[idx])) * subClauses.length))
-          : 0;
+          : 0);
       speakSubClause(startSubIdx);
     };
 
-    speakFrom(startIdx);
+    speakFrom(startIdx, resumeIndices?.startSubIdx);
   }
 
   public speak(
@@ -1924,8 +2042,8 @@ class AudioNarrator {
       return;
     }
 
-    this.fetchTtsAudio(cleanText).then((base64Audio) => {
-      if (this.currentSessionId !== sessionId) return;
+    this.fetchTtsAudio(cleanText, sessionId).then((base64Audio) => {
+      if (this.currentSessionId !== sessionId || !this.isSpeaking || this.isPaused) return;
       if (base64Audio) {
         this.playBase64Audio(base64Audio, cleanText, this.currentRate, this.currentVolume, sessionId, opts);
       } else {
@@ -2264,10 +2382,40 @@ class AudioNarrator {
       clearTimeout(this.fallbackWatchdog);
       this.fallbackWatchdog = null;
     }
+    if (this.safetyStartTimer) {
+      clearTimeout(this.safetyStartTimer);
+      this.safetyStartTimer = null;
+    }
+  }
+
+  private cancelSpeechSynthesisCleanly() {
+    if (this.currentUtterance) {
+      this.currentUtterance.onstart = null;
+      this.currentUtterance.onboundary = null;
+      this.currentUtterance.onend = null;
+      this.currentUtterance.onerror = null;
+      this.currentUtterance = null;
+    }
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // Ignore
+      }
+    }
   }
 
   public pause(): void {
     this.isPaused = true;
+    this.clearAllTimers();
+    this.activeFetchControllers.forEach((ctrl) => {
+      try {
+        ctrl.abort();
+      } catch {
+        // Ignore
+      }
+    });
+    this.activeFetchControllers.clear();
     if (this.webAudioPlaying && this.audioCtx && this.webAudioBuffer) {
       this.webAudioStartOffset = this.getWebAudioCurrentPos();
       this.stopWebAudioNode();
@@ -2279,18 +2427,14 @@ class AudioNarrator {
         // Ignore
       }
     }
-    if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.speaking) {
-      try {
-        window.speechSynthesis.pause();
-      } catch {
-        // Ignore
-      }
-    }
+    // Cancel browser speech cleanly & bookmark clause so Chromium never resumes on its own when paused
+    this.cancelSpeechSynthesisCleanly();
   }
 
   public resume(): void {
     this.unlockOnUserGesture();
     this.isPaused = false;
+    this.isSpeaking = true;
     if (this.webAudioBuffer && !this.webAudioPlaying && this.webAudioSessionId === this.currentSessionId) {
       const ctx = this.getAudioContext();
       if (ctx && (ctx.state as string) !== 'running') {
@@ -2302,27 +2446,54 @@ class AudioNarrator {
     if (this.currentAudio && this.currentAudio.paused) {
       try {
         this.currentAudio.play();
+        return;
       } catch {
         // Ignore
       }
     }
-    if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.paused) {
-      try {
-        window.speechSynthesis.resume();
-      } catch {
-        // Ignore
-      }
+    if (this.fallbackResumeState) {
+      const st = this.fallbackResumeState;
+      const sessionId = ++this.currentSessionId;
+      this.playFallbackLectureSequence(
+        st.sentences,
+        0,
+        this.currentRate || st.rate,
+        this.currentVolume ?? st.volume,
+        sessionId,
+        st.opts,
+        { startIdx: this.currentFallbackIdx, startSubIdx: this.currentFallbackSubIdx }
+      );
+      return;
+    }
+    if (this.activeLectureOpts) {
+      this.speakLecture({
+        ...this.activeLectureOpts,
+        startTimeOffset: this.webAudioStartOffset || this.activeLectureOpts.startTimeOffset || 0,
+      });
+    } else {
+      this.isSpeaking = false;
     }
   }
 
   public stop(preserveChunkPlan: boolean = false): void {
     this.currentSessionId++;
     this.clearAllTimers();
+    this.activeFetchControllers.forEach((ctrl) => {
+      try {
+        ctrl.abort();
+      } catch {
+        // Ignore
+      }
+    });
+    this.activeFetchControllers.clear();
     this.stopWebAudioNode();
     this.webAudioBuffer = null;
     this.webAudioMode = null;
     this.webAudioSingleOpts = null;
     this.webAudioSingleTokens = [];
+    this.fallbackResumeState = null;
+    this.currentFallbackIdx = 0;
+    this.currentFallbackSubIdx = 0;
     if (!preserveChunkPlan) {
       this.activeLectureChunks = [];
       this.activeLectureOpts = null;
@@ -2355,14 +2526,7 @@ class AudioNarrator {
       this.currentObjectUrl = null;
     }
 
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch {
-        // Ignore
-      }
-      this.currentUtterance = null;
-    }
+    this.cancelSpeechSynthesisCleanly();
 
     this.isSpeaking = false;
     this.isPaused = false;

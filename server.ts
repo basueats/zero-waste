@@ -787,7 +787,14 @@ const app = express();
 app.set('trust proxy', 1);
 const portArgIndex = process.argv.indexOf('--port');
 const cliPort = portArgIndex !== -1 && process.argv[portArgIndex + 1] ? parseInt(process.argv[portArgIndex + 1], 10) : NaN;
-const PORT = !isNaN(cliPort) ? cliPort : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
+const isProd = process.env.NODE_ENV === 'production';
+const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : NaN;
+const defaultAppPort = process.env.DEFAULT_APP_PORT ? parseInt(process.env.DEFAULT_APP_PORT, 10) : 3000;
+const PORT = !isNaN(cliPort)
+  ? cliPort
+  : isProd && !isNaN(envPort) && String(envPort) !== String(process.env.NGINX_PORT || '')
+    ? envPort
+    : (!isNaN(defaultAppPort) ? defaultAppPort : 3000);
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -883,9 +890,9 @@ function releaseTtsSlot(): void {
   if (next) next();
 }
 
-const CANONICAL_CALM_VOICE = 'Charon';
+const CANONICAL_CALM_VOICE = 'Zephyr';
 const DEFAULT_CALM_STYLE =
-  'Calm, gentle, serene, unhurried male educator speaking smoothly at a slow, relaxed studio pace with light natural conversational warmth and soft pauses between sentences';
+  'Calm, light, gentle, serene human educator speaking at a smooth, easy, unhurried studio pace with conversational clarity, zero deep bass heaviness, and crisp natural pauses between sentences';
 
 async function generateTtsWithRetry(
   ai: GoogleGenAI,
@@ -950,7 +957,7 @@ async function generateTtsWithRetry(
   return { errorDetail: lastError, statusCode: lastStatus };
 }
 
-// Estimate spoken duration weight accounting for numbers, chemical formulas, acronyms & punctuation pauses
+// Estimate spoken duration weight accounting for syllables, numbers, chemical formulas, acronyms & punctuation pauses
 function estimateSpokenWeight(sentence: string): number {
   const expanded = sentence
     .trim()
@@ -963,8 +970,9 @@ function estimateSpokenWeight(sentence: string): number {
     .replace(/\bDr\./gi, 'Doctor')
     .replace(/\b(\d+)\.(\d+)\b/g, '$1 point $2 ')
     .replace(/\b\d+\b/g, (m) => ' '.repeat(Math.max(4, m.length * 4)));
+  const syllableGroups = expanded.toLowerCase().match(/[aeiouy]+/g)?.length || 1;
   const punctMatches = sentence.match(/[,;:—–-]/g)?.length || 0;
-  return Math.max(10, expanded.length + punctMatches * 7);
+  return Math.max(12, expanded.length * 0.65 + syllableGroups * 2.1 + punctMatches * 6.5);
 }
 
 // Parse WAV RIFF chunks and align sentence timings to real inter-sentence silence valleys in the PCM waveform
@@ -1057,9 +1065,13 @@ function parseWavInfoAndAlignSentences(base64Audio: string, sentences: string[])
     };
   }
 
-  // Weight each sentence by expanded spoken content + punctuation pauses
+  // Weight each sentence by expanded spoken content, syllables & punctuation pauses
   const weights = sentences.map((s) => estimateSpokenWeight(s));
-  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
+  const firstBounds = findSpeechBounds(0, totalDuration);
+  const activeStartSec = firstBounds.speechStart;
+  const activeEndSec = Math.max(activeStartSec + 0.5, firstBounds.speechEnd);
+  const activeSpanSec = activeEndSec - activeStartSec;
 
   // Measure silence span width around each frame so wide inter-sentence pauses beat short intra-sentence commas
   const silentThreshold = 0.012;
@@ -1078,55 +1090,140 @@ function parseWavInfoAndAlignSentences(base64Audio: string, sentences: string[])
     }
   }
 
-  // Snap each expected sentence boundary to the deepest & widest inter-sentence pause valley
-  const boundaries: number[] = [0];
-  let cumWeight = 0;
-  const searchRadiusSec = Math.max(4.5, Math.min(10.0, totalDuration * 0.22));
-  for (let i = 0; i < sentences.length - 1; i++) {
-    cumWeight += weights[i];
-    const remainingMin = 0.8 * (sentences.length - 1 - i);
-    const minTime = Math.min(totalDuration - remainingMin, boundaries[i] + 1.1);
-    const maxTime = Math.max(minTime, totalDuration - remainingMin);
+  // Smooth frame energy + compute valley score per frame (lower = deeper/wider silence pause)
+  const frameValleyScore: number[] = new Array(numFrames).fill(0);
+  for (let f = 0; f < numFrames; f++) {
+    let energySum = 0;
+    for (let d = -4; d <= 4; d++) {
+      const idx = Math.max(0, Math.min(numFrames - 1, f + d));
+      energySum += frameRms[idx];
+    }
+    const windowEnergy = energySum / 9;
+    const widthBonus = Math.min(0.08, (silenceWidthMs[f] / 1000) * 0.065);
+    frameValleyScore[f] = windowEnergy - widthBonus;
+  }
 
-    // Proactively adjust expected anchor by any cumulative shift already observed
-    const remainingWeight = totalWeight - cumWeight;
-    const prevBoundary = boundaries[i];
-    const estRemainingTime = totalDuration - prevBoundary;
-    const adaptiveExpected =
-      prevBoundary +
-      (weights[i] / Math.max(1, weights[i] + remainingWeight)) * estRemainingTime;
-    const globalExpected = (cumWeight / totalWeight) * totalDuration;
-    const expectedTime = adaptiveExpected * 0.65 + globalExpected * 0.35;
+  // Collect candidate pause midpoints (local minima in frameValleyScore) + expected time fallbacks
+  const boundaryCount = sentences.length - 1;
+  const cumWeights: number[] = [];
+  let cw = 0;
+  for (let i = 0; i < boundaryCount; i++) {
+    cw += weights[i];
+    cumWeights.push(cw);
+  }
+  const expectedTimes = cumWeights.map((w) => activeStartSec + (w / totalWeight) * activeSpanSec);
 
-    let bestTime = Math.max(minTime, Math.min(maxTime, expectedTime));
-    if (numFrames > 10) {
-      const searchStart = Math.max(minTime, expectedTime - searchRadiusSec);
-      const searchEnd = Math.min(maxTime, expectedTime + searchRadiusSec);
-      const startFrame = Math.max(1, Math.floor(searchStart / frameMs));
-      const endFrame = Math.min(numFrames - 2, Math.ceil(searchEnd / frameMs));
+  // Global monotonic dynamic programming to assign each boundary i -> best matching silence valley
+  // Step 1: For each boundary i, build a compact list of local minimum frames near expectedTimes[i]
+  const searchRadiusSec = Math.max(3.5, Math.min(8.5, activeSpanSec * 0.2));
+  const candidatesPerBoundary: Array<Array<{ time: number; cost: number }>> = [];
 
-      let bestScore = Number.POSITIVE_INFINITY;
-      for (let f = startFrame; f <= endFrame; f++) {
-        // 180ms smoothed silence average centered at frame f
-        let energySum = 0;
-        for (let d = -4; d <= 4; d++) {
-          const idx = Math.max(0, Math.min(numFrames - 1, f + d));
-          energySum += frameRms[idx];
+  for (let i = 0; i < boundaryCount; i++) {
+    const expT = expectedTimes[i];
+    const searchStart = Math.max(activeStartSec + 0.4, expT - searchRadiusSec);
+    const searchEnd = Math.min(activeEndSec - 0.4, expT + searchRadiusSec);
+    const startF = Math.max(1, Math.floor(searchStart / frameMs));
+    const endF = Math.min(numFrames - 2, Math.ceil(searchEnd / frameMs));
+    const cands: Array<{ time: number; cost: number }> = [];
+
+    if (numFrames > 10 && endF > startF) {
+      // Sample best frames in 100ms buckets so DP stays fast (<= ~150 candidates per boundary)
+      const step = Math.max(1, Math.floor(0.1 / frameMs));
+      for (let b = startF; b <= endF; b += step) {
+        let bestF = b;
+        let bestV = Number.POSITIVE_INFINITY;
+        const bEnd = Math.min(endF, b + step - 1);
+        for (let f = b; f <= bEnd; f++) {
+          if (frameValleyScore[f] < bestV) {
+            bestV = frameValleyScore[f];
+            bestF = f;
+          }
         }
-        const windowEnergy = energySum / 9;
-        // Prefer wide genuine pauses (>= 450ms) over tiny intra-sentence breath pauses
-        const widthBonus = Math.min(0.06, (silenceWidthMs[f] / 1000) * 0.05);
-        const distancePenalty = Math.abs(f * frameMs - expectedTime) * 0.0025;
-        const score = windowEnergy - widthBonus + distancePenalty;
-        if (score < bestScore) {
-          bestScore = score;
-          bestTime = f * frameMs;
-        }
+        const t = Number((bestF * frameMs).toFixed(3));
+        const anchorPenalty = Math.abs(t - expT) * 0.004;
+        cands.push({ time: t, cost: bestV + anchorPenalty });
       }
     }
-    boundaries.push(Number(bestTime.toFixed(3)));
+    if (cands.length === 0) {
+      cands.push({ time: Number(expT.toFixed(3)), cost: 0 });
+    }
+    candidatesPerBoundary.push(cands);
   }
-  boundaries.push(Number(totalDuration.toFixed(3)));
+
+  // Step 2: Run Viterbi / DP across boundaries 0..boundaryCount-1 enforcing realistic sentence durations
+  const dpCosts: number[][] = candidatesPerBoundary.map((c) => new Array(c.length).fill(Number.POSITIVE_INFINITY));
+  const dpPrev: number[][] = candidatesPerBoundary.map((c) => new Array(c.length).fill(-1));
+
+  for (let j = 0; j < candidatesPerBoundary[0].length; j++) {
+    const t = candidatesPerBoundary[0][j].time;
+    const minFirst = Math.max(0.5, (weights[0] / totalWeight) * activeSpanSec * 0.45);
+    if (t >= activeStartSec + minFirst) {
+      dpCosts[0][j] = candidatesPerBoundary[0][j].cost;
+    } else {
+      dpCosts[0][j] = candidatesPerBoundary[0][j].cost + 0.5;
+    }
+  }
+
+  for (let i = 1; i < boundaryCount; i++) {
+    const expectedSegDur = (weights[i] / totalWeight) * activeSpanSec;
+    const minSegDur = Math.max(0.55, expectedSegDur * 0.45);
+    const maxSegDur = Math.max(minSegDur + 1.5, expectedSegDur * 2.1);
+
+    for (let j = 0; j < candidatesPerBoundary[i].length; j++) {
+      const cur = candidatesPerBoundary[i][j];
+      let bestCost = Number.POSITIVE_INFINITY;
+      let bestPrev = -1;
+
+      for (let k = 0; k < candidatesPerBoundary[i - 1].length; k++) {
+        const prevCost = dpCosts[i - 1][k];
+        if (!isFinite(prevCost)) continue;
+        const gap = cur.time - candidatesPerBoundary[i - 1][k].time;
+        if (gap < 0.45) continue;
+        let transitionPenalty = Math.abs(gap - expectedSegDur) * 0.0045;
+        if (gap < minSegDur) transitionPenalty += (minSegDur - gap) * 0.08;
+        if (gap > maxSegDur) transitionPenalty += (gap - maxSegDur) * 0.05;
+        const total = prevCost + cur.cost + transitionPenalty;
+        if (total < bestCost) {
+          bestCost = total;
+          bestPrev = k;
+        }
+      }
+      dpCosts[i][j] = bestCost;
+      dpPrev[i][j] = bestPrev;
+    }
+  }
+
+  // Backtrack optimal boundaries
+  const boundaries: number[] = new Array(boundaryCount + 2).fill(0);
+  boundaries[0] = 0;
+  boundaries[boundaryCount + 1] = Number(totalDuration.toFixed(3));
+
+  let lastIdx = 0;
+  let minFinal = Number.POSITIVE_INFINITY;
+  for (let j = 0; j < candidatesPerBoundary[boundaryCount - 1].length; j++) {
+    const c = dpCosts[boundaryCount - 1][j];
+    if (c < minFinal) {
+      minFinal = c;
+      lastIdx = j;
+    }
+  }
+
+  let curIdx = lastIdx;
+  for (let i = boundaryCount - 1; i >= 0; i--) {
+    if (curIdx >= 0 && curIdx < candidatesPerBoundary[i].length && isFinite(minFinal)) {
+      boundaries[i + 1] = candidatesPerBoundary[i][curIdx].time;
+      curIdx = dpPrev[i][curIdx];
+    } else {
+      boundaries[i + 1] = Number(expectedTimes[i].toFixed(3));
+    }
+  }
+
+  // Ensure strictly monotonic ordering
+  for (let i = 1; i <= boundaryCount; i++) {
+    const minAllowed = boundaries[i - 1] + 0.45;
+    const maxAllowed = totalDuration - 0.45 * (boundaryCount + 1 - i);
+    boundaries[i] = Number(Math.max(minAllowed, Math.min(maxAllowed, boundaries[i])).toFixed(3));
+  }
 
   const sentenceTimings: SentenceTiming[] = [];
   for (let i = 0; i < sentences.length; i++) {
@@ -2331,7 +2428,7 @@ app.post('/api/admin/profile', requireAdminMiddleware, (req, res) => {
   });
 });
 
-// Endpoint: Synthesize a full lecture as ONE unbroken human male voice WAV track with pause-aligned captions
+// Endpoint: Synthesize a full lecture as ONE unbroken calm educator voice WAV track with pause-aligned captions
 app.post('/api/tts/lecture', async (req, res) => {
   try {
     const {
@@ -2350,7 +2447,7 @@ app.post('/api/tts/lecture', async (req, res) => {
     // Always lock calm voice & studio tone across every tab, browser, and mobile device
     const resolvedVoice = CANONICAL_CALM_VOICE;
     const style = DEFAULT_CALM_STYLE;
-    const rawKey = `lecture_v4_${resolvedVoice}_${cleanSentences.join(' | ')}`;
+    const rawKey = `lecture_v5_${resolvedVoice}_${cleanSentences.join(' | ')}`;
 
     if (lectureTtsCache.has(rawKey)) {
       res.setHeader('Cache-Control', 'private, max-age=86400');
@@ -2440,7 +2537,7 @@ app.post('/api/tts/lecture', async (req, res) => {
   }
 });
 
-// Endpoint: Single-line TTS (disk + memory cached, shares consistent Fenrir voice)
+// Endpoint: Single-line TTS (disk + memory cached, shares consistent calm Zephyr voice)
 app.post('/api/tts', async (req, res) => {
   try {
     const {
@@ -2453,7 +2550,7 @@ app.post('/api/tts', async (req, res) => {
     const cleanText = text.trim();
     const resolvedVoice = CANONICAL_CALM_VOICE;
     const style = DEFAULT_CALM_STYLE;
-    const cacheKey = `tts_v4_${resolvedVoice}_${cleanText}`;
+    const cacheKey = `tts_v5_${resolvedVoice}_${cleanText}`;
 
     if (ttsAudioCache.has(cacheKey)) {
       res.setHeader('Cache-Control', 'private, max-age=86400');
