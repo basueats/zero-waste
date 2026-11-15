@@ -522,7 +522,7 @@ class AudioNarrator {
     if (clean.length === 0) return [];
 
     const chunks: LectureChunkPlan[] = [];
-    const TARGET_WORDS_PER_CHUNK = 85;
+    const TARGET_WORDS_PER_CHUNK = 75;
     let curSentences: string[] = [];
     let curWords = 0;
     let chunkStartIdx = 0;
@@ -713,7 +713,19 @@ class AudioNarrator {
             this.lectureQuotaHit = true;
             return null;
           }
-          if (res.status === 503 || res.status >= 500) {
+          if (res.status === 503) {
+            const errBody = await res.text().catch(() => '');
+            if (/unavailable|not configured/i.test(errBody)) {
+              this.serverTtsUnavailable = true;
+              return null;
+            }
+            if (attempt < 2) {
+              await new Promise((r) => setTimeout(r, 700));
+              continue;
+            }
+            return null;
+          }
+          if (res.status >= 500) {
             if (attempt < 2) {
               await new Promise((r) => setTimeout(r, 700));
               continue;
@@ -851,7 +863,19 @@ class AudioNarrator {
           });
           clearTimeout(timeoutId);
           this.activeFetchControllers.delete(controller);
-          if (res.status === 429 || res.status === 503 || res.status >= 500) {
+          if (res.status === 503) {
+            const errBody = await res.text().catch(() => '');
+            if (/unavailable|not configured/i.test(errBody)) {
+              this.serverTtsUnavailable = true;
+              return null;
+            }
+            if (attempt < 2) {
+              await new Promise((r) => setTimeout(r, 800));
+              continue;
+            }
+            return null;
+          }
+          if (res.status === 429 || res.status >= 500) {
             if (attempt < 2) {
               await new Promise((r) => setTimeout(r, 800));
               continue;
@@ -979,14 +1003,17 @@ class AudioNarrator {
     if (isOnline && !isGoogle) score += 620;
     if (isAppleQuality) score += 650;
 
-    // Tier 2: Calm, peaceful, gentle human MALE voices (never pick female or harsh novelty voices)
+    // Tier 2: Calm, peaceful, gentle human MALE voices (strictly avoid heavy bass David tying with lighter Mark/George/Natural voices)
     const calmPeacefulMaleVoices = [
       'andrew', 'brian', 'ryan', 'william', 'liam', 'google uk english male',
       'google us english male', 'daniel', 'oliver', 'george', 'alex', 'tom',
       'aaron', 'nolan', 'evan', 'lee', 'steffan', 'christopher', 'eric', 'guy',
     ];
-    const localMaleVoices = [
-      'mark', 'david', 'richard', 'sean', 'ravi', 'male',
+    const clearLocalMaleVoices = [
+      'mark', 'richard', 'sean', 'male',
+    ];
+    const heavierLocalMaleVoices = [
+      'david', 'ravi',
     ];
     const femaleVoices = [
       'ava', 'emma', 'jenny', 'aria', 'sonia', 'libby',
@@ -1002,8 +1029,10 @@ class AudioNarrator {
 
     if (calmPeacefulMaleVoices.some((tok) => name.includes(tok))) {
       score += 1100;
-    } else if (localMaleVoices.some((tok) => name.includes(tok))) {
-      score += 780;
+    } else if (clearLocalMaleVoices.some((tok) => name.includes(tok))) {
+      score += 880;
+    } else if (heavierLocalMaleVoices.some((tok) => name.includes(tok))) {
+      score += 180;
     }
 
     // "Google US English" without "Male" is female — penalize so "Google UK English Male" or OS Male wins
@@ -1086,9 +1115,17 @@ class AudioNarrator {
       };
     }
 
+    // Extra pitch lift for heavier Windows OS engines (David / Ravi) so chest boom never sounds heavy
+    if (name.includes('david') || name.includes('ravi')) {
+      return {
+        rate: Math.max(0.78, Math.min(1.5, safeActive * 0.88)),
+        pitch: 1.20,
+      };
+    }
+
     return {
       rate: Math.max(0.78, Math.min(1.5, safeActive * 0.88)),
-      pitch: 1.08,
+      pitch: 1.12,
     };
   }
 

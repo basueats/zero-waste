@@ -10,17 +10,18 @@ dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const TTS_DISK_CACHE_DIR = path.join(__dirname, '.tts-cache');
+const IS_VERCEL = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
+const TTS_DISK_CACHE_DIR = IS_VERCEL ? path.join('/tmp', 'supritamone-tts-cache') : path.join(__dirname, '.tts-cache');
 try {
   fs.mkdirSync(TTS_DISK_CACHE_DIR, { recursive: true });
 } catch {
   // Ignore if read-only; memory cache still works
 }
 
-const AUTH_STORE_PATH = path.join(__dirname, '.supritamone-auth.json');
+const AUTH_STORE_PATH = IS_VERCEL ? path.join('/tmp', 'supritamone-auth.json') : path.join(__dirname, '.supritamone-auth.json');
 const SESSION_SECRET =
   process.env.SESSION_SECRET ||
-  crypto.createHash('sha256').update(`supritamone-academy-${process.env.GEMINI_API_KEY || 'local-dev'}`).digest('hex');
+  crypto.createHash('sha256').update(`supritamone-academy-${process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || 'local-dev'}`).digest('hex');
 
 const PERMANENT_ADMIN_EMAIL = 'supritamone@gmail.com';
 const FACULTY_ADMIN_EMAIL = 'supritam.basu@supritamone.com';
@@ -804,9 +805,12 @@ app.use('/assets', (_req, res, next) => {
   next();
 });
 
-// Lazy Gemini API Client
+// Lazy Gemini API Client (supports Google AI Studio runtime & external Vercel/GitHub deployments)
 function getGeminiClient() {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey =
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (!apiKey) {
     return null;
   }
@@ -900,13 +904,13 @@ async function generateTtsWithRetry(
   voice: string,
   style: string
 ): Promise<{ audio?: string; modelUsed?: string; errorDetail?: string; statusCode?: number }> {
-  // Always lock to gemini-3.8-flash-lite-tts so studio tone & vocal timbre never shift mid-course; fail over only on hard daily exhaustion
-  const modelsToTry = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'];
+  // Lock primary model to gemini-3.8-flash-lite-tts; fail over cleanly to gemini-3.8-flash-tts or standard gemini-2.5-flash-preview-tts on external Vercel keys
+  const modelsToTry = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts', 'gemini-2.5-flash-preview-tts'];
   let lastError = 'Unknown error';
   let lastStatus = 502;
 
   for (const modelName of modelsToTry) {
-    const maxAttempts = modelName === 'gemini-3.8-flash-lite-tts' ? 3 : 2;
+    const maxAttempts = modelName === 'gemini-3.8-flash-lite-tts' ? 2 : 2;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const response = await ai.models.generateContent({
@@ -941,15 +945,16 @@ async function generateTtsWithRetry(
       } catch (err: any) {
         lastError = err?.message || String(err);
         const isRateLimit = lastError.includes('429') || lastError.includes('RESOURCE_EXHAUSTED');
+        const isNotFound = lastError.includes('404') || lastError.includes('NOT_FOUND') || /not found/i.test(lastError);
         const isUnavailable = lastError.includes('503') || lastError.includes('UNAVAILABLE');
         lastStatus = isRateLimit ? 429 : 502;
         console.warn(`TTS [${modelName}] attempt ${attempt} notice:`, lastError.slice(0, 220));
-        // On daily/project quota exhaustion, skip remaining retries on this model and try fallback model
-        if (lastError.includes('PerDay') || lastError.includes('GenerateRequestsPerDay')) {
+        // Skip remaining retries on daily exhaustion or unavailable model alias and try next model immediately
+        if (isNotFound || lastError.includes('PerDay') || lastError.includes('GenerateRequestsPerDay')) {
           break;
         }
         if (attempt < maxAttempts) {
-          await new Promise((r) => setTimeout(r, isRateLimit || isUnavailable ? 1400 * attempt : 600));
+          await new Promise((r) => setTimeout(r, isRateLimit || isUnavailable ? 1200 * attempt : 500));
         }
       }
     }
@@ -2637,12 +2642,25 @@ app.post('/api/ai/ask', async (req, res) => {
         answer: `Regarding "${lectureTitle || 'Zero Waste Culinary Protocol'}": Focus on strict tare-weight station separation, pH control (<4.6 for fermentations), and turning vegetable trims into high-margin reductions or stocks. For detailed review, email supritam.basu@supritamone.com.`,
       });
     }
-    const response = await ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: `You are Dr. Chef Supritam Basu's teaching assistant for Supritamone Academy. Answer concisely and practically in 2-4 sentences.\nLecture: ${lectureTitle || ''}\nSlide Context: ${context || ''}\nStudent Question: ${question}`,
-    });
+    let responseText = '';
+    for (const modelName of ['gemini-4-hydrogen', 'gemini-2.5-flash']) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: `You are Dr. Chef Supritam Basu's teaching assistant for Supritamone Academy. Answer concisely and practically in 2-4 sentences.\nLecture: ${lectureTitle || ''}\nSlide Context: ${context || ''}\nStudent Question: ${question}`,
+        });
+        responseText = response.text || '';
+        if (responseText) break;
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        if (msg.includes('404') || msg.includes('NOT_FOUND') || /not found/i.test(msg)) {
+          continue;
+        }
+        throw err;
+      }
+    }
     return res.json({
-      answer: response.text || 'Please apply the station tare-weight and circular repurposing formula shown on the current slide.',
+      answer: responseText || 'Please apply the station tare-weight and circular repurposing formula shown on the current slide.',
     });
   } catch {
     return res.json({
@@ -2765,16 +2783,33 @@ Create a comprehensive Alison-format course module in valid JSON with this exact
 
 Respond ONLY with valid JSON. Do not include markdown blocks or other text.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
-
-    const text = response.text || '{}';
-    const parsed = JSON.parse(text);
+    let text = '';
+    let lastGenError: unknown = null;
+    for (const modelName of ['gemini-4-hydrogen', 'gemini-2.5-flash']) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+          },
+        });
+        text = response.text || '{}';
+        lastGenError = null;
+        break;
+      } catch (err: any) {
+        lastGenError = err;
+        const msg = err?.message || String(err);
+        if (msg.includes('404') || msg.includes('NOT_FOUND') || /not found/i.test(msg)) {
+          continue;
+        }
+        throw err;
+      }
+    }
+    if (lastGenError && !text) {
+      throw lastGenError;
+    }
+    const parsed = JSON.parse(text || '{}');
     return res.json(parsed);
   } catch (err: any) {
     console.error('Error generating module with Gemini:', err);
@@ -2784,7 +2819,23 @@ Respond ONLY with valid JSON. Do not include markdown blocks or other text.`;
   }
 });
 
-// Setup Vite Dev Server or Production Static Serving
+// Ensure unmatched /api routes and API errors always return JSON (never HTML fallback)
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'API endpoint not found.' });
+});
+
+app.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) {
+    return next(err);
+  }
+  if (req.path.startsWith('/api/')) {
+    const msg = err instanceof Error ? err.message : 'Unexpected server error.';
+    return res.status(500).json({ error: msg });
+  }
+  return next(err);
+});
+
+// Setup Vite Dev Server or Production Static Serving (skipped on Vercel Serverless)
 async function startServer() {
   // Intercept incoming document navigations arriving from https://zerowaste.supritamone.com/
   // and immediately issue a signed HttpOnly SSO session cookie so members never have to log in again.
@@ -2820,22 +2871,6 @@ async function startServer() {
     next();
   });
 
-  // Ensure unmatched /api routes and API errors always return JSON (never HTML fallback)
-  app.use('/api', (_req, res) => {
-    res.status(404).json({ error: 'API endpoint not found.' });
-  });
-
-  app.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (res.headersSent) {
-      return next(err);
-    }
-    if (req.path.startsWith('/api/')) {
-      const msg = err instanceof Error ? err.message : 'Unexpected server error.';
-      return res.status(500).json({ error: msg });
-    }
-    return next(err);
-  });
-
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__dirname, 'dist'), { maxAge: '1d' }));
     app.get('*', (_req, res) => {
@@ -2855,7 +2890,12 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+if (!IS_VERCEL) {
+  startServer().catch((err) => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  });
+}
+
+export { app };
+export default app;
