@@ -101,6 +101,73 @@ export function sanitizeDocId(raw: string): string {
   return raw.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128) || 'user';
 }
 
+function clearPopupOriginValidationCache(): void {
+  try {
+    const authInternal = auth as unknown as {
+      _popupRedirectResolver?: {
+        originValidationPromises?: Record<string, Promise<void>>;
+      };
+      _key?: () => string;
+    };
+    const promises = authInternal?._popupRedirectResolver?.originValidationPromises;
+    if (promises && typeof promises === 'object') {
+      const key = typeof authInternal._key === 'function' ? authInternal._key() : '';
+      if (key && key in promises) {
+        delete promises[key];
+      } else {
+        for (const k of Object.keys(promises)) {
+          delete promises[k];
+        }
+      }
+    }
+  } catch {
+    // Ignore internal SDK property differences across versions
+  }
+}
+
+async function isCurrentHostAuthorizedLive(): Promise<boolean> {
+  if (typeof window === 'undefined' || !window.location?.hostname) return false;
+  const apiKey = auth.app?.options?.apiKey;
+  if (!apiKey) return false;
+  try {
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/projects?key=${encodeURIComponent(apiKey)}&_t=${Date.now()}`,
+      { cache: 'no-store' }
+    );
+    if (!res.ok) return false;
+    const data = (await res.json()) as { authorizedDomains?: unknown };
+    if (!Array.isArray(data.authorizedDomains)) return false;
+    const host = window.location.hostname.toLowerCase();
+    return data.authorizedDomains.some((d) => {
+      const domain = String(d || '').toLowerCase();
+      return domain === host || host.endsWith(`.${domain}`);
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function signInWithGooglePopupRobust() {
+  clearPopupOriginValidationCache();
+  try {
+    return await signInWithPopup(auth, googleProvider);
+  } catch (err: unknown) {
+    const code =
+      err && typeof err === 'object' && 'code' in err ? String((err as { code?: unknown }).code || '') : '';
+    const message = err instanceof Error ? err.message : String(err || '');
+    if (code.includes('unauthorized-domain') || message.includes('unauthorized-domain')) {
+      clearPopupOriginValidationCache();
+      const authorizedNow = await isCurrentHostAuthorizedLive();
+      if (authorizedNow) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        clearPopupOriginValidationCache();
+        return await signInWithPopup(auth, googleProvider);
+      }
+    }
+    throw err;
+  }
+}
+
 export function formatFirebaseAuthError(err: unknown): string {
   const code =
     err && typeof err === 'object' && 'code' in err ? String((err as { code?: unknown }).code || '') : '';
@@ -108,13 +175,19 @@ export function formatFirebaseAuthError(err: unknown): string {
   const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'this domain';
 
   if (code.includes('unauthorized-domain') || message.includes('unauthorized-domain')) {
-    return `Domain "${host}" must be added under Firebase Console (Project: magnetic-cumulus-jt8c4) -> Authentication -> Settings -> Authorized domains to enable Google Sign-In. Meanwhile, sign in above with your Email & Password.`;
+    return `Google Sign-In rejected domain "${host}" (auth/unauthorized-domain). Verify "${host}" is saved under Firebase Console / Identity Platform (Project: magnetic-cumulus-jt8c4) -> Authorized domains, then hard-refresh this page (Ctrl+F5). Meanwhile, you can sign in above with your Email & Password.`;
+  }
+  if (code.includes('web-storage-unsupported') || message.includes('web-storage-unsupported')) {
+    return 'Your browser shields or third-party cookie settings blocked Google Sign-In storage. Allow popups/cookies for this site or sign in above with Email & Password.';
   }
   if (code.includes('popup-blocked') || message.includes('popup-blocked')) {
     return 'Google Sign-In popup was blocked by your browser. Please allow popups for this site or sign in with your Email & Password.';
   }
   if (code.includes('popup-closed-by-user') || message.includes('popup-closed-by-user')) {
     return 'Google Sign-In window was closed before completing sign-in.';
+  }
+  if (code.includes('cancelled-popup-request') || message.includes('cancelled-popup-request')) {
+    return 'Another Google Sign-In window is already open. Complete that popup or try again.';
   }
   return message || 'Google sign-in was cancelled or unavailable.';
 }
@@ -128,7 +201,7 @@ export async function signInWithGoogleAndSyncFirestore(): Promise<{
   isLocked: boolean;
   lockReason?: string;
 }> {
-  const credential = await signInWithPopup(auth, googleProvider);
+  const credential = await signInWithGooglePopupRobust();
   const fbUser = credential.user;
   const uid = fbUser.uid;
   const email = (fbUser.email || '').trim().toLowerCase();
@@ -302,7 +375,7 @@ export async function signInWithGoogleAndSyncFirestore(): Promise<{
 }
 
 export async function connectAdminGoogleCloud(): Promise<{ email: string; name: string }> {
-  const credential = await signInWithPopup(auth, googleProvider);
+  const credential = await signInWithGooglePopupRobust();
   const email = (credential.user.email || '').trim().toLowerCase();
   if (!BOOTSTRAP_ADMIN_EMAILS.has(email)) {
     // Check admins/{uid} collection before rejecting
