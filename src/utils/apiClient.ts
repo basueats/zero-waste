@@ -77,9 +77,14 @@ export async function apiFetchJson<T = Record<string, unknown>>(
         }
       }
 
-      // If static-only host returns 404/405 (or non-JSON 5xx) for auth/admin routes, switch seamlessly to client fallback
+      const serverErr =
+        parsed && typeof parsed === 'object' && 'error' in parsed && typeof (parsed as { error?: unknown }).error === 'string'
+          ? (parsed as { error: string }).error
+          : null;
+
+      // If host returns 404/405 or platform 5xx (without an explicit backend JSON error string) for auth/admin routes, switch seamlessly to client fallback
       if (
-        (res.status === 404 || res.status === 405 || (res.status >= 500 && parsed === null)) &&
+        (res.status === 404 || res.status === 405 || (res.status >= 500 && !serverErr)) &&
         (url.startsWith('/api/auth/') || url.startsWith('/api/admin/'))
       ) {
         const fb = await tryStaticFallback<T>(url, fetchInit);
@@ -90,11 +95,6 @@ export async function apiFetchJson<T = Record<string, unknown>>(
         await wait(350 * (attempt + 1));
         continue;
       }
-
-      const serverErr =
-        parsed && typeof parsed === 'object' && 'error' in parsed && typeof (parsed as { error?: unknown }).error === 'string'
-          ? (parsed as { error: string }).error
-          : null;
 
       if (!res.ok) {
         return {

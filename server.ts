@@ -8,7 +8,10 @@ import { fileURLToPath } from 'url';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
+const __filename =
+  typeof import.meta !== 'undefined' && typeof import.meta.url === 'string' && import.meta.url.startsWith('file:')
+    ? fileURLToPath(import.meta.url)
+    : path.join(process.cwd(), 'server.ts');
 const __dirname = path.dirname(__filename);
 const IS_VERCEL = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
 const TTS_DISK_CACHE_DIR = IS_VERCEL ? path.join('/tmp', 'supritamone-tts-cache') : path.join(__dirname, '.tts-cache');
@@ -1274,15 +1277,17 @@ app.get('/api/auth/session', (req, res) => {
     const cleanEmail = verified.email.toLowerCase();
     if (cleanEmail !== PERMANENT_ADMIN_EMAIL) {
       const record = store.users[cleanEmail];
-      const blockCheck = isUserBlocked(record, now);
-      if (blockCheck.blocked) {
-        clearSessionCookie(req, res);
-        return res.status(200).json({
-          authenticated: false,
-          restricted: blockCheck.code === 'restricted',
-          expired: blockCheck.code === 'expired',
-          error: blockCheck.message,
-        });
+      if (record || !IS_VERCEL) {
+        const blockCheck = isUserBlocked(record, now);
+        if (blockCheck.blocked) {
+          clearSessionCookie(req, res);
+          return res.status(200).json({
+            authenticated: false,
+            restricted: blockCheck.code === 'restricted',
+            expired: blockCheck.code === 'expired',
+            error: blockCheck.message,
+          });
+        }
       }
     }
     setSessionCookie(req, res, candidateToken);
