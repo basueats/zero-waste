@@ -1092,8 +1092,8 @@ class AudioNarrator {
 
     if (isModernNeuralOrOnline) {
       return {
-        rate: Math.max(0.76, Math.min(1.5, safeActive * 0.88)),
-        pitch: 0.99,
+        rate: Math.max(0.72, Math.min(1.45, safeActive * 0.82)),
+        pitch: 1.0,
       };
     }
 
@@ -1110,22 +1110,22 @@ class AudioNarrator {
 
     if (isFemale) {
       return {
-        rate: Math.max(0.78, Math.min(1.5, safeActive * 0.88)),
+        rate: Math.max(0.72, Math.min(1.45, safeActive * 0.80)),
         pitch: 0.86,
       };
     }
 
-    // Extra pitch lift for heavier Windows OS engines (David / Ravi) so chest boom never sounds heavy
+    // Extra pitch lift and slower unhurried speed for heavier Windows OS engines (David / Ravi)
     if (name.includes('david') || name.includes('ravi')) {
       return {
-        rate: Math.max(0.78, Math.min(1.5, safeActive * 0.88)),
-        pitch: 1.20,
+        rate: Math.max(0.70, Math.min(1.40, safeActive * 0.78)),
+        pitch: 1.24,
       };
     }
 
     return {
-      rate: Math.max(0.78, Math.min(1.5, safeActive * 0.88)),
-      pitch: 1.12,
+      rate: Math.max(0.72, Math.min(1.45, safeActive * 0.80)),
+      pitch: 1.14,
     };
   }
 

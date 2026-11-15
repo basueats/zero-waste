@@ -901,34 +901,85 @@ const CANONICAL_CALM_VOICE = 'Puck';
 const DEFAULT_CALM_STYLE =
   'Calm, peaceful, gentle warm man speaking softly, smoothly, and clearly at an unhurried educational pace with zero deep bass heaviness and crisp natural pauses between sentences';
 
+function ensureWavBase64(base64Data: string, mimeType?: string): string {
+  const buf = Buffer.from(base64Data, 'base64');
+  if (
+    buf.length >= 12 &&
+    buf.toString('ascii', 0, 4) === 'RIFF' &&
+    buf.toString('ascii', 8, 12) === 'WAVE'
+  ) {
+    return base64Data;
+  }
+
+  let sampleRate = 24000;
+  const rateMatch = String(mimeType || '').match(/rate=(\d+)/i);
+  if (rateMatch) {
+    const parsedRate = parseInt(rateMatch[1], 10);
+    if (parsedRate >= 8000 && parsedRate <= 96000) {
+      sampleRate = parsedRate;
+    }
+  }
+
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = buf.length;
+
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write('WAVE', 8, 'ascii');
+  header.write('fmt ', 12, 'ascii');
+  header.writeUInt32LE(16, 16); // PCM chunk size
+  header.writeUInt16LE(1, 20); // Linear PCM
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(dataSize, 40);
+
+  return Buffer.concat([header, buf]).toString('base64');
+}
+
 async function generateTtsWithRetry(
   ai: GoogleGenAI,
   cleanText: string,
   voice: string,
   style: string
 ): Promise<{ audio?: string; modelUsed?: string; errorDetail?: string; statusCode?: number }> {
-  // Lock primary model to gemini-3.8-flash-lite-tts; fail over cleanly to gemini-3.8-flash-tts or standard gemini-2.5-flash-preview-tts on external Vercel keys
-  const modelsToTry = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts', 'gemini-2.5-flash-preview-tts'];
+  // gemini-3.8-* supports speechMetadata and outputs WAV; gemini-2.5-flash-preview-tts (external Vercel keys) takes prompt style without speechMetadata and outputs raw L16 PCM wrapped to WAV
+  const modelsToTry: Array<{ model: string; useSpeechMetadata: boolean }> = [
+    { model: 'gemini-3.8-flash-lite-tts', useSpeechMetadata: true },
+    { model: 'gemini-3.8-flash-tts', useSpeechMetadata: true },
+    { model: 'gemini-2.5-flash-preview-tts', useSpeechMetadata: false },
+  ];
   let lastError = 'Unknown error';
   let lastStatus = 502;
 
-  for (const modelName of modelsToTry) {
-    const maxAttempts = modelName === 'gemini-3.8-flash-lite-tts' ? 2 : 2;
+  for (const { model: modelName, useSpeechMetadata } of modelsToTry) {
+    const maxAttempts = 2;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
+        const partPayload = useSpeechMetadata
+          ? {
+              text: cleanText,
+              speechMetadata: {
+                style: style || DEFAULT_CALM_STYLE,
+              },
+            }
+          : {
+              text: `Say calmly, softly, peacefully, and slowly in a gentle warm male voice without any heavy bass:\n${cleanText}`,
+            };
+
         const response = await ai.models.generateContent({
           model: modelName,
           contents: [
             {
               role: 'user',
-              parts: [
-                {
-                  text: cleanText,
-                  speechMetadata: {
-                    style: style || DEFAULT_CALM_STYLE,
-                  },
-                },
-              ],
+              parts: [partPayload],
             },
           ],
           config: {
@@ -941,19 +992,25 @@ async function generateTtsWithRetry(
           },
         });
         const candidate = response.candidates?.[0];
-        const data = candidate?.content?.parts?.[0]?.inlineData?.data;
-        if (data) return { audio: data, modelUsed: modelName };
+        const inlineData = candidate?.content?.parts?.[0]?.inlineData;
+        if (inlineData?.data) {
+          return {
+            audio: ensureWavBase64(inlineData.data, inlineData.mimeType),
+            modelUsed: modelName,
+          };
+        }
         lastError = `${modelName}: No audio part (finishReason=${candidate?.finishReason || 'none'})`;
         lastStatus = 502;
       } catch (err: any) {
         lastError = err?.message || String(err);
         const isRateLimit = lastError.includes('429') || lastError.includes('RESOURCE_EXHAUSTED');
         const isNotFound = lastError.includes('404') || lastError.includes('NOT_FOUND') || /not found/i.test(lastError);
+        const isBadArg = lastError.includes('400') || lastError.includes('INVALID_ARGUMENT');
         const isUnavailable = lastError.includes('503') || lastError.includes('UNAVAILABLE');
         lastStatus = isRateLimit ? 429 : 502;
         console.warn(`TTS [${modelName}] attempt ${attempt} notice:`, lastError.slice(0, 220));
-        // Skip remaining retries on daily exhaustion or unavailable model alias and try next model immediately
-        if (isNotFound || lastError.includes('PerDay') || lastError.includes('GenerateRequestsPerDay')) {
+        // Skip remaining retries on unsupported model/argument or daily exhaustion and try next model immediately
+        if (isNotFound || isBadArg || lastError.includes('PerDay') || lastError.includes('GenerateRequestsPerDay')) {
           break;
         }
         if (attempt < maxAttempts) {
@@ -2457,7 +2514,7 @@ app.post('/api/tts/lecture', async (req, res) => {
     // Always lock calm peaceful male voice & studio tone across every tab, browser, and mobile device
     const resolvedVoice = CANONICAL_CALM_VOICE;
     const style = DEFAULT_CALM_STYLE;
-    const rawKey = `lecture_v6_${resolvedVoice}_${cleanSentences.join(' | ')}`;
+    const rawKey = `lecture_v7_${resolvedVoice}_${cleanSentences.join(' | ')}`;
 
     if (lectureTtsCache.has(rawKey)) {
       res.setHeader('Cache-Control', 'private, max-age=86400');
@@ -2560,7 +2617,7 @@ app.post('/api/tts', async (req, res) => {
     const cleanText = text.trim();
     const resolvedVoice = CANONICAL_CALM_VOICE;
     const style = DEFAULT_CALM_STYLE;
-    const cacheKey = `tts_v6_${resolvedVoice}_${cleanText}`;
+    const cacheKey = `tts_v7_${resolvedVoice}_${cleanText}`;
 
     if (ttsAudioCache.has(cacheKey)) {
       res.setHeader('Cache-Control', 'private, max-age=86400');

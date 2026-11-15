@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import app from '../server';
 
 export default function handler(
-  req: IncomingMessage & { url?: string },
+  req: IncomingMessage & { url?: string; body?: unknown; _body?: boolean },
   res: ServerResponse
 ) {
   try {
@@ -15,6 +15,9 @@ export default function handler(
         const remainingQs = parsed.searchParams.toString();
         req.url = remainingQs ? `${vpath}?${remainingQs}` : vpath;
       }
+    }
+    if (req.body !== undefined && req.body !== null && typeof req.body === 'object') {
+      req._body = true;
     }
     return app(req as any, res as any);
   } catch (err: unknown) {
