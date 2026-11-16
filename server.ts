@@ -464,6 +464,52 @@ async function getFirestoreAdminAccessToken(): Promise<string | null> {
   }
 }
 
+async function verifyFirebaseIdTokenWithGoogle(idToken: string): Promise<{
+  uid: string;
+  email: string;
+  emailVerified: boolean;
+  displayName: string;
+} | null> {
+  const cleanToken = String(idToken || '').trim();
+  if (!cleanToken || cleanToken.split('.').length !== 3) return null;
+  const cfg = getFirebaseAppletConfig();
+  if (!cfg.apiKey) return null;
+  try {
+    const lookupRes = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(cfg.apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: cleanToken }),
+      }
+    );
+    if (!lookupRes.ok) return null;
+    const data = (await lookupRes.json()) as {
+      users?: Array<{ localId?: string; email?: string; emailVerified?: boolean; displayName?: string }>;
+    };
+    const u = data.users?.[0];
+    if (!u?.email || !u?.localId) return null;
+    return {
+      uid: String(u.localId),
+      email: u.email.trim().toLowerCase(),
+      emailVerified: Boolean(u.emailVerified),
+      displayName: (u.displayName || '').trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function resolveFirestoreRestToken(fallbackFirebaseIdToken?: string): Promise<string | null> {
+  const adminAccess = await getFirestoreAdminAccessToken();
+  if (adminAccess) return adminAccess;
+  const fbToken = String(fallbackFirebaseIdToken || '').trim();
+  if (fbToken && fbToken.split('.').length === 3) {
+    return fbToken;
+  }
+  return null;
+}
+
 function toFirestoreValue(val: unknown): Record<string, unknown> {
   if (val === null || val === undefined) return { nullValue: null };
   if (typeof val === 'boolean') return { booleanValue: val };
@@ -489,9 +535,10 @@ function fromFirestoreValue(v: Record<string, unknown> | undefined): unknown {
 
 async function syncUserAndLogToFirestore(
   userRecord: StoredAuthUser | null,
-  logEntry?: LoginAuditEntry
+  logEntry?: LoginAuditEntry,
+  bearerOverride?: string
 ): Promise<void> {
-  const token = await getFirestoreAdminAccessToken();
+  const token = await resolveFirestoreRestToken(bearerOverride);
   if (!token) return;
   const cfg = getFirebaseAppletConfig();
   const creds = getServiceAccountCreds();
@@ -502,29 +549,30 @@ async function syncUserAndLogToFirestore(
   const baseDocUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents`;
 
   if (userRecord) {
-    const uid = `srv_${crypto.createHash('sha256').update(userRecord.email.toLowerCase()).digest('hex').slice(0, 28)}`;
+    const cleanEmail = userRecord.email.trim().toLowerCase().slice(0, 200);
+    const uid = `srv_${crypto.createHash('sha256').update(cleanEmail).digest('hex').slice(0, 28)}`;
     const fields: Record<string, unknown> = {
       uid: toFirestoreValue(uid),
-      email: toFirestoreValue(userRecord.email.toLowerCase()),
-      name: toFirestoreValue(userRecord.name),
-      role: toFirestoreValue(userRecord.role),
-      planId: toFirestoreValue(userRecord.planId),
-      planTitle: toFirestoreValue(userRecord.planTitle),
-      paymentStatus: toFirestoreValue(userRecord.paymentStatus),
-      amountPaid: toFirestoreValue(Number(userRecord.amountPaid || 0)),
-      currency: toFirestoreValue(userRecord.currency || 'USD'),
-      workPlace: toFirestoreValue(userRecord.workPlace || ''),
-      designation: toFirestoreValue(userRecord.designation || ''),
-      status: toFirestoreValue(userRecord.status),
+      email: toFirestoreValue(cleanEmail),
+      name: toFirestoreValue((userRecord.name || deriveDisplayName(cleanEmail)).trim().slice(0, 120) || 'Zero Waste Chef'),
+      role: toFirestoreValue(userRecord.role === 'admin' ? 'admin' : 'member'),
+      planId: toFirestoreValue(userRecord.planId || 'trial'),
+      planTitle: toFirestoreValue((userRecord.planTitle || 'Verified Member').slice(0, 160)),
+      paymentStatus: toFirestoreValue(userRecord.paymentStatus || 'trial'),
+      amountPaid: toFirestoreValue(Math.max(0, Number(userRecord.amountPaid || 0))),
+      currency: toFirestoreValue((userRecord.currency || 'USD').slice(0, 10)),
+      workPlace: toFirestoreValue((userRecord.workPlace || '').slice(0, 160)),
+      designation: toFirestoreValue((userRecord.designation || '').slice(0, 120)),
+      status: toFirestoreValue(userRecord.status || 'active'),
       restrictedByAdmin: toFirestoreValue(Boolean(userRecord.restrictedByAdmin)),
-      restrictedReason: toFirestoreValue(userRecord.restrictedReason || ''),
-      expiresAt: toFirestoreValue(userRecord.expiresAt),
-      transactionRef: toFirestoreValue(userRecord.transactionRef || ''),
-      source: toFirestoreValue(userRecord.source || 'server_sync'),
-      lastLoginAt: toFirestoreValue(userRecord.lastLoginAt || Date.now()),
-      loginCount: toFirestoreValue(Number(userRecord.loginCount || 0)),
-      lastIp: toFirestoreValue(userRecord.lastIp || ''),
-      deviceInfo: toFirestoreValue(userRecord.deviceInfo || ''),
+      restrictedReason: toFirestoreValue((userRecord.restrictedReason || '').slice(0, 300)),
+      expiresAt: toFirestoreValue(userRecord.expiresAt ?? null),
+      transactionRef: toFirestoreValue((userRecord.transactionRef || '').slice(0, 120)),
+      source: toFirestoreValue((userRecord.source || 'server_sync').slice(0, 120)),
+      lastLoginAt: toFirestoreValue(userRecord.lastLoginAt ?? Date.now()),
+      loginCount: toFirestoreValue(Math.max(0, Number(userRecord.loginCount || 0))),
+      lastIp: toFirestoreValue((userRecord.lastIp || '').slice(0, 80)),
+      deviceInfo: toFirestoreValue((userRecord.deviceInfo || '').slice(0, 120)),
       createdAt: { timestampValue: new Date(userRecord.createdAt || Date.now()).toISOString() },
       updatedAt: { timestampValue: new Date(userRecord.updatedAt || Date.now()).toISOString() },
     };
@@ -536,19 +584,20 @@ async function syncUserAndLogToFirestore(
   }
 
   if (logEntry) {
-    const safeId = logEntry.id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
-    const uid = `srv_${crypto.createHash('sha256').update(logEntry.email.toLowerCase()).digest('hex').slice(0, 28)}`;
+    const safeId = logEntry.id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120) || `log_${Date.now().toString(36)}`;
+    const cleanEmail = (logEntry.email || 'system@supritamone.com').trim().toLowerCase().slice(0, 200);
+    const uid = `srv_${crypto.createHash('sha256').update(cleanEmail).digest('hex').slice(0, 28)}`;
     const fields: Record<string, unknown> = {
       uid: toFirestoreValue(uid),
-      email: toFirestoreValue(logEntry.email.toLowerCase()),
-      name: toFirestoreValue(logEntry.name),
-      action: toFirestoreValue(logEntry.action),
-      status: toFirestoreValue(logEntry.status),
-      detail: toFirestoreValue(logEntry.detail),
-      planId: toFirestoreValue(logEntry.planId || ''),
-      paymentStatus: toFirestoreValue(logEntry.paymentStatus || ''),
-      ip: toFirestoreValue(logEntry.ip || ''),
-      device: toFirestoreValue(logEntry.device || ''),
+      email: toFirestoreValue(cleanEmail),
+      name: toFirestoreValue((logEntry.name || deriveDisplayName(cleanEmail)).trim().slice(0, 120) || 'Zero Waste Chef'),
+      action: toFirestoreValue(logEntry.action || 'login'),
+      status: toFirestoreValue(logEntry.status || 'success'),
+      detail: toFirestoreValue((logEntry.detail || 'Academy event').trim().slice(0, 400) || 'Academy event'),
+      planId: toFirestoreValue((logEntry.planId || '').slice(0, 40)),
+      paymentStatus: toFirestoreValue((logEntry.paymentStatus || '').slice(0, 40)),
+      ip: toFirestoreValue((logEntry.ip || '').slice(0, 80)),
+      device: toFirestoreValue((logEntry.device || '').slice(0, 120)),
       timestamp: { timestampValue: new Date(logEntry.timestamp || Date.now()).toISOString() },
     };
     await fetch(`${baseDocUrl}/academy_logs/${safeId}`, {
@@ -559,8 +608,12 @@ async function syncUserAndLogToFirestore(
   }
 }
 
-async function pullFirestoreIntoStore(store: AuthStoreData): Promise<void> {
-  const token = await getFirestoreAdminAccessToken();
+async function deleteUsersFromFirestore(
+  emails: string[],
+  deleteAll: boolean,
+  bearerOverride?: string
+): Promise<void> {
+  const token = await resolveFirestoreRestToken(bearerOverride);
   if (!token) return;
   const cfg = getFirebaseAppletConfig();
   const creds = getServiceAccountCreds();
@@ -569,54 +622,103 @@ async function pullFirestoreIntoStore(store: AuthStoreData): Promise<void> {
   if (!projectId) return;
 
   const baseDocUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents`;
-  const now = Date.now();
+  const targetSet = new Set(emails.map((e) => e.trim().toLowerCase()));
 
   try {
     const usersRes = await fetch(`${baseDocUrl}/academy_users?pageSize=500`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (usersRes.ok) {
-      const json = (await usersRes.json()) as { documents?: Array<{ fields?: Record<string, Record<string, unknown>> }> };
-      for (const docItem of json.documents || []) {
-        const f = docItem.fields;
-        if (!f) continue;
-        const email = String(fromFirestoreValue(f.email) || '').trim().toLowerCase();
-        if (!email || !email.includes('@')) continue;
-        const remoteUpdated = Number(fromFirestoreValue(f.updatedAt) || 0);
-        const existingLocal = store.users[email];
-        if (!existingLocal || remoteUpdated >= (existingLocal.updatedAt || 0)) {
-          const { user } = hydrateUserRecord(
-            {
-              ...existingLocal,
-              email,
-              name: String(fromFirestoreValue(f.name) || existingLocal?.name || deriveDisplayName(email)),
-              role: (fromFirestoreValue(f.role) === 'admin' ? 'admin' : 'member') as 'admin' | 'member',
-              planId: String(fromFirestoreValue(f.planId) || 'trial') as StoredAuthUser['planId'],
-              planTitle: String(fromFirestoreValue(f.planTitle) || 'Verified Member'),
-              paymentStatus: String(fromFirestoreValue(f.paymentStatus) || 'trial') as UserPaymentStatus,
-              amountPaid: Number(fromFirestoreValue(f.amountPaid) || 0),
-              currency: String(fromFirestoreValue(f.currency) || 'USD'),
-              workPlace: String(fromFirestoreValue(f.workPlace) || ''),
-              designation: String(fromFirestoreValue(f.designation) || ''),
-              status: String(fromFirestoreValue(f.status) || 'active') as UserAccountStatus,
-              restrictedByAdmin: Boolean(fromFirestoreValue(f.restrictedByAdmin)),
-              restrictedReason: String(fromFirestoreValue(f.restrictedReason) || '') || undefined,
-              expiresAt:
-                fromFirestoreValue(f.expiresAt) === null ? null : Number(fromFirestoreValue(f.expiresAt) || now + 3 * DAY_MS),
-              transactionRef: String(fromFirestoreValue(f.transactionRef) || '') || undefined,
-              source: String(fromFirestoreValue(f.source) || 'firestore_sync'),
-              lastLoginAt: Number(fromFirestoreValue(f.lastLoginAt) || now),
-              loginCount: Math.max(Number(fromFirestoreValue(f.loginCount) || 0), existingLocal?.loginCount || 0),
-              lastIp: String(fromFirestoreValue(f.lastIp) || ''),
-              deviceInfo: String(fromFirestoreValue(f.deviceInfo) || ''),
-              createdAt: Number(fromFirestoreValue(f.createdAt) || existingLocal?.createdAt || now),
-              updatedAt: remoteUpdated || now,
-            },
+    if (!usersRes.ok) return;
+    const json = (await usersRes.json()) as {
+      documents?: Array<{ name?: string; fields?: Record<string, Record<string, unknown>> }>;
+    };
+    const deletions: Array<Promise<unknown>> = [];
+    for (const docItem of json.documents || []) {
+      const f = docItem.fields;
+      const docName = docItem.name;
+      if (!f || !docName) continue;
+      const email = String(fromFirestoreValue(f.email) || '').trim().toLowerCase();
+      const role = String(fromFirestoreValue(f.role) || 'member');
+      if (email === PERMANENT_ADMIN_EMAIL || role === 'admin') continue;
+      if (deleteAll || targetSet.has(email)) {
+        deletions.push(
+          fetch(`https://firestore.googleapis.com/v1/${docName}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch(() => {})
+        );
+      }
+    }
+    await Promise.all(deletions);
+  } catch {
+    // Ignore cleanup errors
+  }
+}
+
+async function pullFirestoreIntoStore(
+  store: AuthStoreData,
+  bearerOverride?: string,
+  options: { pushMissingLocalToFirestore?: boolean } = {}
+): Promise<boolean> {
+  const token = await resolveFirestoreRestToken(bearerOverride);
+  if (!token) return false;
+  const cfg = getFirebaseAppletConfig();
+  const creds = getServiceAccountCreds();
+  const projectId = cfg.projectId || creds?.project_id;
+  const databaseId = cfg.firestoreDatabaseId || '(default)';
+  if (!projectId) return false;
+
+  const baseDocUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents`;
+  const now = Date.now();
+  const remoteUserTimestamps = new Map<string, number>();
+  const remoteLogIds = new Set<string>();
+
+  try {
+    const usersRes = await fetch(`${baseDocUrl}/academy_users?pageSize=500`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!usersRes.ok) return false;
+    const json = (await usersRes.json()) as { documents?: Array<{ fields?: Record<string, Record<string, unknown>> }> };
+    for (const docItem of json.documents || []) {
+      const f = docItem.fields;
+      if (!f) continue;
+      const email = String(fromFirestoreValue(f.email) || '').trim().toLowerCase();
+      if (!email || !email.includes('@')) continue;
+      const remoteUpdated = Number(fromFirestoreValue(f.updatedAt) || 0);
+      remoteUserTimestamps.set(email, Math.max(remoteUserTimestamps.get(email) || 0, remoteUpdated));
+      const existingLocal = store.users[email];
+      if (!existingLocal || remoteUpdated >= (existingLocal.updatedAt || 0)) {
+        const { user } = hydrateUserRecord(
+          {
+            ...existingLocal,
             email,
-            now
-          );
-          store.users[email] = user;
-        }
+            name: String(fromFirestoreValue(f.name) || existingLocal?.name || deriveDisplayName(email)),
+            role: (fromFirestoreValue(f.role) === 'admin' ? 'admin' : 'member') as 'admin' | 'member',
+            planId: String(fromFirestoreValue(f.planId) || 'trial') as StoredAuthUser['planId'],
+            planTitle: String(fromFirestoreValue(f.planTitle) || 'Verified Member'),
+            paymentStatus: String(fromFirestoreValue(f.paymentStatus) || 'trial') as UserPaymentStatus,
+            amountPaid: Number(fromFirestoreValue(f.amountPaid) || 0),
+            currency: String(fromFirestoreValue(f.currency) || 'USD'),
+            workPlace: String(fromFirestoreValue(f.workPlace) || ''),
+            designation: String(fromFirestoreValue(f.designation) || ''),
+            status: String(fromFirestoreValue(f.status) || 'active') as UserAccountStatus,
+            restrictedByAdmin: Boolean(fromFirestoreValue(f.restrictedByAdmin)),
+            restrictedReason: String(fromFirestoreValue(f.restrictedReason) || '') || undefined,
+            expiresAt:
+              fromFirestoreValue(f.expiresAt) === null ? null : Number(fromFirestoreValue(f.expiresAt) || now + 3 * DAY_MS),
+            transactionRef: String(fromFirestoreValue(f.transactionRef) || '') || undefined,
+            source: String(fromFirestoreValue(f.source) || 'firestore_sync'),
+            lastLoginAt: Number(fromFirestoreValue(f.lastLoginAt) || now),
+            loginCount: Math.max(Number(fromFirestoreValue(f.loginCount) || 0), existingLocal?.loginCount || 0),
+            lastIp: String(fromFirestoreValue(f.lastIp) || ''),
+            deviceInfo: String(fromFirestoreValue(f.deviceInfo) || ''),
+            createdAt: Number(fromFirestoreValue(f.createdAt) || existingLocal?.createdAt || now),
+            updatedAt: remoteUpdated || now,
+          },
+          email,
+          now
+        );
+        store.users[email] = user;
       }
     }
 
@@ -624,14 +726,15 @@ async function pullFirestoreIntoStore(store: AuthStoreData): Promise<void> {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (logsRes.ok) {
-      const json = (await logsRes.json()) as {
+      const logsJson = (await logsRes.json()) as {
         documents?: Array<{ name?: string; fields?: Record<string, Record<string, unknown>> }>;
       };
       const existingIds = new Set((store.loginLogs || []).map((l) => l.id));
-      for (const docItem of json.documents || []) {
+      for (const docItem of logsJson.documents || []) {
         const f = docItem.fields;
         if (!f) continue;
         const id = (docItem.name || '').split('/').pop() || `fs-${Math.random().toString(36).slice(2)}`;
+        remoteLogIds.add(id);
         if (existingIds.has(id)) continue;
         store.loginLogs.push({
           id,
@@ -650,8 +753,30 @@ async function pullFirestoreIntoStore(store: AuthStoreData): Promise<void> {
       store.loginLogs.sort((a, b) => b.timestamp - a.timestamp);
       store.loginLogs = store.loginLogs.slice(0, 400);
     }
+
+    // Backfill any server-local users/logs not yet mirrored in Firestore
+    if (options.pushMissingLocalToFirestore) {
+      const pushOps: Array<Promise<unknown>> = [];
+      for (const [email, localUser] of Object.entries(store.users)) {
+        const remoteTs = remoteUserTimestamps.get(email) || 0;
+        if (!remoteTs || (localUser.updatedAt || 0) > remoteTs + 2000) {
+          pushOps.push(syncUserAndLogToFirestore(localUser, undefined, token));
+        }
+      }
+      for (const localLog of (store.loginLogs || []).slice(0, 40)) {
+        const safeId = localLog.id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+        if (!remoteLogIds.has(safeId) && !remoteLogIds.has(localLog.id)) {
+          pushOps.push(syncUserAndLogToFirestore(null, localLog, token));
+        }
+      }
+      if (pushOps.length > 0) {
+        await Promise.all(pushOps.slice(0, 25));
+      }
+    }
+
+    return true;
   } catch {
-    // Ignore transient Firestore REST errors
+    return false;
   }
 }
 
@@ -1004,13 +1129,13 @@ function isPartnerQueryIndicator(val: unknown): boolean {
   ].includes(clean);
 }
 
-function issuePartnerRedirectSession(opts: {
+async function issuePartnerRedirectSession(opts: {
   email?: string;
   name?: string;
   planId?: string;
   ip?: string;
   device?: string;
-}): {
+}): Promise<{
   user?: {
     email: string;
     name: string;
@@ -1023,8 +1148,9 @@ function issuePartnerRedirectSession(opts: {
   token?: string;
   blockedReason?: string;
   blockedCode?: 'restricted' | 'expired';
-} {
+}> {
   const store = loadAuthStore();
+  await pullFirestoreIntoStore(store);
   const now = Date.now();
   const rawEmail = String(opts.email || '').trim().toLowerCase();
   const cleanEmail = rawEmail && rawEmail.includes('@') ? rawEmail : 'member@zerowaste.supritamone.com';
@@ -1035,7 +1161,7 @@ function issuePartnerRedirectSession(opts: {
   if (existing && !isAdmin) {
     const check = isUserBlocked(existing, now);
     if (check.blocked) {
-      recordLoginAudit(store, {
+      const blockedAudit = recordLoginAudit(store, {
         email: cleanEmail,
         name: existing.name,
         action: check.code === 'expired' ? 'blocked_expired' : 'blocked_restricted',
@@ -1047,6 +1173,7 @@ function issuePartnerRedirectSession(opts: {
         device: opts.device,
       });
       saveAuthStore(store);
+      void syncUserAndLogToFirestore(existing, blockedAudit);
       return {
         blockedReason: check.message,
         blockedCode: check.code || 'restricted',
@@ -1119,7 +1246,7 @@ function issuePartnerRedirectSession(opts: {
     updatedAt: now,
   };
 
-  recordLoginAudit(store, {
+  const okAudit = recordLoginAudit(store, {
     email: cleanEmail,
     name: resolvedName,
     action: 'partner_sso',
@@ -1131,6 +1258,7 @@ function issuePartnerRedirectSession(opts: {
     device: opts.device,
   });
   saveAuthStore(store);
+  void syncUserAndLogToFirestore(store.users[cleanEmail], okAudit);
 
   const sessionPayload = {
     email: cleanEmail,
@@ -1676,34 +1804,61 @@ app.get('/api/ai/status', (req, res) => {
 
 // ==================== SUPRITAMONE ACCESS GATE & AUTH ENDPOINTS ====================
 
-// Verify existing bearer token, HTTP session cookie, or direct Referer from zerowaste.supritamone.com
+// Verify existing bearer token, HTTP session cookie, Firebase ID token, or direct Referer from zerowaste.supritamone.com
 app.get('/api/auth/session', async (req, res) => {
   const authHeader = req.headers.authorization || '';
   const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
   const cookies = parseCookies(req.headers.cookie);
   const cookieToken = cookies[SESSION_COOKIE_NAME] || '';
   const candidateToken = bearerToken || cookieToken;
-  const verified = verifySessionToken(candidateToken);
+  const firebaseHeaderToken = String(req.headers['x-firebase-id-token'] || '').trim();
+  let verified = verifySessionToken(candidateToken);
   const ip = getClientIp(req);
   const device = getDeviceSummary(req);
 
+  if (!verified) {
+    const fbCandidate =
+      firebaseHeaderToken ||
+      (candidateToken && candidateToken.split('.').length === 3 ? candidateToken : '');
+    if (fbCandidate) {
+      const fbUser = await verifyFirebaseIdTokenWithGoogle(fbCandidate);
+      if (fbUser) {
+        const cleanEmail = fbUser.email;
+        const isAdmin = cleanEmail === PERMANENT_ADMIN_EMAIL || cleanEmail === 'basueats@gmail.com';
+        verified = {
+          email: cleanEmail,
+          name: fbUser.displayName || deriveDisplayName(cleanEmail),
+          role: isAdmin ? 'admin' : 'member',
+          planId: isAdmin ? 'admin' : 'trial',
+          planTitle: isAdmin ? 'Permanent Executive Admin Access' : '3-Day Free Trial ($0 / 72h)',
+          expiresAt: isAdmin ? null : Date.now() + 3 * DAY_MS,
+          source: 'google_signin',
+          status: 'active',
+          rememberMe: true,
+        };
+      }
+    }
+  }
+
   if (verified) {
     const store = loadAuthStore();
-    await pullFirestoreIntoStore(store);
+    await pullFirestoreIntoStore(store, firebaseHeaderToken || undefined);
     const now = Date.now();
     const cleanEmail = verified.email.toLowerCase();
 
     // Ensure returning user always exists in store.users (even on fresh Vercel serverless instances)
     if (!store.users[cleanEmail]) {
+      const isPermAdmin = cleanEmail === PERMANENT_ADMIN_EMAIL;
+      const isBootstrapAdmin = isPermAdmin || cleanEmail === 'basueats@gmail.com';
       const { user: hydrated } = hydrateUserRecord(
         {
           email: cleanEmail,
           name: verified.name || deriveDisplayName(cleanEmail),
-          role: cleanEmail === PERMANENT_ADMIN_EMAIL ? 'admin' : verified.role || 'member',
-          planId: (verified.planId as StoredAuthUser['planId']) || 'trial',
+          role: isBootstrapAdmin ? 'admin' : verified.role || 'member',
+          planId: (isBootstrapAdmin ? 'admin' : (verified.planId as StoredAuthUser['planId'])) || 'trial',
           planTitle: verified.planTitle || 'Verified Member',
           status: verified.status || 'active',
-          expiresAt: verified.expiresAt ?? null,
+          expiresAt: isBootstrapAdmin ? null : (verified.expiresAt ?? now + 3 * DAY_MS),
           source: verified.source || 'session_resume',
           lastLoginAt: now,
           loginCount: 1,
@@ -1778,7 +1933,7 @@ app.get('/api/auth/session', async (req, res) => {
 
   const headerReferrer = String(req.headers.referer || req.headers.referrer || '');
   if (isPartnerOriginUrl(headerReferrer)) {
-    const partnerSession = issuePartnerRedirectSession({ ip, device });
+    const partnerSession = await issuePartnerRedirectSession({ ip, device });
     if (partnerSession.token && partnerSession.user) {
       setSessionCookie(req, res, partnerSession.token, true);
       return res.json({
@@ -1793,7 +1948,7 @@ app.get('/api/auth/session', async (req, res) => {
 });
 
 // Verify redirect arriving from https://zerowaste.supritamone.com/
-app.post('/api/auth/verify-redirect', (req, res) => {
+app.post('/api/auth/verify-redirect', async (req, res) => {
   const {
     referrer = '',
     fromParam = '',
@@ -1821,7 +1976,7 @@ app.post('/api/auth/verify-redirect', (req, res) => {
     });
   }
 
-  const partnerResult = issuePartnerRedirectSession({
+  const partnerResult = await issuePartnerRedirectSession({
     email: email || existingCookieUser?.email,
     name: name || existingCookieUser?.name,
     planId: planId || existingCookieUser?.planId,
@@ -2428,6 +2583,63 @@ app.get('/api/admin/session', (req, res) => {
   return res.json({ authenticated: true, admin });
 });
 
+app.post('/api/admin/google-login', async (req, res) => {
+  const { idToken, rememberMe = true } = req.body || {};
+  const cleanIdToken = String(idToken || '').trim();
+  const shouldRemember = rememberMe !== false;
+  const ip = getClientIp(req);
+  const device = getDeviceSummary(req);
+
+  if (!cleanIdToken) {
+    return res.status(400).json({ error: 'Google ID token is required.' });
+  }
+
+  const fbAccount = await verifyFirebaseIdTokenWithGoogle(cleanIdToken);
+  if (!fbAccount || !fbAccount.email) {
+    return res.status(401).json({ error: 'Unable to verify Google identity token.' });
+  }
+  const allowedAdminEmails = new Set([PERMANENT_ADMIN_EMAIL, 'basueats@gmail.com']);
+  if (!fbAccount.emailVerified || !allowedAdminEmails.has(fbAccount.email)) {
+    return res.status(403).json({
+      error: `Google account ${fbAccount.email} is not authorized as a Zero Waste Academy Admin.`,
+    });
+  }
+
+  const store = loadAuthStore();
+  await pullFirestoreIntoStore(store, cleanIdToken);
+  const now = Date.now();
+  const adminUser = store.users[PERMANENT_ADMIN_EMAIL];
+  if (adminUser) {
+    adminUser.lastLoginAt = now;
+    adminUser.loginCount = (adminUser.loginCount || 0) + 1;
+    adminUser.lastIp = ip;
+    adminUser.deviceInfo = device;
+    adminUser.updatedAt = now;
+  }
+
+  const adminPayload = {
+    username: PERMANENT_ADMIN_EMAIL,
+    displayName: store.adminSettings.displayName || fbAccount.displayName || 'Dr. Chef Supritam Basu',
+    notificationEmail: store.adminSettings.notificationEmail || FACULTY_ADMIN_EMAIL,
+  };
+  const token = signAdminToken(adminPayload, shouldRemember);
+  setAdminCookie(req, res, token, shouldRemember);
+
+  const okLog = recordLoginAudit(store, {
+    email: fbAccount.email,
+    name: adminPayload.displayName,
+    action: 'admin_action',
+    status: 'success',
+    detail: 'Signed into Zero Waste Administrator Portal via Google Cloud Sync',
+    ip,
+    device,
+  });
+  saveAuthStore(store);
+  void syncUserAndLogToFirestore(adminUser || null, okLog, cleanIdToken);
+
+  return res.json({ authenticated: true, admin: adminPayload, token });
+});
+
 app.post('/api/admin/login', (req, res) => {
   const { username, password, rememberMe = true } = req.body || {};
   const cleanUser = String(username || '').trim().toLowerCase();
@@ -2612,7 +2824,13 @@ app.post('/api/admin/logout', (req, res) => {
 
 app.get('/api/admin/overview', requireAdminMiddleware, async (req, res) => {
   const store = loadAuthStore();
-  await pullFirestoreIntoStore(store);
+  const firebaseToken = String(req.headers['x-firebase-id-token'] || '').trim() || undefined;
+  const firestoreSynced = await pullFirestoreIntoStore(store, firebaseToken, {
+    pushMissingLocalToFirestore: Boolean(firebaseToken || getServiceAccountCreds()),
+  });
+  if (firestoreSynced) {
+    saveAuthStore(store);
+  }
   const now = Date.now();
   const allUsers = Object.values(store.users).map((u) => {
     const isPermanentAdmin = u.email.toLowerCase() === PERMANENT_ADMIN_EMAIL;
@@ -2696,10 +2914,14 @@ app.get('/api/admin/overview', requireAdminMiddleware, async (req, res) => {
       notificationEmail: store.adminSettings.notificationEmail,
       recoveryKey: store.adminSettings.recoveryKey || DEFAULT_ADMIN_RECOVERY_KEY,
     },
+    cloudSyncInfo: {
+      serviceAccountConfigured: Boolean(getServiceAccountCreds()),
+      firestoreSynced,
+    },
   });
 });
 
-app.post('/api/admin/users/create', requireAdminMiddleware, (req, res) => {
+app.post('/api/admin/users/create', requireAdminMiddleware, async (req, res) => {
   const {
     email,
     name,
@@ -2799,15 +3021,17 @@ app.post('/api/admin/users/create', requireAdminMiddleware, (req, res) => {
     device: 'Admin Portal',
   });
   saveAuthStore(store);
-  void syncUserAndLogToFirestore(store.users[cleanEmail], adminCreateLog);
+  const firebaseToken = String(req.headers['x-firebase-id-token'] || '').trim() || undefined;
+  void syncUserAndLogToFirestore(store.users[cleanEmail], adminCreateLog, firebaseToken);
 
   return res.json({ ok: true, user: store.users[cleanEmail] });
 });
 
-app.post('/api/admin/users/action', requireAdminMiddleware, (req, res) => {
+app.post('/api/admin/users/action', requireAdminMiddleware, async (req, res) => {
   const { email, action, planId, amountPaid, reason, trialDays } = req.body || {};
   const cleanEmail = String(email || '').trim().toLowerCase();
   const cleanAction = String(action || '').trim().toLowerCase();
+  const firebaseToken = String(req.headers['x-firebase-id-token'] || '').trim() || undefined;
 
   if (!cleanEmail) {
     return res.status(400).json({ error: 'User email is required.' });
@@ -2819,6 +3043,9 @@ app.post('/api/admin/users/action', requireAdminMiddleware, (req, res) => {
   }
 
   const store = loadAuthStore();
+  if (!store.users[cleanEmail]) {
+    await pullFirestoreIntoStore(store, firebaseToken);
+  }
   const user = store.users[cleanEmail];
   if (!user) {
     return res.status(404).json({ error: 'Subscriber account not found.' });
@@ -2919,7 +3146,8 @@ app.post('/api/admin/users/action', requireAdminMiddleware, (req, res) => {
         device: 'Admin Portal',
       });
       saveAuthStore(store);
-      void syncUserAndLogToFirestore(null, delLog);
+      void deleteUsersFromFirestore([cleanEmail], false, firebaseToken);
+      void syncUserAndLogToFirestore(null, delLog, firebaseToken);
       return res.json({ ok: true, deleted: true });
     }
     default:
@@ -2938,15 +3166,18 @@ app.post('/api/admin/users/action', requireAdminMiddleware, (req, res) => {
     device: 'Admin Portal',
   });
   saveAuthStore(store);
-  void syncUserAndLogToFirestore(user, actionLog);
+  void syncUserAndLogToFirestore(user, actionLog, firebaseToken);
 
   return res.json({ ok: true, user });
 });
 
-app.post('/api/admin/users/bulk-delete', requireAdminMiddleware, (req, res) => {
+app.post('/api/admin/users/bulk-delete', requireAdminMiddleware, async (req, res) => {
   const { emails, deleteAll } = req.body || {};
+  const firebaseToken = String(req.headers['x-firebase-id-token'] || '').trim() || undefined;
   const store = loadAuthStore();
+  await pullFirestoreIntoStore(store, firebaseToken);
   let deletedCount = 0;
+  let bulkLog: LoginAuditEntry | undefined;
 
   if (deleteAll === true) {
     for (const key of Object.keys(store.users)) {
@@ -2958,7 +3189,7 @@ app.post('/api/admin/users/bulk-delete', requireAdminMiddleware, (req, res) => {
     store.loginLogs = (store.loginLogs || []).filter(
       (l) => l.email.toLowerCase() === PERMANENT_ADMIN_EMAIL
     );
-    recordLoginAudit(store, {
+    bulkLog = recordLoginAudit(store, {
       email: PERMANENT_ADMIN_EMAIL,
       name: store.adminSettings.displayName,
       action: 'admin_action',
@@ -2967,16 +3198,19 @@ app.post('/api/admin/users/bulk-delete', requireAdminMiddleware, (req, res) => {
       ip: getClientIp(req),
       device: 'Admin Portal',
     });
+    void deleteUsersFromFirestore([], true, firebaseToken);
   } else if (Array.isArray(emails) && emails.length > 0) {
+    const cleanEmails: string[] = [];
     for (const rawEmail of emails) {
       const cleanKey = String(rawEmail || '').trim().toLowerCase();
       if (!cleanKey || cleanKey === PERMANENT_ADMIN_EMAIL) continue;
+      cleanEmails.push(cleanKey);
       if (store.users[cleanKey]) {
         delete store.users[cleanKey];
         deletedCount++;
       }
     }
-    recordLoginAudit(store, {
+    bulkLog = recordLoginAudit(store, {
       email: PERMANENT_ADMIN_EMAIL,
       name: store.adminSettings.displayName,
       action: 'admin_action',
@@ -2985,11 +3219,15 @@ app.post('/api/admin/users/bulk-delete', requireAdminMiddleware, (req, res) => {
       ip: getClientIp(req),
       device: 'Admin Portal',
     });
+    void deleteUsersFromFirestore(cleanEmails, false, firebaseToken);
   } else {
     return res.status(400).json({ error: 'Provide emails array or deleteAll: true.' });
   }
 
   saveAuthStore(store);
+  if (bulkLog) {
+    void syncUserAndLogToFirestore(null, bulkLog, firebaseToken);
+  }
   return res.json({
     ok: true,
     deletedCount,
@@ -2997,8 +3235,10 @@ app.post('/api/admin/users/bulk-delete', requireAdminMiddleware, (req, res) => {
   });
 });
 
-app.post('/api/admin/enforce-expired-trials', requireAdminMiddleware, (req, res) => {
+app.post('/api/admin/enforce-expired-trials', requireAdminMiddleware, async (req, res) => {
   const store = loadAuthStore();
+  const firebaseToken = String(req.headers['x-firebase-id-token'] || '').trim() || undefined;
+  await pullFirestoreIntoStore(store, firebaseToken);
   const now = Date.now();
   let restrictedCount = 0;
 
@@ -3029,7 +3269,7 @@ app.post('/api/admin/enforce-expired-trials', requireAdminMiddleware, (req, res)
         ip: getClientIp(req),
         device: 'Admin Portal',
       });
-      void syncUserAndLogToFirestore(user, log);
+      void syncUserAndLogToFirestore(user, log, firebaseToken);
     }
   }
 
@@ -3488,34 +3728,38 @@ app.use((err: unknown, req: express.Request, res: express.Response, next: expres
 async function startServer() {
   // Intercept incoming document navigations arriving from https://zerowaste.supritamone.com/
   // and immediately issue a signed HttpOnly SSO session cookie so members never have to log in again.
-  app.use((req, res, next) => {
-    if (
-      req.method === 'GET' &&
-      !req.path.startsWith('/api/') &&
-      !req.path.startsWith('/assets/') &&
-      !req.path.startsWith('/@') &&
-      !req.path.startsWith('/src/') &&
-      !req.path.startsWith('/node_modules/')
-    ) {
-      const headerReferrer = String(req.headers.referer || req.headers.referrer || '');
-      const fromQuery = req.query.from || req.query.source || req.query.ref || req.query.partner || (req.query.sso ? 'partner_sso' : '');
-      const isPartnerArrival = isPartnerOriginUrl(headerReferrer) || isPartnerQueryIndicator(fromQuery);
-      if (isPartnerArrival) {
-        const cookies = parseCookies(req.headers.cookie);
-        const existingValid = verifySessionToken(cookies[SESSION_COOKIE_NAME] || '');
-        if (!existingValid) {
-          const result = issuePartnerRedirectSession({
-            email: typeof req.query.email === 'string' ? req.query.email : undefined,
-            name: typeof req.query.name === 'string' ? req.query.name : undefined,
-            planId: typeof req.query.plan === 'string' ? req.query.plan : undefined,
-            ip: getClientIp(req),
-            device: getDeviceSummary(req),
-          });
-          if (result.token) {
-            setSessionCookie(req, res, result.token);
+  app.use(async (req, res, next) => {
+    try {
+      if (
+        req.method === 'GET' &&
+        !req.path.startsWith('/api/') &&
+        !req.path.startsWith('/assets/') &&
+        !req.path.startsWith('/@') &&
+        !req.path.startsWith('/src/') &&
+        !req.path.startsWith('/node_modules/')
+      ) {
+        const headerReferrer = String(req.headers.referer || req.headers.referrer || '');
+        const fromQuery = req.query.from || req.query.source || req.query.ref || req.query.partner || (req.query.sso ? 'partner_sso' : '');
+        const isPartnerArrival = isPartnerOriginUrl(headerReferrer) || isPartnerQueryIndicator(fromQuery);
+        if (isPartnerArrival) {
+          const cookies = parseCookies(req.headers.cookie);
+          const existingValid = verifySessionToken(cookies[SESSION_COOKIE_NAME] || '');
+          if (!existingValid) {
+            const result = await issuePartnerRedirectSession({
+              email: typeof req.query.email === 'string' ? req.query.email : undefined,
+              name: typeof req.query.name === 'string' ? req.query.name : undefined,
+              planId: typeof req.query.plan === 'string' ? req.query.plan : undefined,
+              ip: getClientIp(req),
+              device: getDeviceSummary(req),
+            });
+            if (result.token) {
+              setSessionCookie(req, res, result.token);
+            }
           }
         }
       }
+    } catch {
+      // Proceed to SPA if SSO cookie pre-issue fails
     }
     next();
   });

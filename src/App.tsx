@@ -3,6 +3,9 @@ import { SurplusHeader } from './components/SurplusHeader';
 import { SurplusSidebar } from './components/SurplusSidebar';
 import type { AuthenticatedSessionUser } from './components/AccessGateScreen';
 import { apiFetchJson } from './utils/apiClient';
+import { signOut } from 'firebase/auth';
+import { auth } from './firebase';
+import { syncReturningGoogleUserIfNeeded } from './services/firestoreAcademy';
 import {
   Compass,
   BookOpen,
@@ -370,6 +373,9 @@ export default function App() {
       } catch {
         // Ignore storage errors
       }
+      signOut(auth).catch(() => {
+        // Ignore Firebase sign-out errors
+      });
       fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {
         // Ignore network errors on logout
       });
@@ -451,9 +457,27 @@ export default function App() {
           }
         }
 
-        // 2. Validate server session (cookie or Bearer token from sessionStorage/localStorage)
+        // 2. Wait briefly for Firebase Auth persistence hydration if a Google session exists
+        await Promise.race([
+          auth.authStateReady().catch(() => undefined),
+          new Promise<void>((resolve) => setTimeout(resolve, 1800)),
+        ]);
+
+        const currentFbUser = auth.currentUser;
+        let fbIdToken = '';
+        let firestoreSyncPromise: Promise<Awaited<ReturnType<typeof syncReturningGoogleUserIfNeeded>> | null> | null = null;
+        if (currentFbUser) {
+          fbIdToken = await currentFbUser.getIdToken().catch(() => '');
+          firestoreSyncPromise = syncReturningGoogleUserIfNeeded(currentFbUser).catch(() => null);
+        }
+
+        // 3. Validate server session (cookie, Bearer token, or Firebase ID token)
         const savedToken =
           sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+        const sessionHeaders: Record<string, string> = {};
+        if (savedToken) sessionHeaders.Authorization = `Bearer ${savedToken}`;
+        if (fbIdToken) sessionHeaders['X-Firebase-Id-Token'] = fbIdToken;
+
         const res = await apiFetchJson<{
           authenticated?: boolean;
           user?: AuthenticatedSessionUser;
@@ -463,20 +487,60 @@ export default function App() {
           error?: string;
         }>('/api/auth/session', {
           retries: 1,
-          headers: savedToken ? { Authorization: `Bearer ${savedToken}` } : undefined,
+          headers: Object.keys(sessionHeaders).length > 0 ? sessionHeaders : undefined,
         });
+
+        const syncedFb = firestoreSyncPromise ? await firestoreSyncPromise : null;
+
         if (res.ok && res.data?.authenticated && res.data.user) {
           if (!cancelled) {
+            const serverUser = res.data.user;
+            const mergedLocked = Boolean(serverUser.isLocked || syncedFb?.isLocked);
+            const finalUser: AuthenticatedSessionUser = syncedFb
+              ? {
+                  ...serverUser,
+                  isLocked: mergedLocked,
+                  status: mergedLocked ? 'restricted' : serverUser.status,
+                  lockReason: syncedFb.lockReason || serverUser.lockReason,
+                }
+              : serverUser;
             applyAuthenticatedSession(
-              res.data.user,
+              finalUser,
               res.data.token || savedToken || '',
               !initialAuthSnapshot.hasOptimisticSession,
-              res.data.user.rememberMe
+              finalUser.rememberMe
             );
             setIsCheckingAccess(false);
           }
           return;
         }
+
+        // If Firebase Google user is authenticated in browser even when server session was absent, restore via Firestore
+        if (syncedFb && !cancelled) {
+          const fallbackUser: AuthenticatedSessionUser = {
+            email: syncedFb.email,
+            name: syncedFb.name,
+            role: syncedFb.record.role,
+            planId: syncedFb.record.planId,
+            planTitle: syncedFb.record.planTitle,
+            expiresAt: syncedFb.record.expiresAt,
+            source: 'google_signin',
+            status: syncedFb.isLocked ? 'restricted' : syncedFb.record.status,
+            isLocked: syncedFb.isLocked,
+            lockReason: syncedFb.lockReason,
+            lockCode: syncedFb.isLocked ? 'expired' : null,
+            rememberMe: true,
+          };
+          applyAuthenticatedSession(
+            fallbackUser,
+            fbIdToken || savedToken || '',
+            !initialAuthSnapshot.hasOptimisticSession,
+            true
+          );
+          setIsCheckingAccess(false);
+          return;
+        }
+
         if (savedToken) {
           localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
           localStorage.removeItem(AUTH_USER_STORAGE_KEY);

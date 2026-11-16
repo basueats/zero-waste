@@ -32,11 +32,16 @@ import {
   Cloud,
 } from 'lucide-react';
 import { apiFetchJson } from '../utils/apiClient';
+import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
 import {
   connectAdminGoogleCloud,
   subscribeAdminFirestore,
   adminMutateFirestoreUser,
+  adminUpsertFirestoreUser,
+  adminBulkDeleteFirestoreUsers,
+  isAuthorizedAdminEmail,
+  getCurrentFirebaseIdToken,
   formatFirebaseAuthError,
   FirestoreUserRecord,
   FirestoreLogRecord,
@@ -105,6 +110,10 @@ interface AdminOverviewResponse {
     displayName: string;
     notificationEmail: string;
     recoveryKey?: string;
+  };
+  cloudSyncInfo?: {
+    serviceAccountConfigured: boolean;
+    firestoreSynced: boolean;
   };
 }
 
@@ -195,7 +204,11 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
   const [cloudUsers, setCloudUsers] = useState<FirestoreUserRecord[]>([]);
   const [cloudLogs, setCloudLogs] = useState<FirestoreLogRecord[]>([]);
   const [cloudSyncing, setCloudSyncing] = useState(false);
-  const [cloudConnected, setCloudConnected] = useState(() => Boolean(auth.currentUser));
+  const [cloudConnected, setCloudConnected] = useState(() =>
+    Boolean(auth.currentUser && isAuthorizedAdminEmail(auth.currentUser.email))
+  );
+  const [cloudError, setCloudError] = useState<string | null>(null);
+  const [googleLoginLoading, setGoogleLoginLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [actionBusyEmail, setActionBusyEmail] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
@@ -239,12 +252,16 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     }, 4500);
   }, []);
 
-  const authHeaders = useCallback(
-    (tokenOverride?: string): HeadersInit => {
+  const getAuthHeaders = useCallback(
+    async (tokenOverride?: string): Promise<HeadersInit> => {
       const tok = tokenOverride || adminToken;
-      return tok
-        ? { 'Content-Type': 'application/json', 'X-Admin-Token': tok }
-        : { 'Content-Type': 'application/json' };
+      const fbToken = await getCurrentFirebaseIdToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (tok) headers['X-Admin-Token'] = tok;
+      if (fbToken && isAuthorizedAdminEmail(auth.currentUser?.email)) {
+        headers['X-Firebase-Id-Token'] = fbToken;
+      }
+      return headers;
     },
     [adminToken]
   );
@@ -253,8 +270,9 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     async (tokenOverride?: string) => {
       setLoadingData(true);
       try {
+        const headers = await getAuthHeaders(tokenOverride);
         const res = await apiFetchJson<AdminOverviewResponse>('/api/admin/overview', {
-          headers: authHeaders(tokenOverride),
+          headers,
         });
         if (!res.ok || !res.data) {
           if (res.status === 401) {
@@ -277,14 +295,31 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
         setLoadingData(false);
       }
     },
-    [authHeaders, showToast]
+    [getAuthHeaders, showToast]
   );
+
+  // Sync Firebase Auth hydration state for real-time Cloud Firestore Admin Portal listener
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (fbUser) => {
+      if (fbUser && isAuthorizedAdminEmail(fbUser.email)) {
+        setCloudConnected(true);
+        setCloudError(null);
+      } else {
+        setCloudConnected(false);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   // Check existing admin session on mount
   useEffect(() => {
     let cancelled = false;
     const verify = async () => {
       try {
+        await Promise.race([
+          auth.authStateReady().catch(() => undefined),
+          new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+        ]);
         const res = await apiFetchJson<{
           authenticated?: boolean;
           admin?: AdminSessionInfo;
@@ -306,28 +341,97 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     };
   }, [adminToken, fetchOverview]);
 
-  // Real-time Firestore listener when Admin Portal is open and Firebase Google auth is connected
+  // Real-time Firestore listener when Admin Portal is open and Firebase Google Admin auth is connected
   useEffect(() => {
     if (!adminSession) return;
-    if (!auth.currentUser && !cloudConnected) return;
+    if (!cloudConnected || !auth.currentUser) return;
     const unsub = subscribeAdminFirestore(
-      (users) => setCloudUsers(users),
-      (logs) => setCloudLogs(logs)
+      (users) => {
+        setCloudUsers(users);
+        setCloudError(null);
+      },
+      (logs) => setCloudLogs(logs),
+      (err) => {
+        setCloudError(
+          `Cloud Firestore sync paused (${err.message}). Click "Connect Cloud Sync" with supritamone@gmail.com.`
+        );
+        setCloudConnected(false);
+      }
     );
     return () => unsub();
   }, [adminSession, cloudConnected]);
 
+  // Trigger a fresh server sync whenever cloudConnected becomes true while dashboard is open
+  useEffect(() => {
+    if (adminSession && cloudConnected) {
+      void fetchOverview();
+    }
+  }, [adminSession, cloudConnected, fetchOverview]);
+
   const handleConnectCloudSync = async () => {
     setCloudSyncing(true);
+    setCloudError(null);
     try {
       await connectAdminGoogleCloud();
       setCloudConnected(true);
       await fetchOverview();
       showToast('ok', 'Live cloud registry connected — all subscriber logins & audit logs synced.');
     } catch (err: unknown) {
-      showToast('err', formatFirebaseAuthError(err));
+      const msg = formatFirebaseAuthError(err);
+      setCloudError(msg);
+      showToast('err', msg);
     } finally {
       setCloudSyncing(false);
+    }
+  };
+
+  const handleAdminGoogleSignIn = async () => {
+    setLoginError(null);
+    setLoginSuccessMsg(null);
+    setGoogleLoginLoading(true);
+    try {
+      const connected = await connectAdminGoogleCloud();
+      const res = await apiFetchJson<{
+        authenticated?: boolean;
+        admin?: AdminSessionInfo;
+        token?: string;
+        error?: string;
+      }>('/api/admin/google-login', {
+        method: 'POST',
+        body: JSON.stringify({
+          idToken: connected.idToken,
+          rememberMe,
+        }),
+      });
+      if (!res.ok || !res.data?.authenticated || !res.data.admin) {
+        setLoginError(res.errorMessage || 'Unable to verify Admin Google sign-in.');
+        return;
+      }
+      const newToken = res.data.token || '';
+      setAdminToken(newToken);
+      if (typeof window !== 'undefined' && newToken) {
+        try {
+          if (rememberMe) {
+            localStorage.setItem(ADMIN_TOKEN_KEY, newToken);
+            localStorage.setItem(ADMIN_REMEMBER_UNTIL_KEY, String(Date.now() + THIRTY_DAYS_MS));
+            sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+          } else {
+            sessionStorage.setItem(ADMIN_TOKEN_KEY, newToken);
+            localStorage.removeItem(ADMIN_TOKEN_KEY);
+            localStorage.removeItem(ADMIN_REMEMBER_UNTIL_KEY);
+          }
+        } catch {
+          // Ignore storage quota errors
+        }
+      }
+      setCloudConnected(true);
+      setCloudError(null);
+      setAdminSession(res.data.admin);
+      await fetchOverview(newToken);
+    } catch (err: unknown) {
+      setLoginError(formatFirebaseAuthError(err));
+    } finally {
+      setGoogleLoginLoading(false);
     }
   };
 
@@ -464,9 +568,10 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
   ) => {
     setActionBusyEmail(email);
     try {
+      const headers = await getAuthHeaders();
       const res = await apiFetchJson<{ ok?: boolean; error?: string }>('/api/admin/users/action', {
         method: 'POST',
-        headers: authHeaders(),
+        headers,
         body: JSON.stringify({ email, action, ...extra }),
       });
       // Also mirror moderation actions to Firestore if cloud registry is connected
@@ -494,26 +599,32 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
   const handleBulkDelete = async (mode: 'selected' | 'all') => {
     setBulkDeleting(true);
     try {
+      const emailList = Array.from(selectedEmails);
       const payload =
         mode === 'all'
           ? { deleteAll: true }
-          : { emails: Array.from(selectedEmails) };
+          : { emails: emailList };
 
+      const headers = await getAuthHeaders();
       const res = await apiFetchJson<{ deletedCount?: number }>('/api/admin/users/bulk-delete', {
         method: 'POST',
-        headers: authHeaders(),
+        headers,
         body: JSON.stringify(payload),
       });
-      if (!res.ok) {
+      const firestoreDeleted = await adminBulkDeleteFirestoreUsers(
+        mode === 'all' ? { deleteAll: true } : { emails: emailList }
+      );
+      if (!res.ok && firestoreDeleted === 0) {
         showToast('err', res.errorMessage || 'Bulk delete failed.');
         return;
       }
       setSelectedEmails(new Set());
       setBulkConfirmMode(null);
       await fetchOverview();
+      const totalDeleted = Math.max(res.data?.deletedCount ?? 0, firestoreDeleted);
       showToast(
         'ok',
-        `Deleted ${res.data?.deletedCount ?? 0} user(s). Master Admin account remains protected.`
+        `Deleted ${totalDeleted} user(s). Master Admin account remains protected.`
       );
     } finally {
       setBulkDeleting(false);
@@ -535,16 +646,32 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
   const handleEnforceExpiredTrials = async () => {
     setLoadingData(true);
     try {
+      const headers = await getAuthHeaders();
       const res = await apiFetchJson<{ restrictedCount?: number }>('/api/admin/enforce-expired-trials', {
         method: 'POST',
-        headers: authHeaders(),
+        headers,
       });
       if (!res.ok) {
         showToast('err', res.errorMessage || 'Unable to scan expired trials.');
         return;
       }
+      // Also enforce any expired trial records present only in Firestore cloud state
+      let cloudLockedCount = 0;
+      const now = Date.now();
+      for (const cu of cloudUsers) {
+        if (
+          cu.role !== 'admin' &&
+          cu.email.toLowerCase() !== 'supritamone@gmail.com' &&
+          cu.expiresAt !== null &&
+          now > cu.expiresAt &&
+          cu.status !== 'restricted'
+        ) {
+          const ok = await adminMutateFirestoreUser(cu.email, 'expire_trial');
+          if (ok) cloudLockedCount++;
+        }
+      }
       await fetchOverview();
-      const count = res.data?.restrictedCount ?? 0;
+      const count = Math.max(res.data?.restrictedCount ?? 0, cloudLockedCount);
       showToast(
         'ok',
         count > 0
@@ -560,9 +687,10 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     e.preventDefault();
     setCreatingUser(true);
     try {
-      const res = await apiFetchJson<{ user?: { email: string } }>('/api/admin/users/create', {
+      const headers = await getAuthHeaders();
+      const res = await apiFetchJson<{ user?: AdminManagedUser }>('/api/admin/users/create', {
         method: 'POST',
-        headers: authHeaders(),
+        headers,
         body: JSON.stringify({
           name: newUserName.trim(),
           email: newUserEmail.trim(),
@@ -577,6 +705,9 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
       if (!res.ok) {
         showToast('err', res.errorMessage || 'Could not create subscriber.');
         return;
+      }
+      if (res.data?.user && cloudConnected) {
+        await adminUpsertFirestoreUser(res.data.user);
       }
       setShowAddUserModal(false);
       setNewUserName('');
@@ -599,9 +730,10 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
     }
     setSavingProfile(true);
     try {
+      const headers = await getAuthHeaders();
       const res = await apiFetchJson<{ ok?: boolean }>('/api/admin/profile', {
         method: 'POST',
-        headers: authHeaders(),
+        headers,
         body: JSON.stringify({
           displayName: profileDisplayName.trim(),
           notificationEmail: profileNotificationEmail.trim(),
@@ -626,9 +758,10 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
   const handleRegenerateRecoveryKey = async () => {
     setSavingProfile(true);
     try {
+      const headers = await getAuthHeaders();
       const res = await apiFetchJson<{ adminProfile?: { recoveryKey?: string } }>('/api/admin/profile', {
         method: 'POST',
-        headers: authHeaders(),
+        headers,
         body: JSON.stringify({ regenerateRecoveryKey: true }),
       });
       if (res.ok && res.data?.adminProfile?.recoveryKey) {
@@ -998,7 +1131,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
 
                 <button
                   type="submit"
-                  disabled={loginLoading}
+                  disabled={loginLoading || googleLoginLoading}
                   className="w-full py-3 rounded-xl bg-[#00c86d] hover:bg-[#00b060] disabled:opacity-60 text-[#051b11] text-xs font-extrabold uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer"
                 >
                   {loginLoading ? (
@@ -1008,6 +1141,31 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
                   )}
                 </button>
               </form>
+
+              <div className="relative py-1">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-[#283344]" />
+                </div>
+                <div className="relative flex justify-center text-[10px] uppercase tracking-wider font-semibold">
+                  <span className="bg-[#1a2230] px-2.5 text-slate-400">Or instant admin cloud login</span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={loginLoading || googleLoginLoading}
+                onClick={handleAdminGoogleSignIn}
+                className="w-full py-2.5 px-4 rounded-xl border border-[#2c384b] hover:border-[#00c86d] bg-[#131b27] text-white text-xs font-bold flex items-center justify-center gap-2.5 transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {googleLoginLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <Cloud className="w-4 h-4 text-[#00c86d]" />
+                    <span>Continue with Google (Cloud Sync)</span>
+                  </>
+                )}
+              </button>
             </>
           ) : (
             <div className="space-y-4">
@@ -1255,6 +1413,32 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({ onBackToApp })
             </div>
             <button onClick={() => setToastMsg(null)} className="cursor-pointer opacity-60 hover:opacity-100">
               <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {!cloudConnected && (
+          <div className="p-3.5 sm:p-4 rounded-2xl border border-amber-300 bg-amber-50 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5 text-xs">
+              <Cloud className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <p className="font-bold text-amber-950">
+                  Connect Google Cloud Registry to view all subscriber &amp; Google Sign-In logins
+                </p>
+                <p className="text-[11px] text-amber-900">
+                  {cloudError ||
+                    'You signed in with Admin password. Connect your Admin Google account (supritamone@gmail.com) once so every website login syncs live across devices and serverless sessions.'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleConnectCloudSync}
+              disabled={cloudSyncing}
+              className="px-3.5 py-2 rounded-xl bg-black hover:bg-neutral-800 disabled:opacity-60 text-white text-xs font-bold flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+            >
+              <Cloud className={`w-3.5 h-3.5 text-[#00c86d] ${cloudSyncing ? 'animate-pulse' : ''}`} />
+              <span>{cloudSyncing ? 'Connecting...' : 'Connect Cloud Sync'}</span>
             </button>
           </div>
         )}

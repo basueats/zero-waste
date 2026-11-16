@@ -1,4 +1,4 @@
-import { signInWithPopup, signOut } from 'firebase/auth';
+import { signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
 import {
   collection,
   deleteDoc,
@@ -13,12 +13,27 @@ import {
   setDoc,
   Timestamp,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { auth, db, googleProvider, handleFirestoreError, OperationType } from '../firebase';
 
 const PERMANENT_ADMIN_EMAIL = 'supritamone@gmail.com';
 const BOOTSTRAP_ADMIN_EMAILS = new Set(['supritamone@gmail.com', 'basueats@gmail.com']);
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function isAuthorizedAdminEmail(email?: string | null): boolean {
+  const clean = String(email || '').trim().toLowerCase();
+  return Boolean(clean && BOOTSTRAP_ADMIN_EMAILS.has(clean));
+}
+
+export async function getCurrentFirebaseIdToken(): Promise<string> {
+  if (!auth.currentUser) return '';
+  try {
+    return await auth.currentUser.getIdToken();
+  } catch {
+    return '';
+  }
+}
 
 export interface FirestoreUserRecord {
   uid: string;
@@ -192,7 +207,10 @@ export function formatFirebaseAuthError(err: unknown): string {
   return message || 'Google sign-in was cancelled or unavailable.';
 }
 
-export async function signInWithGoogleAndSyncFirestore(): Promise<{
+export async function syncFirebaseUserRecord(
+  fbUser: FirebaseUser,
+  options: { throttleMinutes?: number; forceLog?: boolean } = {}
+): Promise<{
   uid: string;
   email: string;
   name: string;
@@ -201,11 +219,10 @@ export async function signInWithGoogleAndSyncFirestore(): Promise<{
   isLocked: boolean;
   lockReason?: string;
 }> {
-  const credential = await signInWithGooglePopupRobust();
-  const fbUser = credential.user;
   const uid = fbUser.uid;
-  const email = (fbUser.email || '').trim().toLowerCase();
-  const displayName = (fbUser.displayName || email.split('@')[0] || 'Zero Waste Chef').trim().slice(0, 120);
+  const email = (fbUser.email || '').trim().toLowerCase().slice(0, 200);
+  const rawDisplay = (fbUser.displayName || '').trim();
+  const displayName = (rawDisplay || email.split('@')[0] || 'Zero Waste Chef').slice(0, 120);
   const idToken = await fbUser.getIdToken();
   const now = Date.now();
   const userRef = doc(db, 'academy_users', uid);
@@ -221,11 +238,12 @@ export async function signInWithGoogleAndSyncFirestore(): Promise<{
   }
 
   const isAdminEmail = email === PERMANENT_ADMIN_EMAIL || BOOTSTRAP_ADMIN_EMAILS.has(email);
-  const device = detectClientDevice();
+  const device = detectClientDevice().slice(0, 120);
 
   let finalRecord: FirestoreUserRecord;
   let isLocked = false;
   let lockReason: string | undefined;
+  let shouldWriteLog = options.forceLog !== false;
 
   if (!existingData) {
     const planId = isAdminEmail ? 'admin' : 'trial';
@@ -297,21 +315,31 @@ export async function signInWithGoogleAndSyncFirestore(): Promise<{
           : `Your ${existingPlanTitle} period has ended — All academy features are auto-locked. Renew to restore access.`);
     }
 
-    const nextCount = Number(existingData.loginCount || 0) + 1;
+    const throttleMs = Math.max(0, Number(options.throttleMinutes || 0)) * 60 * 1000;
+    const prevLoginAt = typeof existingData.lastLoginAt === 'number' ? existingData.lastLoginAt : 0;
+    const withinThrottle = throttleMs > 0 && now - prevLoginAt < throttleMs;
+    if (withinThrottle && options.forceLog !== true) {
+      shouldWriteLog = false;
+    }
+
+    const nextCount = shouldWriteLog ? Number(existingData.loginCount || 0) + 1 : Number(existingData.loginCount || 1);
+    const resolvedName = (displayName || String(existingData.name || 'Zero Waste Chef')).trim().slice(0, 120) || 'Zero Waste Chef';
     try {
-      await updateDoc(userRef, {
-        name: displayName || String(existingData.name || 'Zero Waste Chef'),
-        lastLoginAt: now,
-        loginCount: nextCount,
-        lastIp: 'Google OAuth',
-        deviceInfo: device,
-        updatedAt: serverTimestamp(),
-      });
+      if (shouldWriteLog) {
+        await updateDoc(userRef, {
+          name: resolvedName,
+          lastLoginAt: now,
+          loginCount: nextCount,
+          lastIp: 'Google OAuth',
+          deviceInfo: device,
+          updatedAt: serverTimestamp(),
+        });
+      }
       if (isExpired && existingData.status !== 'restricted') {
         await updateDoc(userRef, {
           status: 'restricted',
           restrictedByAdmin: true,
-          restrictedReason: lockReason || 'Plan Expired — Auto-Restricted',
+          restrictedReason: (lockReason || 'Plan Expired — Auto-Restricted').slice(0, 300),
           updatedAt: serverTimestamp(),
         });
       }
@@ -322,7 +350,7 @@ export async function signInWithGoogleAndSyncFirestore(): Promise<{
     finalRecord = {
       uid,
       email,
-      name: displayName || String(existingData.name || 'Zero Waste Chef'),
+      name: resolvedName,
       role: existingRole,
       planId: existingPlanId,
       planTitle: existingPlanTitle,
@@ -338,7 +366,7 @@ export async function signInWithGoogleAndSyncFirestore(): Promise<{
       expiresAt: existingExpiresAt,
       transactionRef: String(existingData.transactionRef || ''),
       source: String(existingData.source || 'google_signin'),
-      lastLoginAt: now,
+      lastLoginAt: shouldWriteLog ? now : prevLoginAt || now,
       loginCount: nextCount,
       lastIp: 'Google OAuth',
       deviceInfo: device,
@@ -348,33 +376,44 @@ export async function signInWithGoogleAndSyncFirestore(): Promise<{
   }
 
   // Record real-time login audit log in Firestore
-  const logId = sanitizeDocId(`log_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
-  try {
-    await setDoc(doc(db, 'academy_logs', logId), {
-      uid,
-      email,
-      name: finalRecord.name,
-      action: !existingData && !isAdminEmail ? 'trial_started' : 'login',
-      status: isLocked ? 'blocked' : 'success',
-      detail: isLocked
-        ? `Google Sign-In while auto-restricted (${finalRecord.planTitle} locked)`
-        : !existingData && !isAdminEmail
-          ? 'Started 3-Day Free Trial via Google Sign-In'
-          : `Google Sign-In (${finalRecord.planTitle})`,
-      planId: finalRecord.planId,
-      paymentStatus: finalRecord.paymentStatus,
-      ip: 'Google OAuth',
-      device,
-      timestamp: serverTimestamp(),
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.CREATE, `academy_logs/${logId}`);
+  if (shouldWriteLog) {
+    const logId = sanitizeDocId(`log_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
+    try {
+      await setDoc(doc(db, 'academy_logs', logId), {
+        uid,
+        email,
+        name: finalRecord.name.slice(0, 120) || 'Zero Waste Chef',
+        action: !existingData && !isAdminEmail ? 'trial_started' : 'login',
+        status: isLocked ? 'blocked' : 'success',
+        detail: (isLocked
+          ? `Google Sign-In while auto-restricted (${finalRecord.planTitle} locked)`
+          : !existingData && !isAdminEmail
+            ? 'Started 3-Day Free Trial via Google Sign-In'
+            : `Google Sign-In (${finalRecord.planTitle})`).slice(0, 400),
+        planId: String(finalRecord.planId || 'trial').slice(0, 40),
+        paymentStatus: String(finalRecord.paymentStatus || 'trial').slice(0, 40),
+        ip: 'Google OAuth',
+        device,
+        timestamp: serverTimestamp(),
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `academy_logs/${logId}`);
+    }
   }
 
   return { uid, email, name: finalRecord.name, idToken, record: finalRecord, isLocked, lockReason };
 }
 
-export async function connectAdminGoogleCloud(): Promise<{ email: string; name: string }> {
+export async function signInWithGoogleAndSyncFirestore() {
+  const credential = await signInWithGooglePopupRobust();
+  return await syncFirebaseUserRecord(credential.user, { forceLog: true });
+}
+
+export async function syncReturningGoogleUserIfNeeded(fbUser: FirebaseUser) {
+  return await syncFirebaseUserRecord(fbUser, { throttleMinutes: 15, forceLog: false });
+}
+
+export async function connectAdminGoogleCloud(): Promise<{ email: string; name: string; idToken: string }> {
   const credential = await signInWithGooglePopupRobust();
   const email = (credential.user.email || '').trim().toLowerCase();
   if (!BOOTSTRAP_ADMIN_EMAILS.has(email)) {
@@ -385,15 +424,18 @@ export async function connectAdminGoogleCloud(): Promise<{ email: string; name: 
       throw new Error(`Google account ${email} is not authorized as an Academy Admin.`);
     }
   }
+  const idToken = await credential.user.getIdToken();
   return {
     email,
     name: credential.user.displayName || 'Master Admin',
+    idToken,
   };
 }
 
 export function subscribeAdminFirestore(
   onUsers: (users: FirestoreUserRecord[]) => void,
-  onLogs: (logs: FirestoreLogRecord[]) => void
+  onLogs: (logs: FirestoreLogRecord[]) => void,
+  onError?: (err: Error) => void
 ): () => void {
   const currentUser = auth.currentUser;
   if (!currentUser) {
@@ -445,6 +487,7 @@ export function subscribeAdminFirestore(
     },
     (err) => {
       console.warn('Firestore users listener notice:', err.message);
+      onError?.(err);
     }
   );
 
@@ -474,6 +517,7 @@ export function subscribeAdminFirestore(
     },
     (err) => {
       console.warn('Firestore logs listener notice:', err.message);
+      onError?.(err);
     }
   );
 
@@ -554,9 +598,140 @@ export async function adminMutateFirestoreUser(
     }
 
     await updateDoc(targetDoc.ref, updates);
+
+    // Record admin action in Firestore audit logs
+    const logId = sanitizeDocId(`log_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
+    await setDoc(doc(db, 'academy_logs', logId), {
+      uid: String(cur.uid || targetDoc.id),
+      email: String(cur.email || uidOrEmail).toLowerCase().slice(0, 200),
+      name: String(cur.name || 'Chef Member').slice(0, 120) || 'Chef Member',
+      action: action === 'expire_trial' ? 'blocked_expired' : action === 'restrict' ? 'blocked_restricted' : 'admin_action',
+      status: action === 'restrict' || action === 'expire_trial' ? 'blocked' : 'info',
+      detail: `Admin ${action.replace(/_/g, ' ')} applied`.slice(0, 400),
+      planId: String(updates.planId || cur.planId || 'trial').slice(0, 40),
+      paymentStatus: String(updates.paymentStatus || cur.paymentStatus || 'trial').slice(0, 40),
+      ip: 'Admin Portal',
+      device: detectClientDevice().slice(0, 120),
+      timestamp: serverTimestamp(),
+    }).catch(() => {});
+
     return true;
   } catch (err) {
     console.warn('Firestore admin update skipped:', err);
     return false;
+  }
+}
+
+export async function adminUpsertFirestoreUser(user: {
+  email: string;
+  name: string;
+  role?: 'admin' | 'member';
+  planId: 'admin' | 'trial' | 'individual' | 'team' | 'training' | 'partner_member';
+  planTitle: string;
+  paymentStatus: 'paid' | 'unpaid' | 'trial' | 'pending_approval' | 'admin';
+  amountPaid: number;
+  currency?: string;
+  workPlace?: string;
+  designation?: string;
+  chefSeats?: number | null;
+  status: 'active' | 'expired' | 'restricted' | 'pending_approval';
+  restrictedByAdmin?: boolean;
+  restrictedReason?: string;
+  expiresAt: number | null;
+  transactionRef?: string;
+  source?: string;
+  lastLoginAt?: number | null;
+  loginCount?: number;
+  lastIp?: string;
+  deviceInfo?: string;
+}): Promise<boolean> {
+  if (!auth.currentUser) return false;
+  try {
+    const cleanEmail = user.email.trim().toLowerCase().slice(0, 200);
+    if (!cleanEmail) return false;
+    const snap = await getDocs(collection(db, 'academy_users'));
+    const existingDoc = snap.docs.find((d) => String(d.data().email || '').toLowerCase() === cleanEmail);
+    const uid = existingDoc?.id || sanitizeDocId(`adm_${cleanEmail}`);
+    const now = Date.now();
+    const docRef = doc(db, 'academy_users', uid);
+
+    const payload: Record<string, unknown> = {
+      uid: existingDoc ? String(existingDoc.data().uid || uid) : uid,
+      email: cleanEmail,
+      name: (user.name || cleanEmail.split('@')[0] || 'Chef Member').trim().slice(0, 120),
+      role: user.role === 'admin' ? 'admin' : 'member',
+      planId: user.planId,
+      planTitle: (user.planTitle || 'Verified Member').slice(0, 160),
+      paymentStatus: user.paymentStatus,
+      amountPaid: Number(user.amountPaid || 0),
+      currency: (user.currency || 'USD').slice(0, 10),
+      workPlace: (user.workPlace || '').slice(0, 160),
+      designation: (user.designation || '').slice(0, 120),
+      status: user.status,
+      restrictedByAdmin: Boolean(user.restrictedByAdmin),
+      expiresAt: user.expiresAt ?? null,
+      transactionRef: (user.transactionRef || '').slice(0, 120),
+      source: (user.source || 'admin_panel_created').slice(0, 120),
+      lastLoginAt: user.lastLoginAt ?? null,
+      loginCount: Number(user.loginCount || 0),
+      lastIp: (user.lastIp || 'Admin Portal').slice(0, 80),
+      deviceInfo: (user.deviceInfo || 'Admin Registry').slice(0, 120),
+      updatedAt: serverTimestamp(),
+      createdAt: existingDoc?.data()?.createdAt || serverTimestamp(),
+    };
+    if (typeof user.chefSeats === 'number') {
+      payload.chefSeats = user.chefSeats;
+    }
+    if (user.restrictedReason) {
+      payload.restrictedReason = user.restrictedReason.slice(0, 300);
+    }
+
+    await setDoc(docRef, payload, { merge: true });
+    const logId = sanitizeDocId(`log_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
+    await setDoc(doc(db, 'academy_logs', logId), {
+      uid: String(payload.uid),
+      email: cleanEmail,
+      name: String(payload.name),
+      action: 'admin_action',
+      status: 'info',
+      detail: `Admin synced/created user (${String(payload.planTitle)})`.slice(0, 400),
+      planId: String(payload.planId).slice(0, 40),
+      paymentStatus: String(payload.paymentStatus).slice(0, 40),
+      ip: 'Admin Portal',
+      device: detectClientDevice().slice(0, 120),
+      timestamp: serverTimestamp(),
+    }).catch(() => {});
+    return true;
+  } catch (err) {
+    console.warn('Firestore upsert skipped:', err);
+    return false;
+  }
+}
+
+export async function adminBulkDeleteFirestoreUsers(opts: { emails?: string[]; deleteAll?: boolean }): Promise<number> {
+  if (!auth.currentUser) return 0;
+  try {
+    const snap = await getDocs(collection(db, 'academy_users'));
+    const targetEmails = new Set((opts.emails || []).map((e) => e.trim().toLowerCase()));
+    const batch = writeBatch(db);
+    let count = 0;
+
+    for (const d of snap.docs) {
+      const data = d.data();
+      const email = String(data.email || '').toLowerCase();
+      if (email === PERMANENT_ADMIN_EMAIL || data.role === 'admin') continue;
+      if (opts.deleteAll || targetEmails.has(email)) {
+        batch.delete(d.ref);
+        count++;
+      }
+    }
+
+    if (count > 0) {
+      await batch.commit();
+    }
+    return count;
+  } catch (err) {
+    console.warn('Firestore bulk delete skipped:', err);
+    return 0;
   }
 }

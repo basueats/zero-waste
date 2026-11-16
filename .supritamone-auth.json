@@ -15,15 +15,76 @@
       "restrictedByAdmin": false,
       "expiresAt": null,
       "source": "admin_root",
-      "lastLoginAt": 1794753544434,
-      "loginCount": 8,
+      "lastLoginAt": 1794866079616,
+      "loginCount": 9,
       "lastIp": "127.0.0.1",
       "deviceInfo": "Browser · Device",
       "createdAt": 1794601255792,
-      "updatedAt": 1794753544434
+      "updatedAt": 1794866079616
     }
   },
   "loginLogs": [
+    {
+      "email": "supritamone@gmail.com",
+      "name": "Dr. Chef Supritam Basu",
+      "action": "admin_action",
+      "status": "info",
+      "detail": "Bulk deleted 2 selected subscriber account(s)",
+      "ip": "127.0.0.1",
+      "device": "Admin Portal",
+      "id": "log-mwjsx6ku-f71697",
+      "timestamp": 1794866079631
+    },
+    {
+      "email": "supritamone@gmail.com",
+      "name": "Dr. Chef Supritam Basu",
+      "action": "admin_action",
+      "status": "success",
+      "detail": "Signed into Zero Waste Administrator Portal",
+      "ip": "127.0.0.1",
+      "device": "Browser · Device",
+      "id": "log-mwjsx6kg-e8ffa9",
+      "timestamp": 1794866079616
+    },
+    {
+      "email": "test_google_1794866079255@example.com",
+      "name": "Test Google Chef",
+      "action": "trial_started",
+      "status": "success",
+      "detail": "Google Sign-In (3-Day Free Trial ($0 / 72h))",
+      "planId": "trial",
+      "paymentStatus": "trial",
+      "ip": "127.0.0.1",
+      "device": "Browser · Device",
+      "id": "log-mwjsx6iz-b1c6ed",
+      "timestamp": 1794866079563
+    },
+    {
+      "email": "test_chef_1794866079255@example.com",
+      "name": "Test Chef Trial",
+      "action": "login",
+      "status": "success",
+      "detail": "Member login (3-Day Free Trial ($0 / 72h))",
+      "planId": "trial",
+      "paymentStatus": "trial",
+      "ip": "127.0.0.1",
+      "device": "Browser · Device",
+      "id": "log-mwjsx6it-58aaa8",
+      "timestamp": 1794866079557
+    },
+    {
+      "email": "test_chef_1794866079255@example.com",
+      "name": "Test Chef Trial",
+      "action": "trial_started",
+      "status": "success",
+      "detail": "3-Day Free Trial ($0 / 72h) activated (TRIAL-MWJSX6DU)",
+      "planId": "trial",
+      "paymentStatus": "trial",
+      "ip": "127.0.0.1",
+      "device": "Browser · Device",
+      "id": "log-mwjsx6g2-1a19e8",
+      "timestamp": 1794866079458
+    },
     {
       "email": "verify_shahrukh_1794753544076@example.com",
       "name": "Shahrukh Test",
