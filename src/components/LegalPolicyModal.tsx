@@ -44,7 +44,7 @@ export const LegalPolicyModal: React.FC<LegalPolicyModalProps> = ({
         <div className="px-4 sm:px-6 py-4 bg-black text-white flex items-center justify-between gap-3 shrink-0">
           <div>
             <p className="text-[10px] font-mono uppercase tracking-widest text-emerald-400">
-              Zero Waste Academy · Dr. Supritam Basu
+              Zerowastz - By Supritamone · Dr. Supritam Basu
             </p>
             <h2 className="text-sm sm:text-base font-extrabold tracking-tight mt-0.5">
               {activePolicy === 'terms' && 'Terms and Conditions'}

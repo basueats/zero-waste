@@ -72,7 +72,7 @@ BRIGADE FOOD SAFETY & CCP REQUIREMENTS:
 - Maintain hot holding >= 63°C or rapid chilling <= 3°C within 90 minutes.
 - Ambient fermentations must reach verified pH < 4.2 within 72 hours.
 
-Supritamone Academy © ${new Date().getFullYear()} · Dr. Chef Supritam Basu · Level 7 Certified`;
+Zerowastz - By Supritamone © ${new Date().getFullYear()} · Dr. Chef Supritam Basu · Level 7 Certified`;
 
     const blob = new Blob([text], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);

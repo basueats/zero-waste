@@ -647,7 +647,7 @@ export default function App() {
       <div className="min-h-screen bg-white text-neutral-900 flex flex-col items-center justify-center gap-3 p-4">
         <Loader2 className="w-7 h-7 animate-spin text-black" />
         <p className="text-xs font-semibold text-neutral-500 tracking-wide">
-          Loading Supritamone Academy...
+          Loading Zerowastz - By Supritamone...
         </p>
       </div>
     );
@@ -655,7 +655,7 @@ export default function App() {
 
   if (!authUser) {
     return (
-      <Suspense fallback={<ViewLoadingFallback label="Loading Supritamone Academy..." />}>
+      <Suspense fallback={<ViewLoadingFallback label="Loading Zerowastz - By Supritamone..." />}>
         <AccessGateScreen
           onUnlocked={(user, token, rememberMe) => applyAuthenticatedSession(user, token, true, rememberMe)}
           onOpenAdminPortal={() => setShowAdminPortal(true)}
@@ -1294,7 +1294,7 @@ export default function App() {
               </div>
 
               <p className="leading-relaxed text-slate-600">
-                Your official <strong>Supritamone Academy Zero Waste Certificate</strong> unlocks automatically once all {examStatus.totalQuizzes} section exams are completed with an overall total score of <strong>37% or higher</strong>.
+                Your official <strong>Zerowastz - By Supritamone Certificate</strong> unlocks automatically once all {examStatus.totalQuizzes} section exams are completed with an overall total score of <strong>37% or higher</strong>.
               </p>
 
               <div className="flex items-center justify-end gap-2 pt-2">

@@ -88,13 +88,13 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
             <button
               onClick={() => onSelectNavTab('home')}
               className="flex items-center text-left group focus:outline-none cursor-pointer shrink-0"
-              title="Supritamone Academy - Home"
+              title="Zerowastz - By Supritamone - Home"
             >
               <SupritamoneLogo size="md" />
             </button>
           </div>
 
-          {/* Center Minimal Navigation (Matching zerowaste.supritamone.com top bar) */}
+          {/* Center Minimal Navigation */}
           <nav className="hidden lg:flex items-center justify-center gap-3.5 xl:gap-5 2xl:gap-7 text-[11px] xl:text-xs font-medium text-neutral-500 min-w-0">
             <button
               onClick={() => onSelectNavTab('home')}
@@ -104,7 +104,7 @@ export const SurplusHeader: React.FC<SurplusHeaderProps> = ({
                   : 'border-transparent hover:text-black'
               }`}
             >
-              ZERO WASTE App
+              Zerowastz App
             </button>
 
             <button

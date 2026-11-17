@@ -135,7 +135,7 @@ const JOURNEY_DATA = {
       {
         step: '03',
         title: 'Deploy Live Station Tracking',
-        desc: 'Use the Zero waste by Supritamone dashboard to track batch weights, shelf-life countdowns, and receive instant recipe matches.',
+        desc: 'Use the Zerowastz - By Supritamone dashboard to track batch weights, shelf-life countdowns, and receive instant recipe matches.',
       },
       {
         step: '04',
@@ -226,57 +226,57 @@ const DEMO_SCENARIOS: Record<
 
 const FAQ_ITEMS = [
   {
-    question: 'What exactly is the ZERO WASTE app?',
+    question: 'What exactly is the Zerowastz app?',
     answer:
-      'The ZERO WASTE app by Supritamone is an all-in-one digital learning platform and kitchen management tool designed specifically for chefs, kitchen teams, and F&B managers. It provides an ingredient byproduct catalogue, zero-waste recipes, structured mini-courses, and practical templates to eliminate commercial kitchen food waste.',
+      'Zerowastz - By Supritamone is The Zero-Waste Culinary Academy — an all-in-one digital learning platform and kitchen management tool designed specifically for chefs, kitchen teams, and F&B managers. It provides an ingredient byproduct catalogue, zero-waste recipes, structured mini-courses, and practical templates to eliminate commercial kitchen food waste.',
   },
   {
-    question: 'What is inside ZERO WASTE?',
+    question: 'What is inside Zerowastz?',
     answer:
-      'Inside the Academy you get 12 structured diploma sections (24 video chapters totaling 26 hours of study), a searchable 500-item byproduct and recipe library, live commercial waste calculators, printable kitchen SOP posters, and community mentor discussions.',
+      'Inside Zerowastz you get 12 structured diploma sections (24 video chapters totaling 26 hours of study), a searchable 500-item byproduct and recipe library, live commercial waste calculators, printable kitchen SOP posters, and community mentor discussions.',
   },
   {
-    question: 'Who is ZERO WASTE for?',
+    question: 'Who is Zerowastz for?',
     answer:
-      'ZERO WASTE is engineered for hospitality professionals of all levels: Head Chefs, Sous Chefs, Chef de Parties, F&B Directors, hotel culinary brigades, resort operations, catering managers, culinary educators, and independent restaurateurs looking to protect profit margins.',
+      'Zerowastz is engineered for hospitality professionals of all levels: Head Chefs, Sous Chefs, Chef de Parties, F&B Directors, hotel culinary brigades, resort operations, catering managers, culinary educators, and independent restaurateurs looking to protect profit margins.',
   },
   {
-    question: 'Why should I join ZERO WASTE?',
+    question: 'Why should I join Zerowastz?',
     answer:
       'Food waste is the single largest controllable variable cost in commercial hospitality, accounting for 6% to 9% of total food spend. Joining gives your culinary brigade the practical systems to eliminate up to 50% of prep trimmings and buffet waste—directly boosting your bottom line and staff morale.',
   },
   {
-    question: 'Is ZERO WASTE useful for every commercial kitchen?',
+    question: 'Is Zerowastz useful for every commercial kitchen?',
     answer:
       'Yes. From Michelin-starred fine dining and boutique farm-to-table bistros to high-volume 5-star hotel buffets and catering operations, the root-to-leaf techniques, storage SOPs, and inventory alert tools are universally applicable.',
   },
   {
-    question: 'Is a team plan available on ZERO WASTE?',
+    question: 'Is a team plan available on Zerowastz?',
     answer:
       'Yes! Our Team Plan is designed for kitchen brigades with 5 or more chefs at $79 per chef/year, featuring multi-user access, brigade progress tracking, engagement analytics, and shared kitchen recipe binders.',
   },
   {
-    question: 'How can chefs use the ZERO WASTE app?',
+    question: 'How can chefs use the Zerowastz app?',
     answer:
       'Chefs can use it directly on the line via smartphone, tablet, or kitchen monitor: search byproducts in seconds (e.g. what to do with 10kg of leek greens or cauliflower leaves), watch structured studio video lessons before prep, log station stock, and audit daily waste weights.',
   },
   {
-    question: 'Why is the ZERO WASTE app not free?',
+    question: 'Why is the Zerowastz app not free?',
     answer:
       'We offer a 3-Day Free Trial with 100% full brigade access so every kitchen can test the systems before committing. The platform contains years of proprietary culinary research, commercial audits, and recipes tested across luxury hotel groups. Annual subscriptions cost less than a single bin of discarded kitchen trimmings.',
   },
   {
-    question: 'Will the ZERO WASTE app help me to reduce food waste?',
+    question: 'Will the Zerowastz app help me to reduce food waste?',
     answer:
       'Yes, verified client kitchens audited by our culinary specialists report an average 34% to 50% reduction in avoidable prep and buffet waste within the first two months of consistent use.',
   },
   {
-    question: 'Is the ZERO WASTE app useful for catering operations?',
+    question: 'Is the Zerowastz app useful for catering operations?',
     answer:
       'Absolutely. High-volume catering frequently encounters unpredictable guest turnouts and overproduction. The app provides exact batch planning guides, secondary transformation recipes, and cold-chain donation dispatch protocols.',
   },
   {
-    question: 'Can we use the ZERO WASTE app as a training platform for our chefs?',
+    question: 'Can we use the Zerowastz app as a training platform for our chefs?',
     answer:
       'Yes. Leading hotel chains and culinary schools use our structured 26-hour Academy modules and certification exam to onboard junior cooks, upskill prep stations, and certify culinary teams in zero-waste operational excellence.',
   },
@@ -476,7 +476,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                   <div className="rounded-[2rem] bg-white overflow-hidden p-4 space-y-4 text-xs">
                     <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
                       <span className="font-bold text-black text-xs tracking-tight font-heading">
-                        ZERO WASTE
+                        Zerowastz <span className="text-[10px] font-medium text-neutral-500">by Supritamone</span>
                       </span>
                       <span className="text-[10px] text-neutral-400 font-mono">12:58</span>
                     </div>
@@ -709,7 +709,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
             </h2>
             <p className="text-base text-neutral-600 leading-relaxed">
               Understand the root cause of kitchen waste, what we can do to shift it, how to
-              systematically fix it, and how Zero waste by Supritamone delivers the complete
+              systematically fix it, and how Zerowastz - By Supritamone delivers the complete
               operational solution.
             </p>
           </div>
@@ -1379,9 +1379,59 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
         </div>
       </section>
 
-      {/* SECTION 7: ABOUT DR. SUPRITAM BASU */}
+      {/* SECTION 7: ABOUT ZEROWASTZ & DR. SUPRITAM BASU */}
       <section className="py-16 sm:py-20 bg-[#fafbfc] border-t border-neutral-200" id="about">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
+          {/* Brand Narrative: About ZeroWastz */}
+          <div className="bg-neutral-950 text-white rounded-3xl border border-neutral-800 p-6 sm:p-10 lg:p-12 space-y-6 shadow-xl">
+            <div className="space-y-2 max-w-3xl">
+              <p className="text-[11px] font-mono font-bold uppercase tracking-widest text-emerald-400">
+                About The Brand · Zerowastz - By Supritamone
+              </p>
+              <h2 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold font-heading tracking-tight text-white">
+                ZeroWastz
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 text-xs sm:text-sm text-neutral-300 leading-relaxed">
+              <div className="lg:col-span-6 space-y-4">
+                <p>
+                  ZeroWastz was born in the quiet hours after service—when the dining room lights dim, the pass
+                  is wiped clean, and a chef stands face-to-face with what the kitchen leaves behind.
+                </p>
+                <p>
+                  For decades, culinary excellence was measured almost entirely by what landed on the plate. Yet
+                  behind the scenes of even the finest kitchens, the real story was unfolding at the prep
+                  counter and the bin: trimmings discarded out of habit, over-prepped trays written off as
+                  &ldquo;the cost of doing business,&rdquo; and ancestral techniques of preservation quietly
+                  forgotten in the rush of modern hospitality.
+                </p>
+                <p className="text-white font-semibold text-sm sm:text-base">
+                  Watching that daily disconnect sparked a simple, urgent realization: a kitchen cannot call
+                  itself truly excellent if its brilliance relies on waste.
+                </p>
+              </div>
+
+              <div className="lg:col-span-6 space-y-4">
+                <p>
+                  Rooted in ancient culinary wisdom—where every root, stem, peel, and bone was honored as
+                  sacred nourishment—and engineered with modern operational precision, ZeroWastz was created to
+                  bridge tradition and measurable kitchen discipline. The deliberate Z at the end stands for
+                  more than a modern signature; it represents closing the loop—from sourcing and portion control
+                  to circular menu design and zero-deficit leadership.
+                </p>
+                <p className="text-emerald-300 font-medium">
+                  Today, ZeroWastz — The Zero-Waste Culinary Academy exists to turn conscious cooking from an
+                  abstract ideal into a repeatable daily standard. It equips chefs, culinary students, and
+                  hospitality leaders with the practical workflows, yield-mastery systems, and mindset required
+                  to protect both profit margins and the planet—proving that the future of great food is not
+                  about using more, but wasting nothing.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Founder Spotlight: Dr. Chef Supritam Basu */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
             <div className="lg:col-span-6 space-y-4">
               <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-700">
@@ -1400,7 +1450,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                 <p>
                   An international medalist, published author (<em>Does the Mind Shape Reality?</em> &amp;{' '}
                   <em>Forgotten Flavours of Bengal</em>), and NISM-certified capital market professional, Dr. Basu
-                  founded <strong>Zero Waste Academy</strong> on three pillars:{' '}
+                  founded <strong>ZeroWastz</strong> on three pillars:{' '}
                   <em>Innovation with Integrity, Mentorship with Meaning,</em> and{' '}
                   <em>Preservation with Passion</em>.
                 </p>
@@ -1410,7 +1460,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                   onClick={() => setShowAboutModal(true)}
                   className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold text-xs uppercase tracking-wider transition-all shadow-sm active:scale-95 cursor-pointer"
                 >
-                  <span>Read Full Biography — About Dr. Supritam Basu</span>
+                  <span>Read Full Story — About ZeroWastz &amp; Dr. Basu</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -1420,15 +1470,15 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
               <div
                 onClick={() => setShowAboutModal(true)}
                 className="relative rounded-2xl overflow-hidden border border-neutral-200 shadow-lg max-w-md w-full bg-white cursor-pointer group"
-                title="Click to read Dr. Chef Supritam Basu's full story"
+                title="Click to read about ZeroWastz & Dr. Chef Supritam Basu"
               >
                 <img
                   src="/assets/aistudio/Untitled_design_0fea8cc4.png"
-                  alt="Dr. Chef Supritam Basu — Founder, Zero Waste Academy"
+                  alt="Dr. Chef Supritam Basu — Founder, ZeroWastz"
                   className="w-full h-96 object-cover object-top group-hover:scale-[1.02] transition-transform duration-300"
                 />
                 <div className="absolute bottom-3 left-3 bg-black/85 backdrop-blur-xs text-white px-3.5 py-1.5 rounded-lg text-xs font-mono">
-                  Dr. Chef Supritam Basu • Zero Waste Academy
+                  Dr. Chef Supritam Basu · Zerowastz
                 </div>
               </div>
             </div>
@@ -1510,7 +1560,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
               Take the first step towards food waste prevention. Get in touch today.
             </h3>
             <p className="text-xs text-neutral-400">
-              Zero waste by Supritamone • Custom brigade training and kitchen audits worldwide.
+              Zerowastz - By Supritamone • Custom brigade training and kitchen audits worldwide.
             </p>
           </div>
           <button
@@ -1525,7 +1575,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
         </div>
       </section>
 
-      {/* SECTION 10: ACCREDITED FOOTER (image_cfcead17.png) */}
+      {/* SECTION 10: ACCREDITED FOOTER */}
       <footer className="bg-white border-t border-neutral-200 pt-10 pb-8 text-neutral-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-8 pb-6 border-b border-neutral-100 items-start">
@@ -1533,15 +1583,15 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
               <button
                 onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
                 className="flex items-center space-x-3 text-left cursor-pointer focus:outline-none"
-                title="Back to top · Zero waste by Supritamone"
+                title="Back to top · Zerowastz - By Supritamone"
               >
                 <SupritamoneLogo size="md" />
                 <span className="border-l border-neutral-300 pl-3 text-xs font-semibold text-neutral-800">
-                  Zero waste by Supritamone
+                  The Zero-Waste Culinary Academy
                 </span>
               </button>
               <p className="text-xs text-neutral-500 max-w-sm leading-relaxed">
-                Zero waste by Supritamone • The culinary learning platform, byproduct catalogue, and live
+                Zerowastz - By Supritamone • The Zero-Waste Culinary Academy, byproduct catalogue, and live
                 inventory &amp; community alert suite for chefs.
               </p>
             </div>
@@ -1551,7 +1601,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                 onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
                 className="text-left hover:text-black cursor-pointer"
               >
-                ZERO WASTE App
+                Zerowastz App
               </button>
               <button
                 onClick={() => scrollToElement('problem-solution')}
@@ -1581,7 +1631,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                 onClick={() => setShowAboutModal(true)}
                 className="text-left hover:text-black font-semibold cursor-pointer"
               >
-                About Dr. Supritam Basu
+                About ZeroWastz
               </button>
               <button
                 onClick={() => {
@@ -1689,7 +1739,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
 
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-neutral-400">
             <span>
-              © {new Date().getFullYear()} Zero Waste Academy by Dr. Supritam Basu (Supritamone). All rights reserved.
+              © {new Date().getFullYear()} Zerowastz - By Supritamone (Dr. Chef Supritam Basu). All rights reserved.
             </span>
             <span className="font-mono">
               Contact:{' '}
@@ -1708,7 +1758,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
             <div className="px-5 py-4 bg-black text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Mail className="w-4 h-4 text-emerald-400" />
-                <h3 className="font-bold text-sm">Contact Supritamone Academy</h3>
+                <h3 className="font-bold text-sm">Contact Zerowastz - By Supritamone</h3>
               </div>
               <button
                 onClick={() => setShowContactModal(false)}

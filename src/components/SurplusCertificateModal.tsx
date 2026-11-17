@@ -169,7 +169,7 @@ export const SurplusCertificateModal: React.FC<SurplusCertificateModalProps> = (
                 Official Zero Waste Certificate of Completion
               </h3>
               <p className="text-[11px] text-slate-400">
-                Supritamone Academy · 26.0 Hours ISO 9001:2015 Certified Mastery Curriculum
+                Zerowastz - By Supritamone · 26.0 Hours ISO 9001:2015 Certified Mastery Curriculum
               </p>
             </div>
           </div>

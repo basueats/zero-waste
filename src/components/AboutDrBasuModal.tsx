@@ -7,7 +7,6 @@ import {
   Compass,
   Globe2,
   Mail,
-  Sparkles,
   TrendingUp,
 } from 'lucide-react';
 
@@ -70,23 +69,66 @@ export const AboutDrBasuModal: React.FC<AboutDrBasuModalProps> = ({ isOpen, onCl
         <div className="px-4 sm:px-6 py-4 bg-black text-white flex items-center justify-between gap-3 shrink-0">
           <div>
             <p className="text-[10px] font-mono uppercase tracking-widest text-emerald-400">
-              Founder &amp; Dean · Zero Waste Academy
+              Zerowastz - By Supritamone · The Zero-Waste Culinary Academy
             </p>
             <h2 className="text-sm sm:text-lg font-extrabold tracking-tight mt-0.5">
-              About Dr. Chef Supritam Basu
+              About ZeroWastz &amp; Founder Dr. Chef Supritam Basu
             </h2>
           </div>
           <button
             onClick={onClose}
             className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-            aria-label="Close About Dr. Supritam Basu dialog"
+            aria-label="Close About ZeroWastz dialog"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Scrollable Biography Body */}
+        {/* Scrollable Biography & Brand Body */}
         <div className="p-4 sm:p-7 overflow-y-auto space-y-6 text-xs sm:text-[13px] text-neutral-700 leading-relaxed">
+          {/* Brand Narrative: About ZeroWastz */}
+          <section className="rounded-2xl border border-neutral-200 bg-neutral-950 text-neutral-200 p-5 sm:p-7 space-y-4">
+            <div className="space-y-1 border-b border-neutral-800 pb-3">
+              <p className="text-[10px] font-mono uppercase tracking-widest text-emerald-400">
+                Brand Philosophy · Zerowastz - By Supritamone
+              </p>
+              <h3 className="text-xl sm:text-2xl font-extrabold font-heading text-white tracking-tight">
+                ZeroWastz
+              </h3>
+            </div>
+            <div className="space-y-3 text-xs sm:text-[13px] text-neutral-300 leading-relaxed">
+              <p>
+                ZeroWastz was born in the quiet hours after service—when the dining room lights dim, the pass is
+                wiped clean, and a chef stands face-to-face with what the kitchen leaves behind.
+              </p>
+              <p>
+                For decades, culinary excellence was measured almost entirely by what landed on the plate. Yet
+                behind the scenes of even the finest kitchens, the real story was unfolding at the prep counter
+                and the bin: trimmings discarded out of habit, over-prepped trays written off as &ldquo;the cost
+                of doing business,&rdquo; and ancestral techniques of preservation quietly forgotten in the rush
+                of modern hospitality.
+              </p>
+              <p className="text-white font-semibold">
+                Watching that daily disconnect sparked a simple, urgent realization: a kitchen cannot call itself
+                truly excellent if its brilliance relies on waste.
+              </p>
+              <p>
+                Rooted in ancient culinary wisdom—where every root, stem, peel, and bone was honored as sacred
+                nourishment—and engineered with modern operational precision, ZeroWastz was created to bridge
+                tradition and measurable kitchen discipline. The deliberate Z at the end stands for more than a
+                modern signature; it represents closing the loop—from sourcing and portion control to circular
+                menu design and zero-deficit leadership.
+              </p>
+              <p className="text-emerald-300 font-medium">
+                Today, ZeroWastz — The Zero-Waste Culinary Academy exists to turn conscious cooking from an
+                abstract ideal into a repeatable daily standard. It equips chefs, culinary students, and
+                hospitality leaders with the practical workflows, yield-mastery systems, and mindset required
+                to protect both profit margins and the planet—proving that the future of great food is not
+                about using more, but wasting nothing.
+              </p>
+            </div>
+          </section>
+
           {/* Hero Profile Row */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-5 sm:gap-7 items-center bg-neutral-50 border border-neutral-200 rounded-2xl p-4 sm:p-6">
             <div className="md:col-span-4 flex justify-center">
@@ -106,7 +148,7 @@ export const AboutDrBasuModal: React.FC<AboutDrBasuModalProps> = ({ isOpen, onCl
                   14+ Years 5-Star Hospitality
                 </span>
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-                  Author · Culinary Mentor
+                  Founder of ZeroWastz · Author · Culinary Mentor
                 </span>
               </div>
 
@@ -114,7 +156,7 @@ export const AboutDrBasuModal: React.FC<AboutDrBasuModalProps> = ({ isOpen, onCl
                 Where Philosophy Meets Food, and Fire Meets Mindfulness
               </h3>
 
-              <blockquote className="border-l-2 border-black pl-3 italic text-neutral-600 text-xs sm:text-sm">
+              <blockquote className="rounded-xl bg-white border border-neutral-200 px-3.5 py-2.5 italic text-neutral-600 text-xs sm:text-sm">
                 &ldquo;True change begins in the unseen corners of the mind, where questions rise louder than
                 answers.&rdquo;
               </blockquote>
@@ -195,7 +237,7 @@ export const AboutDrBasuModal: React.FC<AboutDrBasuModalProps> = ({ isOpen, onCl
               <ul className="space-y-1.5">
                 {ACCOLADES.map((item) => (
                   <li key={item} className="flex items-start gap-2 text-xs text-neutral-700">
-                    <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                    <Award className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
                     <span>{item}</span>
                   </li>
                 ))}
@@ -203,15 +245,15 @@ export const AboutDrBasuModal: React.FC<AboutDrBasuModalProps> = ({ isOpen, onCl
             </div>
           </div>
 
-          {/* Three Pillars of Zero Waste Academy */}
+          {/* Three Pillars of ZeroWastz */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-neutral-900 font-extrabold text-xs uppercase tracking-wider">
               <Compass className="w-4 h-4 text-emerald-600" />
-              <span>The Vision Behind Zero Waste Academy</span>
+              <span>The Vision Behind ZeroWastz — The Zero-Waste Culinary Academy</span>
             </div>
             <p>
               Synthesizing 14+ years across global luxury kitchens with 252 issues of{' '}
-              <em>The Zero Waste Kitchen</em>, Dr. Supritam Basu founded Zero Waste Academy around three enduring
+              <em>The Zero Waste Kitchen</em>, Dr. Supritam Basu founded <strong>ZeroWastz</strong> around three enduring
               pillars—transforming kitchens from high-stress service units into conscious learning ecosystems:
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

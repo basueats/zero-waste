@@ -335,7 +335,7 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
                 className="flex items-center text-left focus:outline-none cursor-pointer shrink-0"
-                title="Supritamone Zero Waste Academy"
+                title="Zerowastz - By Supritamone"
               >
                 <SupritamoneLogo size="md" />
               </button>
@@ -346,7 +346,7 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
                 onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
                 className="h-16 inline-flex items-center border-b-2 border-black text-black font-bold cursor-pointer whitespace-nowrap"
               >
-                ZERO WASTE App
+                Zerowastz App
               </button>
               <button
                 onClick={() => scrollToElement('problem-solution')}
@@ -428,7 +428,7 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
               }}
               className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-black bg-neutral-100 cursor-pointer"
             >
-              ZERO WASTE App
+              Zerowastz App
             </button>
             <button
               onClick={() => scrollToElement('problem-solution')}
@@ -535,7 +535,7 @@ export const AccessGateScreen: React.FC<AccessGateScreenProps> = ({
                 <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
                 <div>
                   <h2 className="font-bold text-sm">
-                    {showMemberForgot ? 'Reset Password · Supritamone Academy' : 'Member Sign-In · Supritamone Academy'}
+                    {showMemberForgot ? 'Reset Password · Zerowastz - By Supritamone' : 'Member Sign-In · Zerowastz - By Supritamone'}
                   </h2>
                   <p className="text-[11px] text-neutral-400">
                     {showMemberForgot
