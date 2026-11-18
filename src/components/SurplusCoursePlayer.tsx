@@ -2246,7 +2246,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   {/* Rating & Video Timing row (Image 2: second part removed, exact total video timing shown) */}
                   <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 mt-3">
                     <div className="flex items-center gap-1 font-bold text-amber-700">
-                      <span>4.8</span>
+                      <span>5.0</span>
                       <div className="flex text-amber-500">
                         <Star className="w-3.5 h-3.5 fill-current" />
                         <Star className="w-3.5 h-3.5 fill-current" />
@@ -2254,7 +2254,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                         <Star className="w-3.5 h-3.5 fill-current" />
                         <Star className="w-3.5 h-3.5 fill-current" />
                       </div>
-                      <span className="text-slate-500 font-normal underline">(1,420 ratings)</span>
+                      <span className="text-slate-500 font-normal underline">(6 ratings)</span>
                     </div>
                     <span>·</span>
                     <span className="font-semibold text-slate-800">{courseTotalVideoLabel} Total</span>
@@ -2453,7 +2453,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                       <div className="flex items-center gap-3 text-xs text-slate-500 pt-1">
                         <span className="flex items-center gap-1 font-semibold text-slate-800">
                           <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                          4.8 Instructor Rating
+                          5.0 Instructor Rating
                         </span>
                         <span>·</span>
                         <span>1 Course</span>
@@ -2901,7 +2901,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
               <div className="space-y-4 max-w-3xl text-xs sm:text-sm text-slate-700">
                 <div className="flex items-center gap-4 p-4 rounded-xl bg-amber-50 border border-amber-200">
                   <div className="text-center">
-                    <span className="text-3xl font-black text-amber-900 block">4.8</span>
+                    <span className="text-3xl font-black text-amber-900 block">5.0</span>
                     <div className="flex text-amber-500">
                       <Star className="w-3 h-3 fill-current" />
                       <Star className="w-3 h-3 fill-current" />
@@ -2911,7 +2911,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                     </div>
                   </div>
                   <p className="text-xs text-amber-950">
-                    Course rating based on 1,420 culinary students, commis chefs, and restaurant operators.
+                    Course rating based on 6 ratings from culinary students, commis chefs, and restaurant operators.
                   </p>
                 </div>
               </div>
