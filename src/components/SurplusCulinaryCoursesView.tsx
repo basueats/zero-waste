@@ -22,7 +22,7 @@ interface SurplusCulinaryCoursesViewProps {
 export const SurplusCulinaryCoursesView: React.FC<SurplusCulinaryCoursesViewProps> = ({
   onBackToZeroWaste,
 }) => {
-  const portalUrl = 'https://foundations-of-food.ai.studio/';
+  const portalUrl = 'https://culinary.zerowastz.co/';
 
   const culinaryModules = [
     {
@@ -131,7 +131,7 @@ export const SurplusCulinaryCoursesView: React.FC<SurplusCulinaryCoursesViewProp
                 rel="noopener noreferrer"
                 className="underline hover:text-emerald-900 font-semibold"
               >
-                https://foundations-of-food.ai.studio/
+                https://culinary.zerowastz.co/
               </a>
             </p>
           </div>
@@ -156,7 +156,7 @@ export const SurplusCulinaryCoursesView: React.FC<SurplusCulinaryCoursesViewProp
               Curated Culinary Curriculum
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Integrated foundational and advanced brigade coursework on foundations-of-food.ai.studio
+              Integrated foundational and advanced brigade coursework on culinary.zerowastz.co
             </p>
           </div>
           <a
@@ -220,7 +220,7 @@ export const SurplusCulinaryCoursesView: React.FC<SurplusCulinaryCoursesViewProp
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="font-bold">Live Portal Preview:</span>
-            <span className="text-slate-400 font-mono text-[11px]">https://foundations-of-food.ai.studio/</span>
+            <span className="text-slate-400 font-mono text-[11px]">https://culinary.zerowastz.co/</span>
           </div>
           <a
             href={portalUrl}

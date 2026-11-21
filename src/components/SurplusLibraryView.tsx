@@ -388,11 +388,11 @@ Zerowastz - By Supritamone © ${new Date().getFullYear()} · Dr. Chef Supritam B
                 Zero-Waste Recipes ({surplusRecipes.length})
               </button>
               <a
-                href="https://foundations-of-food.ai.studio/"
+                href="https://culinary.zerowastz.co/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-3.5 py-2 text-xs font-bold rounded-md text-emerald-700 hover:bg-emerald-50 transition-all flex items-center gap-1.5 border border-transparent hover:border-emerald-200 cursor-pointer"
-                title="Open Foundations of Food - Culinary Courses in new window"
+                title="Open Culinary Courses (https://culinary.zerowastz.co/) in new window"
               >
                 <GraduationCap className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Culinary Courses</span>

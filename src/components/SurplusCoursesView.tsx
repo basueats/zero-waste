@@ -119,7 +119,7 @@ export const SurplusCoursesView: React.FC<SurplusCoursesViewProps> = ({
           </div>
         </div>
         <a
-          href="https://foundations-of-food.ai.studio/"
+          href="https://culinary.zerowastz.co/"
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors shrink-0 shadow-xs"

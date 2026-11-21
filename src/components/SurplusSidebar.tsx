@@ -109,8 +109,14 @@ export const SurplusSidebar: React.FC<SurplusSidebarProps> = ({
             </span>
           </button>
 
-          <div
-            onClick={() => handleNavClick('culinary-courses')}
+          <a
+            href="https://culinary.zerowastz.co/"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => {
+              if (onCloseDrawer) onCloseDrawer();
+            }}
+            title="Open Culinary Courses (https://culinary.zerowastz.co/)"
             className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer group ${
               activeNavTab === 'culinary-courses'
                 ? 'bg-emerald-600 text-white'
@@ -121,19 +127,12 @@ export const SurplusSidebar: React.FC<SurplusSidebarProps> = ({
               <GraduationCap className={`w-4 h-4 ${activeNavTab === 'culinary-courses' ? 'text-white' : 'text-emerald-600'}`} />
               <span>Culinary Courses</span>
             </div>
-            <a
-              href="https://foundations-of-food.ai.studio/"
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              title="Open Foundations of Food in new tab"
-              className={`p-0.5 transition-colors ${
-                activeNavTab === 'culinary-courses' ? 'text-white/80 hover:text-white' : 'text-slate-400 hover:text-emerald-600'
+            <ExternalLink
+              className={`w-3.5 h-3.5 transition-colors ${
+                activeNavTab === 'culinary-courses' ? 'text-white/80 group-hover:text-white' : 'text-slate-400 group-hover:text-emerald-600'
               }`}
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          </div>
+            />
+          </a>
 
           <button
             onClick={() => handleNavClick('calculator')}

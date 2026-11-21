@@ -539,11 +539,11 @@ export const SurplusMobilePreview: React.FC<SurplusMobilePreviewProps> = ({
               <span className="text-[8px] mt-0.5">Zero Waste</span>
             </button>
             <a 
-              href="https://foundations-of-food.ai.studio/"
+              href="https://culinary.zerowastz.co/"
               target="_blank"
               rel="noopener noreferrer"
               className="p-1.5 flex flex-col items-center text-emerald-600 hover:text-emerald-700"
-              title="Culinary Courses (Foundations of Food)"
+              title="Culinary Courses (https://culinary.zerowastz.co/)"
             >
               <GraduationCap className="w-4 h-4" />
               <span className="text-[8px] mt-0.5">Culinary</span>
