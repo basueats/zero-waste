@@ -118,13 +118,13 @@ export interface QuickWinGuide {
 
 // -------------------------------------------------------------
 // ADVANCED LEVEL COURSES SYNTHESIZED FROM 252 NEWSLETTERS
-// Author: Dr. Chef Supritam Basu, PhD, CEC
+// Author: Dr. Chef Supritam Basu, PhD
 // -------------------------------------------------------------
 export const surplusCourses: SurplusCourse[] = [
   {
     id: 'food-waste-prevention-chefs',
     title: 'The Zero Waste Kitchen: Master Chef Diploma (Issues #1–#252)',
-    subtitle: 'The comprehensive 12-Section (24-Chapter) master curriculum synthesized from all 252 issues of "The Zero Waste Kitchen" publication series by Dr. Chef Supritam Basu, PhD, CEC. Covers biochemical waste auditing, cellular root-to-stem butchery, collagen scrap extraction, wild scrap fermentation, and circular menu engineering.',
+    subtitle: 'The comprehensive 12-Section (24-Chapter) master curriculum synthesized from all 252 issues of "The Zero Waste Kitchen" publication series by Dr. Chef Supritam Basu, PhD. Covers biochemical waste auditing, cellular root-to-stem butchery, collagen scrap extraction, wild scrap fermentation, and circular menu engineering.',
     badge: 'Executive Master Diploma',
     duration: '26h 00m · 24 Chapters',
     lessonCount: 24,
@@ -132,7 +132,7 @@ export const surplusCourses: SurplusCourse[] = [
     coverImage: heroSustainableKitchenImg,
     isMasterCourse: true,
     instructor: 'Dr. Chef Supritam Basu',
-    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, CEC',
+    instructorCredentials: 'PhD in Culinary Science & Food Sustainability',
     newsletterRange: 'Issues #1 – #252',
     lessons: [
       {
@@ -255,7 +255,7 @@ export const surplusCourses: SurplusCourse[] = [
     progressPercent: 25,
     coverImage: rootToStemPrepImg,
     instructor: 'Dr. Chef Supritam Basu',
-    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, CEC',
+    instructorCredentials: 'PhD in Culinary Science & Food Sustainability',
     newsletterRange: 'Issues #15 – #45',
     lessons: [
       {
@@ -333,7 +333,7 @@ export const surplusCourses: SurplusCourse[] = [
     progressPercent: 0,
     coverImage: artisanBreadRicottaImg,
     instructor: 'Dr. Chef Supritam Basu',
-    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, CEC',
+    instructorCredentials: 'PhD in Culinary Science & Food Sustainability',
     newsletterRange: 'Issues #60 – #85',
     lessons: [
       {
@@ -393,7 +393,7 @@ export const surplusCourses: SurplusCourse[] = [
     progressPercent: 0,
     coverImage: fermentationCrockImg,
     instructor: 'Dr. Chef Supritam Basu',
-    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, CEC',
+    instructorCredentials: 'PhD in Culinary Science & Food Sustainability',
     newsletterRange: 'Issues #1 – #30',
     lessons: [
       {
@@ -471,7 +471,7 @@ export const surplusCourses: SurplusCourse[] = [
     progressPercent: 0,
     coverImage: boneBrothPotImg,
     instructor: 'Dr. Chef Supritam Basu',
-    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, CEC',
+    instructorCredentials: 'PhD in Culinary Science & Food Sustainability',
     newsletterRange: 'Issues #90 – #140',
     lessons: [
       {
@@ -540,7 +540,7 @@ export const surplusCourses: SurplusCourse[] = [
     progressPercent: 0,
     coverImage: heroSustainableKitchenImg,
     instructor: 'Dr. Chef Supritam Basu',
-    instructorCredentials: 'PhD in Culinary Science & Food Sustainability, CEC',
+    instructorCredentials: 'PhD in Culinary Science & Food Sustainability',
     newsletterRange: 'Issues #200 – #235',
     lessons: [
       {
@@ -609,7 +609,7 @@ export const communityQuestions: CommunityQuestion[] = [
     answeredByDrBasu: true,
     reply: {
       author: 'Dr. Chef Supritam Basu',
-      role: 'Dean of Sustainable Gastronomy · Zero Waste Academy',
+      role: 'Founder · Zerowastz - By Supritamone',
       avatar: 'SB',
       date: '1 day ago',
       text: 'Marcus, excellent question! Never apply heat. Pulse the tomato trimmings with exactly 1.5% sea salt for 5 seconds to rupture cell walls without pulverizing seeds, then hang overnight in a double cheesecloth lined colander inside the walk-in cooler at 3°C. You will yield 65% crystal-clear tomato consommé rich in natural glutamic acid. Sell it as clarified cold tomato water for crudos or signature craft cocktails. Dehydrate the remaining pulp at 60°C and blitz with flaky salt for Umami Tomato Finishing Dust!'
@@ -627,7 +627,7 @@ export const communityQuestions: CommunityQuestion[] = [
     answeredByDrBasu: true,
     reply: {
       author: 'Dr. Chef Supritam Basu',
-      role: 'Dean of Sustainable Gastronomy · Zero Waste Academy',
+      role: 'Founder · Zerowastz - By Supritamone',
       avatar: 'SB',
       date: '3 days ago',
       text: 'Keep the temperature strictly between 55°C and 60°C in an immersion water bath. If drafts cause butterfat weeping, incorporate 10% hot whole milk (80°C) and shear with an immersion stick blender for 10 seconds. The retrograded starches from the laminated dough will instantly re-stabilize the emulsion.'
@@ -645,7 +645,7 @@ export const communityQuestions: CommunityQuestion[] = [
     answeredByDrBasu: true,
     reply: {
       author: 'Dr. Chef Supritam Basu',
-      role: 'Dean of Sustainable Gastronomy · Zero Waste Academy',
+      role: 'Founder · Zerowastz - By Supritamone',
       avatar: 'SB',
       date: '5 days ago',
       text: 'Replace every full-size 1/1 GN stainless steel deep hotel pan on hot holding lines with shallow 1/2 and 1/3 GN inserts. To guests, the display looks completely full and abundant, but you reduce food exposure volume by 60%, drastically preventing dried-out eggs and withered meats.'

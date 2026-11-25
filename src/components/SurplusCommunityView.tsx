@@ -74,7 +74,7 @@ export const SurplusCommunityView: React.FC<SurplusCommunityViewProps> = () => {
     const userQ: CommunityQuestion = {
       id: `q-${Date.now()}`,
       authorName: 'Chef (You)',
-      authorRole: 'Executive Chef · Sustainable Kitchen Member',
+      authorRole: 'Chef · Sustainable Kitchen Member',
       authorAvatar: 'ME',
       datePosted: 'Just now',
       category: newQuestionCategory,
@@ -83,7 +83,7 @@ export const SurplusCommunityView: React.FC<SurplusCommunityViewProps> = () => {
       answeredByDrBasu: true,
       reply: {
         author: 'Dr. Chef Supritam Basu',
-        role: 'Founder & Dean · Zerowastz - By Supritamone',
+        role: 'Founder · Zerowastz - By Supritamone',
         avatar: 'SB',
         date: 'Just now',
         text: `Thanks for posting! For ${newQuestionCategory.toLowerCase()}, the most effective step is immediately separating clean trimmings into tare-weighted containers at the prep station. Don't toss them into general compost; repurpose them into stocks, dehydrated savory seasoning powders, or house-made scrap vinegars.`

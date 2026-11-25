@@ -246,16 +246,9 @@ export default function App() {
   const resolvedCertificateName = React.useMemo(() => {
     const trimmed = learnerAccount.chosenName.trim();
     if (trimmed) return trimmed;
-    return deriveNameFromEmail(learnerAccount.email);
-  }, [learnerAccount]);
-
-  const todayFormatted = React.useMemo(() => {
-    return new Date().toLocaleDateString('en-US', {
-      month: '2-digit',
-      day: '2-digit',
-      year: 'numeric',
-    });
-  }, []);
+    if (authUser?.name?.trim()) return authUser.name.trim();
+    return deriveNameFromEmail(authUser?.email || learnerAccount.email);
+  }, [learnerAccount, authUser]);
 
   // Account Sign-In Modal draft state
   const [showAccountModal, setShowAccountModal] = React.useState<boolean>(false);
@@ -267,6 +260,7 @@ export default function App() {
 
   // Modals
   const [showCertifyModal, setShowCertifyModal] = React.useState<boolean>(false);
+  const [showCertPreviewOnly, setShowCertPreviewOnly] = React.useState<boolean>(false);
   const [showCertLockedModal, setShowCertLockedModal] = React.useState<boolean>(false);
   const [showAboutModal, setShowAboutModal] = React.useState<boolean>(false);
 
@@ -302,13 +296,17 @@ export default function App() {
   });
 
   const handleOpenCertificate = React.useCallback(() => {
-    if (examStatus.isUnlocked) {
+    const isAdminUser =
+      authUser?.role === 'admin' ||
+      authUser?.email?.toLowerCase() === 'supritamone@gmail.com';
+    if (examStatus.isUnlocked || isAdminUser) {
       setShowCertLockedModal(false);
+      setShowCertPreviewOnly(false);
       setShowCertifyModal(true);
     } else {
       setShowCertLockedModal(true);
     }
-  }, [examStatus.isUnlocked]);
+  }, [examStatus.isUnlocked, authUser]);
 
   const applyAuthenticatedSession = React.useCallback(
     (user: AuthenticatedSessionUser, token: string, resetTab = true, rememberMe?: boolean) => {
@@ -1148,14 +1146,17 @@ export default function App() {
         </>
       )}
 
-      {/* MODAL 1: Official Supritamone Academy Zero Waste Certificate Generator (Lazy-loaded when opened) */}
+      {/* MODAL 1: Official Zero Wastz Certificate Generator (Lazy-loaded when opened) */}
       {showCertifyModal && (
         <Suspense fallback={null}>
           <SurplusCertificateModal
             isOpen={showCertifyModal}
-            onClose={() => setShowCertifyModal(false)}
+            onClose={() => {
+              setShowCertifyModal(false);
+              setShowCertPreviewOnly(false);
+            }}
             defaultLearnerName={resolvedCertificateName}
-            completionDateDefault={todayFormatted}
+            isPreviewOnly={showCertPreviewOnly}
           />
         </Suspense>
       )}
@@ -1297,19 +1298,29 @@ export default function App() {
                 Your official <strong>Zerowastz - By Supritamone Certificate</strong> unlocks automatically once all {examStatus.totalQuizzes} section exams are completed with an overall total score of <strong>37% or higher</strong>.
               </p>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                 <button
                   onClick={() => setShowCertLockedModal(false)}
-                  className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-semibold hover:bg-slate-50 cursor-pointer"
+                  className="px-3.5 py-2 rounded-lg border border-slate-300 text-slate-700 font-semibold hover:bg-slate-50 cursor-pointer"
                 >
                   Close
                 </button>
                 <button
                   onClick={() => {
                     setShowCertLockedModal(false);
+                    setShowCertPreviewOnly(true);
+                    setShowCertifyModal(true);
+                  }}
+                  className="px-3.5 py-2 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold cursor-pointer"
+                >
+                  Preview Certificate
+                </button>
+                <button
+                  onClick={() => {
+                    setShowCertLockedModal(false);
                     setSelectedCourseId('food-waste-prevention-chefs');
                   }}
-                  className="px-5 py-2 rounded-lg bg-[#166534] hover:bg-[#14532d] text-white font-bold flex items-center gap-1.5 cursor-pointer"
+                  className="px-4 py-2 rounded-lg bg-[#166534] hover:bg-[#14532d] text-white font-bold flex items-center gap-1.5 cursor-pointer"
                 >
                   <Award className="w-3.5 h-3.5" />
                   <span>Open Course Exams</span>

@@ -1,5 +1,5 @@
 // 500 Comprehensive Zero-Waste Chef Recipes for Zero Waste Academy
-// Authored by Dr. Chef Supritam Basu, PhD, CEC
+// Authored by Dr. Chef Supritam Basu, PhD
 // Category-tailored professional recipes with genuine ingredients, methods, and chef tips
 
 import type { ZeroWasteRecipe } from './surplusData';

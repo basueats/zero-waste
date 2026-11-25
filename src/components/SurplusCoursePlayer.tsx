@@ -1189,7 +1189,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
         ].join('\n\n')
       : 'Chapter workbook included with Supritamone Academy enrollment.';
 
-    const content = `SUPRITAMONE ACADEMY · DR. CHEF SUPRITAM BASU, PhD, CEC\nThe Zero Waste Kitchen Course: Master Executive Diploma (26h 00m Curriculum)\nDocument: ${title}\nChapter: ${targetLecture.title} (${targetLecture.duration})\nQuality Standard: ISO 9001:2015 Verified Curriculum\nInstructor Support: supritam.basu@supritamone.com\n${'='.repeat(72)}\n\n${sectionsText}`;
+    const content = `ZEROWASTZ - BY SUPRITAMONE · DR. CHEF SUPRITAM BASU, PhD\nThe Zero Waste Kitchen Course: Master Diploma (26h 00m Curriculum)\nDocument: ${title}\nChapter: ${targetLecture.title} (${targetLecture.duration})\nQuality Standard: ISO 9001:2015 Verified Curriculum\nInstructor Support: supritam.basu@supritamone.com\n${'='.repeat(72)}\n\n${sectionsText}`;
     const safeFilename = filename.replace(/\.(pdf|xlsx)$/i, '.md');
     const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -1632,7 +1632,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 border-t border-slate-200 pt-2 font-mono">
                     <div className="flex items-center gap-2 min-w-0">
                       <SupritamoneLogo size="sm" showSubtitle={false} />
-                      <span className="truncate">· Dr. Chef Supritam Basu, PhD, CEC</span>
+                      <span className="truncate">· Dr. Chef Supritam Basu, PhD</span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {isPlaying && (
@@ -2440,16 +2440,13 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                   <div className="flex items-start gap-4">
                     <img
                       src="/assets/aistudio/Untitled_design_0fea8cc4.png"
-                      alt="Dr. Chef Supritam Basu, PhD, CEC"
+                      alt="Dr. Chef Supritam Basu, PhD"
                       className="w-16 h-16 rounded-full object-cover object-top border-2 border-[#166534] shadow-md shrink-0 bg-[#0b193d]"
                     />
                     <div className="space-y-1">
                       <h4 className="text-base font-bold text-[#166534] hover:underline cursor-pointer">
-                        Dr. Chef Supritam Basu, PhD, CEC
+                        Dr. Chef Supritam Basu, PhD
                       </h4>
-                      <p className="text-xs text-slate-600 font-medium">
-                        Executive Chef, Food Sustainability Author & Dean
-                      </p>
                       <div className="flex items-center gap-3 text-xs text-slate-500 pt-1">
                         <span className="flex items-center gap-1 font-semibold text-slate-800">
                           <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
@@ -2461,7 +2458,7 @@ export const SurplusCoursePlayer: React.FC<SurplusCoursePlayerProps> = ({
                     </div>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
-                    Dr. Chef Supritam Basu is an international culinary educator, author of the 252-issue series "The Zero Waste Kitchen", and Dean of Sustainable Gastronomy at Supritamone Academy, ISO 9001:2015 Quality Management certified.
+                    Dr. Chef Supritam Basu is an international culinary educator and creator of the 252-issue series "The Zero Waste Kitchen" at Zerowastz - By Supritamone, ISO 9001:2015 Quality Management certified.
                   </p>
                 </div>
               </div>

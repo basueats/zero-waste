@@ -40,7 +40,7 @@ export const SurplusQuickWinsView: React.FC<SurplusQuickWinsViewProps> = ({
               Start Here — Read First
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Written by Dr. Chef Supritam Basu, PhD, CEC · Founder & Dean, Supritamone Academy
+              Written by Dr. Chef Supritam Basu, PhD · Founder, Zerowastz - By Supritamone
             </p>
           </div>
 

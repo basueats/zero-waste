@@ -52,13 +52,13 @@ export const SurplusLibraryView: React.FC<SurplusLibraryViewProps> = ({ searchQu
   };
 
   const handleDownloadPdf = (title: string, content: string) => {
-    const text = `SUPRITAMONE ACADEMY - DR. CHEF SUPRITAM BASU, PhD, CEC
-Dean of Sustainable Gastronomy & Executive Culinary Science
+    const text = `ZEROWASTZ - BY SUPRITAMONE - DR. CHEF SUPRITAM BASU, PhD
+Sustainable Gastronomy & Culinary Science
 International Certified Diploma Curriculum (Level 7)
 Synthesized from 252 Issues of "The Zero Waste Kitchen"
 
 DOCUMENT: ${title.toUpperCase()}
-AUTHOR: Dr. Chef Supritam Basu, PhD, CEC
+AUTHOR: Dr. Chef Supritam Basu, PhD
 ACCREDITED CULINARY FORMULATION & MASS-BALANCE SPECIFICATION
 
 ================================================================================
@@ -332,7 +332,7 @@ Zerowastz - By Supritamone © ${new Date().getFullYear()} · Dr. Chef Supritam B
 
             {/* Chef Tip & Science */}
             <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 leading-relaxed space-y-1.5">
-              <p className="font-bold">Dr. Chef Supritam Basu's Executive Chef Pro Tip:</p>
+              <p className="font-bold">Dr. Chef Supritam Basu's Pro Tip:</p>
               <p>{selectedRecipe.chefTips}</p>
               {selectedRecipe.scientificNote && (
                 <p className="text-[11px] text-amber-800 font-mono pt-1.5 border-t border-amber-200">

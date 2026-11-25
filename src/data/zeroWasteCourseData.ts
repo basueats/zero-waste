@@ -41,7 +41,7 @@ export const initialCourseData: CourseOverview = {
             durationSeconds: 50,
             posterImage: '/assets/images/hero_sustainable_kitchen_1793976158274.jpg',
             instructor: 'Dr. Chef Supritam Basu',
-            instructorRole: 'Executive Chef & Culinary Sustainability Director',
+            instructorRole: 'Culinary Sustainability Director',
             videoType: 'masterclass',
             checkpoints: [
               {
@@ -179,7 +179,7 @@ export const initialCourseData: CourseOverview = {
             durationSeconds: 50,
             posterImage: '/assets/images/root_to_stem_prep_1793976158854.jpg',
             instructor: 'Dr. Chef Supritam Basu',
-            instructorRole: 'Executive Chef & Culinary Sustainability Director',
+            instructorRole: 'Culinary Sustainability Director',
             videoType: 'demonstration',
             checkpoints: [
               {
@@ -312,7 +312,7 @@ export const initialCourseData: CourseOverview = {
             durationSeconds: 50,
             posterImage: '/assets/images/bone_broth_pot_1793976160130.jpg',
             instructor: 'Dr. Chef Supritam Basu',
-            instructorRole: 'Executive Chef & Culinary Sustainability Director',
+            instructorRole: 'Culinary Sustainability Director',
             videoType: 'masterclass',
             checkpoints: [
               {
@@ -496,7 +496,7 @@ export const initialCourseData: CourseOverview = {
             durationSeconds: 50,
             posterImage: '/assets/images/fermentation_crock_station_1793976159601.jpg',
             instructor: 'Dr. Chef Supritam Basu',
-            instructorRole: 'Executive Chef & Culinary Sustainability Director',
+            instructorRole: 'Culinary Sustainability Director',
             videoType: 'demonstration',
             checkpoints: [
               {
@@ -622,7 +622,7 @@ export const initialCourseData: CourseOverview = {
             durationSeconds: 32,
             posterImage: '/assets/images/artisan_bread_ricotta_1793976160643.jpg',
             instructor: 'Dr. Chef Supritam Basu',
-            instructorRole: 'Executive Chef & Culinary Sustainability Director',
+            instructorRole: 'Culinary Sustainability Director',
             videoType: 'demonstration',
             checkpoints: [
               {

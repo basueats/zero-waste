@@ -23,27 +23,32 @@ interface SurplusCertificateModalProps {
   courseTitle?: string;
   completionDateDefault?: string;
   customCertId?: string;
+  isPreviewOnly?: boolean;
 }
+
+const getTodayFormatted = () =>
+  new Date().toLocaleDateString('en-US', {
+    month: '2-digit',
+    day: '2-digit',
+    year: 'numeric',
+  });
 
 export const SurplusCertificateModal: React.FC<SurplusCertificateModalProps> = ({
   isOpen,
   onClose,
   defaultLearnerName = 'Supritam Basu',
-  courseTitle: _courseTitle = 'The Food Waste & Culinary Foundation Course for chefs & Professionals',
+  courseTitle: _courseTitle = 'The Food Waste Course for chefs & Professionals',
   completionDateDefault,
   customCertId,
+  isPreviewOnly = false,
 }) => {
-  const formattedToday = completionDateDefault || new Date().toLocaleDateString('en-US', {
-    month: '2-digit',
-    day: '2-digit',
-    year: 'numeric',
-  });
+  const formattedToday = completionDateDefault || getTodayFormatted();
   const [learnerName, setLearnerName] = useState<string>(defaultLearnerName);
   const [completionDate, setCompletionDate] = useState<string>(formattedToday);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
   const [isGeneratingDownload, setIsGeneratingDownload] = useState<boolean>(false);
 
-  // Sync if defaultLearnerName or date changes (e.g. after user logs in or switches email)
+  // Sync learner name and fresh current date whenever modal opens or user changes
   useEffect(() => {
     if (defaultLearnerName) {
       setLearnerName(defaultLearnerName);
@@ -51,17 +56,18 @@ export const SurplusCertificateModal: React.FC<SurplusCertificateModalProps> = (
   }, [defaultLearnerName]);
 
   useEffect(() => {
-    if (completionDateDefault) {
-      setCompletionDate(completionDateDefault);
+    if (isOpen) {
+      setCompletionDate(completionDateDefault || getTodayFormatted());
     }
-  }, [completionDateDefault]);
+  }, [isOpen, completionDateDefault]);
 
   const certCode = customCertId || 'SUPRITAMONE-2026-ZW26H';
   const verificationUrl = `${typeof window !== 'undefined' ? window.location.origin : 'https://supritamone.com'}/verify/${certCode}`;
 
-  // Image source: Exact certificate template uploaded by user
-  const certificateTemplateSrc = '/assets/images/certificate_official_template.png';
-  const certificateFallbackSrc = '/assets/aistudio/White_and_Gold_Simple_Elegant_Appreciation_Certificate_1d955b21.png';
+  // Exact reference certificate template uploaded by the owner (2000 x 1414)
+  const certificateTemplateSrc =
+    '/assets/aistudio/White_and_Gold_Simple_Elegant_Appreciation_Certificate__1__7c5a1863.png';
+  const certificateFallbackSrc = '/assets/images/certificate_official_template.png';
 
   if (!isOpen) return null;
 
@@ -103,46 +109,35 @@ export const SurplusCertificateModal: React.FC<SurplusCertificateModalProps> = (
         };
       });
 
-      // 1. Draw entire base template (Zero Waste, borders, logos, signature, all text)
+      // 1. Draw exact approved clean base template (Zero Wastz, gold lines, logos, signature)
       ctx.drawImage(img, 0, 0, 2000, 1414);
 
-      // 2. Cover the original Name area with clean pure white patch
-      // Coordinates in 2000x1414: center X = 1000, Y = 660 to 750
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(450, 650, 1100, 102);
-
-      // 3. Draw clean gold underline underneath the recipient name
-      ctx.fillStyle = '#c5a059';
-      ctx.fillRect(550, 755, 900, 3);
-
-      // 4. Draw Dynamic Learner's Name (centered at X=1000, Y=705)
+      // 2. Draw Dynamic Learner's Name directly above the center gold line (x: 556..1442, y: 761)
+      const displayName = (learnerName || 'Supritam Basu').trim();
       ctx.fillStyle = '#1e242b';
       ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = 'bold 56px "Times New Roman", Georgia, serif';
-      ctx.fillText(learnerName || 'Supritam Basu', 1000, 705);
+      ctx.textBaseline = 'bottom';
+      let nameFontSize = 60;
+      ctx.font = `bold ${nameFontSize}px "Times New Roman", Georgia, serif`;
+      while (ctx.measureText(displayName).width > 860 && nameFontSize > 30) {
+        nameFontSize -= 2;
+        ctx.font = `bold ${nameFontSize}px "Times New Roman", Georgia, serif`;
+      }
+      ctx.fillText(displayName, 1000, 742);
 
-      // 5. Cover the original Date text with clean pure white patch
-      // Coordinates: X = 360 to 700, Y = 985 to 1040
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(360, 985, 340, 56);
-
-      // 6. Draw clean gold line under date
-      ctx.fillStyle = '#c5a059';
-      ctx.fillRect(380, 1045, 300, 2);
-
-      // 7. Draw Dynamic Completion Date
+      // 3. Draw Dynamic Current Completion Date directly above the bottom-left gold line (x: 385..726, center: 556, y: 1042)
+      const displayDate = (completionDate || getTodayFormatted()).trim();
       ctx.fillStyle = '#1e242b';
       ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      ctx.textBaseline = 'bottom';
       ctx.font = '600 28px Arial, Helvetica, sans-serif';
-      ctx.fillText(completionDate || formattedToday, 530, 1018);
+      ctx.fillText(displayDate, 556, 1028);
 
-      // 8. Trigger PNG Download
+      // 4. Trigger PNG Download
       const dataUrl = canvas.toDataURL('image/png', 1.0);
       const link = document.createElement('a');
-      const safeName = (learnerName || 'Supritam_Basu').replace(/[^a-zA-Z0-9]/g, '_');
-      link.download = `Certificate_${safeName}_Zero_Waste.png`;
+      const safeName = displayName.replace(/[^a-zA-Z0-9]/g, '_');
+      link.download = `Certificate_${safeName}_Zero_Wastz.png`;
       link.href = dataUrl;
       document.body.appendChild(link);
       link.click();
@@ -166,7 +161,7 @@ export const SurplusCertificateModal: React.FC<SurplusCertificateModalProps> = (
             </div>
             <div>
               <h3 className="font-bold text-sm sm:text-base leading-tight">
-                Official Zero Waste Certificate of Completion
+                Official Zero Wastz Certificate of Completion
               </h3>
               <p className="text-[11px] text-slate-400">
                 Zerowastz - By Supritamone · 26.0 Hours ISO 9001:2015 Certified Mastery Curriculum
@@ -176,31 +171,39 @@ export const SurplusCertificateModal: React.FC<SurplusCertificateModalProps> = (
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2 self-end sm:self-auto">
-            <button
-              onClick={handleDownloadHighResPng}
-              disabled={isGeneratingDownload}
-              className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold text-xs rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            >
-              {isGeneratingDownload ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Exporting...</span>
-                </>
-              ) : (
-                <>
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download Official PNG (2000px)</span>
-                </>
-              )}
-            </button>
+            {isPreviewOnly ? (
+              <span className="px-3 py-1.5 bg-amber-500/20 text-amber-300 text-xs font-bold rounded-lg border border-amber-400/30">
+                Sample Preview · Pass ≥ 37% Exams to Download
+              </span>
+            ) : (
+              <>
+                <button
+                  onClick={handleDownloadHighResPng}
+                  disabled={isGeneratingDownload}
+                  className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold text-xs rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isGeneratingDownload ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Exporting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Official PNG (2000px)</span>
+                    </>
+                  )}
+                </button>
 
-            <button
-              onClick={handlePrint}
-              className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-lg border border-white/20 transition-colors flex items-center gap-1.5 cursor-pointer"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Print / PDF</span>
-            </button>
+                <button
+                  onClick={handlePrint}
+                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-lg border border-white/20 transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Print / PDF</span>
+                </button>
+              </>
+            )}
 
             <button
               onClick={onClose}
@@ -267,43 +270,40 @@ export const SurplusCertificateModal: React.FC<SurplusCertificateModalProps> = (
         <div className="p-3 sm:p-6 overflow-y-auto flex-1 bg-slate-100/70 flex items-center justify-center print:p-0 print:bg-white">
           <div className="relative w-full max-w-4xl aspect-[2000/1414] bg-white rounded-lg shadow-xl overflow-hidden border border-slate-300 print:shadow-none print:border-none print:rounded-none select-none">
             
-            {/* 1. EXACT UPLOADED BASE CERTIFICATE IMAGE */}
+            {/* 1. EXACT APPROVED CLEAN CERTIFICATE TEMPLATE */}
             <img
               src={certificateTemplateSrc}
               onError={(e) => {
                 (e.currentTarget as HTMLImageElement).src = certificateFallbackSrc;
               }}
-              alt="Official Zero Waste Certificate of Completion"
+              alt="Official Zero Wastz Certificate of Completion"
               className="w-full h-full object-contain pointer-events-none"
             />
 
-            {/* 2. DYNAMIC NAME OVERLAY (Pure white patch over original name + dynamic user name + gold underline) */}
-            <div 
-              className="absolute left-[20%] right-[20%] top-[45.8%] h-[7.5%] flex flex-col items-center justify-center bg-white z-10"
-              style={{ paddingBottom: '2px' }}
+            {/* 2. DYNAMIC NAME OVERLAY (Directly above the template's gold line at y=53.8%) */}
+            <div
+              className="absolute left-[27.5%] right-[27.5%] top-[44.2%] h-[8.6%] flex items-end justify-center pb-[0.3%] z-10 pointer-events-none"
             >
-              <div 
-                className="w-full text-center font-bold text-[#1e242b] leading-none tracking-wide"
+              <div
+                className="w-full text-center font-bold text-[#1e242b] leading-none tracking-wide truncate px-2"
                 style={{
                   fontFamily: '"Times New Roman", Georgia, serif',
-                  fontSize: 'clamp(1.2rem, 3.2vw, 2.75rem)'
+                  fontSize: 'clamp(1.1rem, 3vw, 2.7rem)',
                 }}
               >
                 {learnerName || 'Supritam Basu'}
               </div>
-              {/* Subtle elegant gold line */}
-              <div className="w-4/5 h-[2px] bg-[#c5a059] mt-1.5 opacity-90" />
             </div>
 
-            {/* 3. DYNAMIC DATE OVERLAY (Pure white patch over original date text + dynamic date) */}
-            <div 
-              className="absolute left-[17%] w-[18%] top-[69.5%] h-[4.2%] flex items-center justify-center bg-white z-10"
+            {/* 3. DYNAMIC CURRENT DATE OVERLAY (Centered directly above the template's Date gold line x=19.25%..36.3%, y=73.7%) */}
+            <div
+              className="absolute left-[19.25%] w-[17.05%] top-[68.4%] h-[4.6%] flex items-end justify-center pb-[0.2%] z-10 pointer-events-none"
             >
-              <div 
-                className="font-bold text-[#1e242b] tracking-wider text-center"
+              <div
+                className="font-semibold text-[#1e242b] tracking-wider text-center leading-none"
                 style={{
                   fontFamily: 'Arial, Helvetica, sans-serif',
-                  fontSize: 'clamp(0.65rem, 1.4vw, 1.15rem)'
+                  fontSize: 'clamp(0.6rem, 1.35vw, 1.1rem)',
                 }}
               >
                 {completionDate || formattedToday}
@@ -322,13 +322,15 @@ export const SurplusCertificateModal: React.FC<SurplusCertificateModalProps> = (
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleDownloadHighResPng}
-              className="px-3.5 py-1 text-xs font-bold text-slate-800 hover:text-black bg-white hover:bg-slate-100 rounded border border-slate-300 transition-colors cursor-pointer flex items-center gap-1"
-            >
-              <Download className="w-3 h-3" />
-              <span>Save PNG</span>
-            </button>
+            {!isPreviewOnly && (
+              <button
+                onClick={handleDownloadHighResPng}
+                className="px-3.5 py-1 text-xs font-bold text-slate-800 hover:text-black bg-white hover:bg-slate-100 rounded border border-slate-300 transition-colors cursor-pointer flex items-center gap-1"
+              >
+                <Download className="w-3 h-3" />
+                <span>Save PNG</span>
+              </button>
+            )}
             <button
               onClick={onClose}
               className="px-4 py-1 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded transition-colors cursor-pointer"

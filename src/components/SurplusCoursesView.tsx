@@ -59,7 +59,7 @@ export const SurplusCoursesView: React.FC<SurplusCoursesViewProps> = ({
             Zero Waste Kitchen Courses &amp; Modules
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Complete food waste prevention curriculum synthesized from 252 issues of &ldquo;The Zero Waste Kitchen&rdquo; by Dr. Chef Supritam Basu, PhD, CEC.
+            Complete food waste prevention curriculum synthesized from 252 issues of &ldquo;The Zero Waste Kitchen&rdquo; by Dr. Chef Supritam Basu, PhD.
           </p>
         </div>
       </div>

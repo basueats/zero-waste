@@ -1229,7 +1229,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                 cost efficiency, and better utilisation of trimmings and food waste.&rdquo;
               </p>
               <p className="text-[11px] font-semibold text-neutral-500 pt-2 border-t border-neutral-100">
-                — Executive Chef, 5-star resort
+                — Head Chef, 5-star resort
               </p>
             </div>
 
@@ -1259,7 +1259,7 @@ export const SurplusHomeView: React.FC<SurplusHomeViewProps> = ({
                 Recipes and posters are now being used in our kitchen&rdquo;
               </p>
               <p className="text-[11px] font-semibold text-neutral-500 pt-2 border-t border-neutral-100">
-                — Executive Chef, 5-star hotel
+                — Head Chef, 5-star hotel
               </p>
             </div>
           </div>
